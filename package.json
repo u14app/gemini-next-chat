@@ -63,6 +63,7 @@
     "react-hook-form": "^7.53.1",
     "react-i18next": "^14.1.2",
     "react-use-pwa-install": "^1.0.1",
+    "scrape-youtube": "^2.4.0",
     "serwist": "^9.0.10",
     "simple-xml-to-json": "^1.2.3",
     "siriwave": "^2.4.0",
