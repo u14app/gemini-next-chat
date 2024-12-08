@@ -8,12 +8,14 @@ export const Model: Record<string, string> = {
   'Gemini 1.5 Flash-8B Latest': 'gemini-1.5-flash-8b-latest',
   'Gemini 1.0 Pro Vision': 'gemini-1.0-pro-vision',
   'Gemini 1.0 Pro Vision Latest': 'gemini-1.0-pro-vision-latest',
+  'Gemini 1.0 Pro 001': 'gemini-1.0-pro-001', // Añadido
+  'Gemini 1.0 Pro 002': 'gemini-1.0-pro-002', // Añadido
   'Gemini 1.0 Pro': 'gemini-1.0-pro',
   'Gemini 1.0 Pro Latest': 'gemini-1.0-pro-latest',
   'Gemini Pro Vision': 'gemini-pro-vision',
   'Gemini Pro': 'gemini-pro',
 }
 
-export const OldVisionModel = ['gemini-pro-vision', 'gemini-1.0-pro-vision-latest']
+export const OldVisionModel = ['gemini-pro-vision', 'gemini-1.0-pro-vision-latest', 'gemini-1.0-pro-vision'] // Se añadió 'gemini-1.0-pro-vision'
 
-export const OldTextModel = ['gemini-1.0-pro', 'gemini-1.0-pro-latest', 'gemini-pro']
+export const OldTextModel = ['gemini-1.0-pro', 'gemini-1.0-pro-latest', 'gemini-pro', 'gemini-1.0-pro-001', 'gemini-1.0-pro-002'] // Se añadieron 'gemini-1.0-pro-001' y 'gemini-1.0-pro-002'
