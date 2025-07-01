@@ -9,9 +9,9 @@ class AssistantMarketUrl {
     return this.baseUrl + '/index.' + lang + '.json'
   }
   getAssistantUrl(identifier: string, lang: string = 'en-US') {
-    if (lang === 'en-US') return this.baseUrl + '/' + identifier + '/index.json'
-    if (lang === 'ar-SA') return this.baseUrl + '/' + identifier + '/index.ar.json'
-    return this.baseUrl + '/' + identifier + '/index.' + lang + '.json'
+    if (lang === 'en-US') return this.baseUrl + '/' + identifier + '.json'
+    if (lang === 'ar-SA') return this.baseUrl + '/' + identifier + '.ar.json'
+    return this.baseUrl + '/' + identifier + '.' + lang + '.json'
   }
 }
 
