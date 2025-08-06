@@ -1,28 +1,72 @@
 import { NextResponse, type NextRequest } from 'next/server'
+import { GEMINI_API_BASE_URL } from '@/constant/urls'
 import { handleError } from '../utils'
-import { ErrorType } from '@/constant/errors'
-import { getRandomKey } from '@/utils/common'
-
-const geminiApiKey = process.env.GEMINI_API_KEY as string
-const geminiApiBaseUrl = process.env.GEMINI_API_BASE_URL as string
-const mode = process.env.NEXT_PUBLIC_BUILD_MODE
+import { hasUploadFiles, getRandomKey } from '@/utils/common'
+import { ModelProviders } from '@/constant/model'
 
 export const runtime = 'edge'
 export const preferredRegion = ['cle1', 'iad1', 'pdx1', 'sfo1', 'sin1', 'syd1', 'hnd1', 'kix1']
 
-export async function GET(req: NextRequest) {
-  if (mode === 'export') return new NextResponse('Not available under static deployment')
+const geminiApiKey = process.env.GEMINI_API_KEY as string
+const geminiApiBaseUrl = process.env.GEMINI_API_BASE_URL as string
 
-  if (!geminiApiKey) {
-    return NextResponse.json({ code: 50001, message: ErrorType.NoGeminiKey }, { status: 500 })
-  }
+export async function POST(req: NextRequest) {
+  const searchParams = req.nextUrl.searchParams
+  const body = await req.json()
+  const model = searchParams.get('model')!
+  const provider = ModelProviders[model] || 'google'
 
   try {
-    const apiKey = getRandomKey(geminiApiKey)
-    const apiBaseUrl = geminiApiBaseUrl || 'https://generativelanguage.googleapis.com'
-    const response = await fetch(`${apiBaseUrl}/v1beta/models?key=${apiKey}`, { next: { revalidate: 60 } })
-    const result = await response.json()
-    return NextResponse.json(result)
+    // Route to appropriate provider API
+    if (provider === 'openai') {
+      // Forward to OpenAI API route
+      const url = new URL('/api/openai', req.url)
+      url.searchParams.set('model', model)
+      
+      return fetch(url.toString(), {
+        method: 'POST',
+        headers: req.headers,
+        body: JSON.stringify(body),
+      })
+    } else if (provider === 'anthropic') {
+      // Forward to Anthropic API route
+      const url = new URL('/api/anthropic', req.url)
+      url.searchParams.set('model', model)
+      
+      return fetch(url.toString(), {
+        method: 'POST',
+        headers: req.headers,
+        body: JSON.stringify(body),
+      })
+    } else if (provider === 'xai') {
+      // Forward to xAI API route
+      const url = new URL('/api/xai', req.url)
+      url.searchParams.set('model', model)
+      
+      return fetch(url.toString(), {
+        method: 'POST',
+        headers: req.headers,
+        body: JSON.stringify(body),
+      })
+    } else {
+      // Default to Google Gemini
+      const version = 'v1beta'
+      const apiKey = getRandomKey(geminiApiKey, hasUploadFiles(body.contents))
+      
+      let url = `${geminiApiBaseUrl || GEMINI_API_BASE_URL}/${version}/models/${model}`
+      if (!model.startsWith('imagen')) url += '?alt=sse'
+      
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': req.headers.get('Content-Type') || 'application/json',
+          'x-goog-api-client': req.headers.get('x-goog-api-client') || 'genai-js/0.21.0',
+          'x-goog-api-key': apiKey,
+        },
+        body: JSON.stringify(body),
+      })
+      return new NextResponse(response.body, response)
+    }
   } catch (error) {
     if (error instanceof Error) {
       return handleError(error.message)
