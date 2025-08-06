@@ -16,7 +16,13 @@ interface EnvStore {
   uploadLimit: number
   buildMode: string
   isProtected: boolean
-  update: (values: Record<string, string | number | boolean>) => void
+  providers?: {
+    google: boolean
+    openai: boolean
+    anthropic: boolean
+    xai: boolean
+  }
+  update: (values: Record<string, any>) => void
 }
 
 const defaultSetting: DefaultSetting = {
