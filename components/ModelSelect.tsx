@@ -4,7 +4,7 @@ import { useSettingStore, useEnvStore } from '@/store/setting'
 import { useModelStore } from '@/store/model'
 import { fetchModels } from '@/utils/models'
 import { getRandomKey } from '@/utils/common'
-import { Model } from '@/constant/model'
+import { Model, ModelProviders } from '@/constant/model'
 import { values, keys, find } from 'lodash-es'
 
 type Props = {
@@ -21,7 +21,7 @@ function filterModel(models: Model[] = []) {
 function ModelSelect({ className, defaultModel }: Props) {
   const { models } = useModelStore()
   const { update } = useSettingStore()
-  const { modelList: MODEL_LIST, isProtected } = useEnvStore()
+  const { modelList: MODEL_LIST, isProtected, providers } = useEnvStore()
 
   const modelOptions = useMemo(() => {
     if (models.length > 0) {
@@ -35,7 +35,19 @@ function ModelSelect({ className, defaultModel }: Props) {
     }
 
     let modelList: string[] = []
-    const defaultModelList: string[] = keys(Model)
+    let defaultModelList: string[] = keys(Model)
+    
+    // Filter models based on available providers
+    if (providers) {
+      defaultModelList = defaultModelList.filter((modelName) => {
+        const provider = ModelProviders[modelName]
+        if (!provider) return true // Keep models without provider mapping (backward compatibility)
+        
+        // Only show models for providers that have API keys configured
+        return providers[provider as keyof typeof providers]
+      })
+    }
+    
     const userModels: string[] = MODEL_LIST ? MODEL_LIST.split(',') : []
 
     userModels.forEach((modelName) => {
@@ -56,7 +68,7 @@ function ModelSelect({ className, defaultModel }: Props) {
     })
 
     return modelList.length > 0 ? modelList : defaultModelList
-  }, [models, MODEL_LIST])
+  }, [models, MODEL_LIST, providers])
 
   const handleModelChange = useCallback(
     (name: string) => {
@@ -109,9 +121,13 @@ function ModelSelect({ className, defaultModel }: Props) {
       </SelectTrigger>
       <SelectContent>
         {modelOptions.map((name) => {
+          const displayName = Model[name] || name
+          const provider = ModelProviders[name]
+          const providerLabel = provider ? ` (${provider.toUpperCase()})` : ''
+          
           return (
             <SelectItem key={name} value={name}>
-              {name}
+              {displayName}{providerLabel}
             </SelectItem>
           )
         })}
