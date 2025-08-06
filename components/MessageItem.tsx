@@ -1,12 +1,10 @@
 'use client'
-import { useEffect, useState, useCallback, useMemo, memo } from 'react'
+import dynamic from 'next/dynamic'
+import { useEffect, useState, useCallback, useRef, useMemo, memo } from 'react'
+import type { InlineDataPart } from '@xiangfa/generative-ai'
 import { useTranslation } from 'react-i18next'
 import Lightbox from 'yet-another-react-lightbox'
 import LightboxFullscreen from 'yet-another-react-lightbox/plugins/fullscreen'
-import MarkdownIt from 'markdown-it'
-import markdownHighlight from 'markdown-it-highlightjs'
-import markdownKatex from '@traptitech/markdown-it-katex'
-import Clipboard from 'clipboard'
 import {
   User,
   Bot,
@@ -22,6 +20,8 @@ import {
   Blocks,
 } from 'lucide-react'
 import { EdgeSpeech } from '@xiangfa/polly'
+import copy from 'copy-to-clipboard'
+import { convert } from 'html-to-text'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion'
 import BubblesLoading from '@/components/BubblesLoading'
@@ -33,42 +33,24 @@ import Button from '@/components/Button'
 import Weather, { type WeatherResult } from '@/components/plugins/Weather'
 import Unsplash from '@/components/plugins/Unsplash'
 import Arxiv from '@/components/plugins/Arxiv'
+import Imagen from '@/components/plugins/Imagen'
 import { useMessageStore } from '@/store/chat'
 import { useSettingStore } from '@/store/setting'
 import { usePluginStore } from '@/store/plugin'
 import AudioStream from '@/utils/AudioStream'
 import { sentenceSegmentation } from '@/utils/common'
+import type { ImageGenerationResponse } from '@/utils/generateImages'
 import { cn } from '@/utils'
 import { OFFICAL_PLUGINS } from '@/plugins'
-import { upperFirst, isFunction, find, findLastIndex, isUndefined } from 'lodash-es'
+import { isFunction, find, findLastIndex, isUndefined } from 'lodash-es'
 
 import 'katex/dist/katex.min.css'
-import 'highlight.js/styles/a11y-light.css'
 import 'yet-another-react-lightbox/styles.css'
+
+const Magicdown = dynamic(() => import('@/components/Magicdown'))
 
 interface Props extends Message {
   onRegenerate?: (id: string) => void
-}
-
-const registerCopy = (className: string) => {
-  const clipboard = new Clipboard(className, {
-    text: (trigger) => {
-      return decodeURIComponent(trigger.getAttribute('data-clipboard-text') || '')
-    },
-  })
-  return clipboard
-}
-
-function filterMarkdown(text: string): string {
-  const md = new MarkdownIt()
-  // Convert Markdown to HTML using markdown-it
-  const html = md.render(text)
-  // Convert HTML to DOM objects using DOMParser
-  const parser = new DOMParser()
-  const doc = parser.parseFromString(html, 'text/html')
-  // Get filtered text content
-  const filteredText = doc.body.textContent || ''
-  return filteredText
 }
 
 function mergeSentences(sentences: string[], sentenceLength = 20): string[] {
@@ -91,44 +73,45 @@ function mergeSentences(sentences: string[], sentenceLength = 20): string[] {
 }
 
 function MessageItem(props: Props) {
-  const { id, role, parts, attachments, onRegenerate } = props
+  const { id, role, parts, attachments, groundingMetadata, onRegenerate } = props
   const { t } = useTranslation()
+  const contentRef = useRef<HTMLDivElement>(null)
   const [html, setHtml] = useState<string>('')
   const [thoughtsHtml, setThoughtsHtml] = useState<string>('')
   const chatLayout = useMessageStore((state) => state.chatLayout)
-  const [hasTextContent, setHasTextContent] = useState<boolean>(false)
   const [isEditing, setIsEditing] = useState<boolean>(false)
   const [isCopyed, setIsCopyed] = useState<boolean>(false)
   const [showLightbox, setShowLightbox] = useState<boolean>(false)
   const [lightboxIndex, setLightboxIndex] = useState<number>(0)
   const fileList = useMemo(() => {
-    return attachments ? attachments.filter((item) => !item.metadata?.mimeType.startsWith('image/')) : []
+    return attachments ? attachments.filter((item) => !item.mimeType.startsWith('image/')) : []
   }, [attachments])
-  const inlineImageList = useMemo(() => {
-    const imageList: string[] = []
+  const imageList = useMemo(() => {
+    const images: string[] = []
     parts.forEach(async (part) => {
-      if (part.inlineData?.mimeType.startsWith('image/')) {
-        imageList.push(`data:${part.inlineData.mimeType};base64,${part.inlineData.data}`)
-      } else if (part.fileData && attachments) {
+      if (part.fileData && attachments) {
         for (const attachment of attachments) {
           if (attachment.metadata?.uri === part.fileData.fileUri) {
-            if (part.fileData?.mimeType.startsWith('image/') && attachment.preview) {
-              imageList.push(attachment.preview)
+            if (part.fileData?.mimeType.startsWith('image/')) {
+              if (attachment.dataUrl) images.push(attachment.dataUrl)
+              if (attachment.preview) images.push(attachment.preview)
             }
           }
         }
+      } else if (role !== 'model' && part.inlineData?.mimeType.startsWith('image/')) {
+        images.push(`data:${part.inlineData.mimeType};base64,${part.inlineData.data}`)
       }
     })
-    return imageList
-  }, [parts, attachments])
-  const inlineAudioList = useMemo(() => {
-    const audioList: string[] = []
+    return images
+  }, [role, parts, attachments])
+  const audioList = useMemo(() => {
+    const audios: string[] = []
     parts.forEach(async (part) => {
       if (part.inlineData?.mimeType.startsWith('audio/')) {
-        audioList.push(`data:${part.inlineData.mimeType};base64,${part.inlineData.data}`)
+        audios.push(`data:${part.inlineData.mimeType};base64,${part.inlineData.data}`)
       }
     })
-    return audioList
+    return audios
   }, [parts])
   const content = useMemo(() => {
     let text = ''
@@ -170,14 +153,21 @@ function MessageItem(props: Props) {
 
   const handleCopy = useCallback(() => {
     setIsCopyed(true)
+    copy(content)
     setTimeout(() => {
       setIsCopyed(false)
-    }, 2000)
-  }, [])
+    }, 1200)
+  }, [content])
 
-  const handleSpeak = useCallback(async (content: string) => {
+  const handleSpeak = useCallback(async () => {
+    if (!contentRef.current) return false
+
     const { lang, ttsLang, ttsVoice } = useSettingStore.getState()
-    const sentences = mergeSentences(sentenceSegmentation(filterMarkdown(content), lang), 100)
+    const content = convert(contentRef.current.innerHTML, {
+      wordwrap: false,
+      selectors: [{ selector: 'ul', options: { itemPrefix: '  ' } }],
+    })
+    const sentences = mergeSentences(sentenceSegmentation(content, lang), 100)
     const edgeSpeech = new EdgeSpeech({ locale: ttsLang })
     const audioStream = new AudioStream()
 
@@ -197,89 +187,6 @@ function MessageItem(props: Props) {
     setLightboxIndex(index)
     setShowLightbox(true)
   }, [])
-
-  const render = useCallback(
-    (content: string) => {
-      const md: MarkdownIt = MarkdownIt({
-        linkify: true,
-        breaks: true,
-      })
-        .use(markdownHighlight)
-        .use(markdownKatex)
-
-      // Save the original text rule
-      const defaultTextRules = md.renderer.rules.text!
-
-      // Rewrite the `strong` rule to adapt to Gemini generation grammar
-      md.renderer.rules.text = (tokens, idx, options, env, self) => {
-        const token = tokens[idx]
-        const content = token.content
-
-        // Check whether it conforms to the `strong` format
-        const match = content.match(/^\*\*(.+?)\*\*(.+)/)
-        if (match) {
-          return `<b>${match[1]}</b>${match[2]}`
-        }
-
-        // If the format is not met, the original `strong` rule is called
-        return defaultTextRules(tokens, idx, options, env, self)
-      }
-
-      md.renderer.rules.table_open = function (tokens, idx, options) {
-        return `<div style="overflow-x:auto;"><table>`
-      }
-
-      md.renderer.rules.table_close = function (tokens, idx, options) {
-        return '</table></div>'
-      }
-
-      const mathLineRender = md.renderer.rules.math_inline!
-      md.renderer.rules.math_inline = (...params) => {
-        const [tokens, idx] = params
-        const token = tokens[idx]
-        return `
-          <div class="katex-inline-warpper">
-            <span class="copy copy-katex-inline" data-clipboard-text="${encodeURIComponent(token.content)}">${t(
-              'copy',
-            )}</span>
-            ${mathLineRender(...params)}
-          </div>
-        `
-      }
-      const mathBlockRender = md.renderer.rules.math_block!
-      md.renderer.rules.math_block = (...params) => {
-        const [tokens, idx] = params
-        const token = tokens[idx]
-        return `
-          <div class="katex-block-warpper">
-            <span class="copy copy-katex-block" data-clipboard-text="${encodeURIComponent(token.content)}">${t(
-              'copy',
-            )}</span>
-            ${mathBlockRender(...params)}
-          </div>
-        `
-      }
-      const highlightRender = md.renderer.rules.fence!
-      md.renderer.rules.fence = (...params) => {
-        const [tokens, idx] = params
-        const token = tokens[idx]
-        const lang = token.info.trim()
-        return `
-          <div class="hljs-warpper">
-            <div class="info">
-              <span class="lang">${upperFirst(lang)}</span>
-              <span class="copy copy-code" data-clipboard-text="${encodeURIComponent(token.content)}">${t(
-                'copy',
-              )}</span>
-            </div>
-            ${highlightRender(...params)}
-          </div>
-        `
-      }
-      return md.render(content)
-    },
-    [t],
-  )
 
   const MessageAvatar = () => {
     if (role === 'user') {
@@ -311,7 +218,7 @@ function MessageItem(props: Props) {
   }
 
   const MessageContent = () => {
-    if (role === 'model' && parts && parts[0].text === '') {
+    if (role === 'model' && parts && parts[0]?.text === '') {
       return <BubblesLoading />
     } else if (role === 'function' && parts && parts[0].functionResponse) {
       const pluginsDetail: {
@@ -344,6 +251,9 @@ function MessageItem(props: Props) {
             {detail.id === OFFICAL_PLUGINS.UNSPLASH ? (
               <Unsplash data={detail.response.content as UnsplashImage[]} />
             ) : null}
+            {detail.id === OFFICAL_PLUGINS.IMAGEN ? (
+              <Imagen data={(detail.response.content as ImageGenerationResponse)?.images} />
+            ) : null}
             {detail.id === OFFICAL_PLUGINS.ARXIV ? (
               <Arxiv data={(detail.response.content as ArxivResult)?.data} />
             ) : null}
@@ -367,16 +277,16 @@ function MessageItem(props: Props) {
               <FileList fileList={fileList} />
             </div>
           ) : null}
-          {inlineAudioList.length > 0 ? (
+          {audioList.length > 0 ? (
             <div className="not:last:border-dashed not:last:border-b flex w-full flex-wrap pb-2">
-              {inlineAudioList.map((audio, idx) => {
+              {audioList.map((audio, idx) => {
                 return <AudioPlayer key={idx} className="mb-2" src={audio} />
               })}
             </div>
           ) : null}
-          {inlineImageList.length > 0 ? (
+          {imageList.length > 0 ? (
             <div className="flex flex-wrap gap-2 pb-2">
-              {inlineImageList.map((image, idx) => {
+              {imageList.map((image, idx) => {
                 return (
                   <div key={idx} className="group/image relative cursor-pointer" onClick={() => openLightbox(idx)}>
                     {
@@ -405,21 +315,46 @@ function MessageItem(props: Props) {
                       </span>
                     </AccordionTrigger>
                     <AccordionContent>
-                      <div
-                        className="prose chat-content break-words"
-                        dangerouslySetInnerHTML={{ __html: thoughtsHtml }}
-                      ></div>
+                      <Magicdown>{thoughtsHtml}</Magicdown>
                     </AccordionContent>
                   </AccordionItem>
                 </Accordion>
               ) : null}
-              <div
-                className="prose chat-content break-words text-base leading-8"
-                dangerouslySetInnerHTML={{ __html: html }}
-              ></div>
+              <div ref={contentRef}>
+                <Magicdown>{html}</Magicdown>
+              </div>
+              {groundingMetadata ? (
+                <>
+                  {groundingMetadata.groundingChunks?.length > 0 ? (
+                    <>
+                      <hr className="my-4" />
+                      <ul className="inline-flex flex-wrap gap-2">
+                        {groundingMetadata.groundingChunks?.map((item, idx) => {
+                          return (
+                            <li className="rounded-full border bg-gray-50 px-4 py-1 dark:bg-gray-950" key={idx}>
+                              <a href={item.web?.uri} target="_blank">
+                                {item.web?.title}
+                              </a>
+                            </li>
+                          )
+                        })}
+                      </ul>
+                    </>
+                  ) : null}
+                  <div
+                    className="mx-0.5 my-2"
+                    dangerouslySetInnerHTML={{
+                      __html:
+                        groundingMetadata.searchEntryPoint?.renderedContent
+                          ?.replace('margin: 0 8px', 'margin: 0 4px')
+                          .replaceAll('<a', '<a target="_blank"') || '',
+                    }}
+                  ></div>
+                </>
+              ) : null}
               <div
                 className={cn(
-                  'flex gap-1 text-right opacity-0 transition-opacity duration-300 group-hover:opacity-100',
+                  'flex gap-1 text-right opacity-0 transition-opacity duration-300 group-hover:opacity-100 max-md:opacity-30',
                   role === 'user' && chatLayout === 'chat' ? 'justify-start' : 'justify-end',
                 )}
               >
@@ -434,17 +369,13 @@ function MessageItem(props: Props) {
                     <IconButton title={t('edit')} onClick={() => setIsEditing(true)}>
                       <PencilLine className="h-4 w-4" />
                     </IconButton>
+                    <IconButton title={t('copy')} onClick={() => handleCopy()}>
+                      {isCopyed ? <CopyCheck className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                    </IconButton>
                     <IconButton title={t('delete')} onClick={() => handleDelete(id)}>
                       <Eraser className="h-4 w-4" />
                     </IconButton>
-                  </>
-                ) : null}
-                {hasTextContent ? (
-                  <>
-                    <IconButton title={t('copy')} className={`copy-${id}`} onClick={() => handleCopy()}>
-                      {isCopyed ? <CopyCheck className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
-                    </IconButton>
-                    <IconButton title={t('speak')} onClick={() => handleSpeak(content)}>
+                    <IconButton title={t('speak')} onClick={() => handleSpeak()}>
                       <Volume2 className="h-4 w-4" />
                     </IconButton>
                   </>
@@ -468,38 +399,35 @@ function MessageItem(props: Props) {
     const textParts = parts.filter((item) => !isUndefined(item.text))
     if (role === 'model' && textParts.length === 2) {
       if (textParts[0].text) {
-        setThoughtsHtml(render(textParts[0].text))
+        setThoughtsHtml(textParts[0].text)
       }
       if (textParts[1].text) {
-        setHasTextContent(true)
-        setHtml(render(textParts[1].text))
+        setHtml(textParts[1].text)
       }
     } else {
       const messageParts: string[] = []
       parts.forEach(async (part) => {
         if (part.text) {
-          messageParts.push(render(part.text))
-          setHasTextContent(true)
+          messageParts.push(part.text)
         }
       })
-      setHtml(messageParts.join(''))
+      let content = messageParts.join('')
+      if (role === 'model') {
+        const inlineImageList: InlineDataPart['inlineData'][] = []
+        parts.forEach((item) => {
+          if (item.inlineData?.mimeType.startsWith('image/')) {
+            inlineImageList.push(item.inlineData)
+          }
+        })
+        content +=
+          '\n\n' +
+          inlineImageList
+            .map((item, idx) => `[image-${idx}]: <${`data:${item.mimeType};base64,${item.data}`}>`)
+            .join('\n')
+      }
+      setHtml(content)
     }
-    const copyKatexInline = registerCopy('.copy-katex-inline')
-    const copyKatexBlock = registerCopy('.copy-katex-block')
-    const copyCode = registerCopy('.copy-code')
-
-    const copyContent = new Clipboard(`.copy-${id}`, {
-      text: () => content,
-    })
-    return () => {
-      setHtml('')
-      setThoughtsHtml('')
-      copyKatexInline.destroy()
-      copyKatexBlock.destroy()
-      copyCode.destroy()
-      copyContent.destroy()
-    }
-  }, [id, role, content, parts, attachments, render])
+  }, [id, role, content, parts, attachments, groundingMetadata])
 
   return (
     <>
@@ -510,7 +438,7 @@ function MessageItem(props: Props) {
       <Lightbox
         open={showLightbox}
         close={() => setShowLightbox(false)}
-        slides={inlineImageList.map((item) => ({ src: item }))}
+        slides={imageList.map((item) => ({ src: item }))}
         index={lightboxIndex}
         plugins={[LightboxFullscreen]}
       />

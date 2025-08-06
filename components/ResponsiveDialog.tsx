@@ -65,7 +65,7 @@ function DrawerDialog(props: Props) {
           {description ? <DialogDescription>{description}</DialogDescription> : null}
         </DialogHeader>
         <div>{children}</div>
-        {footer ? <DialogFooter className="mx-auto w-4/5 flex-col sm:justify-center">{footer}</DialogFooter> : null}
+        {footer ? <DialogFooter className="mx-auto w-4/5 gap-2 sm:justify-center">{footer}</DialogFooter> : null}
       </DialogContent>
     </Dialog>
   )

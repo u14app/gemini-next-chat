@@ -13,6 +13,7 @@ import {
   Camera,
   Box,
   Microscope,
+  Brush,
 } from 'lucide-react'
 import { Label } from '@/components/ui/label'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -80,6 +81,22 @@ function PluginList() {
       <PopoverContent className="max-h-[330px] w-48 overflow-y-auto">
         <div>
           <h3 className="p-2 text-sm text-slate-400">{t('officialPlugins')}</h3>
+          {/* <div className="flex rounded-sm px-2 py-1 hover:bg-gray-100 dark:hover:bg-gray-900">
+            <Label
+              className="inline-flex flex-1 cursor-pointer overflow-hidden leading-6 text-slate-500"
+              htmlFor={OFFICAL_PLUGINS.IMAGEN}
+              title="Imagen3"
+            >
+              <Brush className="my-1 mr-1 h-4 w-4" />
+              <p className="truncate">Imagen3</p>
+            </Label>
+            <Checkbox
+              id={OFFICAL_PLUGINS.IMAGEN}
+              className="my-1"
+              defaultChecked={enabledTools.includes(OFFICAL_PLUGINS.IMAGEN)}
+              onCheckedChange={(checkedState) => handleUsePlugin(OFFICAL_PLUGINS.IMAGEN, checkedState === true)}
+            />
+          </div> */}
           <div className="flex rounded-sm px-2 py-1 hover:bg-gray-100 dark:hover:bg-gray-900">
             <Label
               className="inline-flex flex-1 cursor-pointer overflow-hidden leading-6 text-slate-500"

@@ -4,27 +4,30 @@ import { useTranslation } from 'react-i18next'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useForm } from 'react-hook-form'
 import { z } from 'zod'
-import MarkdownIt from 'markdown-it'
-import markdownHighlight from 'markdown-it-highlightjs'
-import highlight from 'highlight.js'
-import markdownKatex from '@traptitech/markdown-it-katex'
 import { X, SquarePen, Sparkles } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Form, FormControl, FormField, FormItem, FormMessage } from '@/components/ui/form'
 import { Textarea } from '@/components/ui/textarea'
+import Magicdown from '@/components/Magicdown'
 import Button from '@/components/Button'
 import { useMessageStore } from '@/store/chat'
 import { useSettingStore } from '@/store/setting'
 import { GEMINI_API_BASE_URL } from '@/constant/urls'
 import { encodeToken } from '@/utils/signature'
 import optimizePrompt, { type RequestProps } from '@/utils/optimizePrompt'
-import { upperFirst } from 'lodash-es'
+import { cn } from '@/utils'
+
+type Props = {
+  className?: string
+  maxHeight?: string
+  closeable?: boolean
+}
 
 const formSchema = z.object({
   content: z.string(),
 })
 
-function SystemInstruction() {
+function SystemInstruction({ className = '', maxHeight = '140px', closeable = true }: Props) {
   const { t } = useTranslation()
   const { instruction, setSystemInstructionEditMode } = useMessageStore()
   const systemInstruction = useMessageStore((state) => state.systemInstruction)
@@ -50,12 +53,12 @@ function SystemInstruction() {
   }, [instruction, setSystemInstructionEditMode])
 
   const optimizeAssistantPrompt = useCallback(async () => {
-    if (systemInstruction === '') return false
-    const { apiKey, apiProxy, model, password } = useSettingStore.getState()
+    const { content } = form.getValues()
+    if (content === '') return false
+    const { apiKey, apiProxy, password } = useSettingStore.getState()
     const config: RequestProps = {
       apiKey,
-      model,
-      content: systemInstruction,
+      content,
     }
     if (apiKey !== '') {
       config.baseUrl = apiProxy || GEMINI_API_BASE_URL
@@ -64,66 +67,26 @@ function SystemInstruction() {
       config.baseUrl = '/api/google'
     }
     const readableStream = await optimizePrompt(config)
-    let content = ''
+    let newContent = ''
     const reader = readableStream.getReader()
     while (true) {
       const { done, value } = await reader.read()
       if (done) break
-      content += new TextDecoder().decode(value)
-      form.setValue('content', content)
+      newContent += new TextDecoder().decode(value)
+      form.setValue('content', newContent)
     }
-  }, [form, systemInstruction])
-
-  const render = useCallback((content: string) => {
-    const md: MarkdownIt = MarkdownIt({
-      linkify: true,
-      breaks: true,
-    })
-      .use(markdownHighlight)
-      .use(markdownKatex)
-
-    const mathLineRender = md.renderer.rules.math_inline!
-    md.renderer.rules.math_inline = (...params) => {
-      return `
-          <div class="katex-inline-warpper">
-            ${mathLineRender(...params)}
-          </div>
-        `
-    }
-    const mathBlockRender = md.renderer.rules.math_block!
-    md.renderer.rules.math_block = (...params) => {
-      return `
-          <div class="katex-block-warpper">
-            ${mathBlockRender(...params)}
-          </div>
-        `
-    }
-    const highlightRender = md.renderer.rules.fence!
-    md.renderer.rules.fence = (...params) => {
-      const [tokens, idx] = params
-      const token = tokens[idx]
-      const lang = token.info.trim()
-      return `
-          <div class="hljs-warpper">
-            <div class="info">
-              <span class="lang">${upperFirst(lang)}</span>
-            </div>
-            ${highlight.getLanguage(lang) ? highlightRender(...params) : null}
-          </div>
-        `
-    }
-    return md.render(content)
-  }, [])
+  }, [form])
 
   useEffect(() => {
-    setHtml(render(systemInstruction))
+    setHtml(systemInstruction)
+    form.setValue('content', systemInstruction)
     return () => {
       setHtml('')
     }
-  }, [systemInstruction, render])
+  }, [form, systemInstruction])
 
   return (
-    <Card>
+    <Card className={cn('dark:border-slate-500', className)}>
       <CardHeader className="flex flex-row justify-between space-y-0 px-4 pb-1 pt-3">
         <CardTitle className="inline-flex text-lg font-medium">
           {t('assistantSetting')}{' '}
@@ -160,12 +123,14 @@ function SystemInstruction() {
           </div>
         ) : (
           <X
-            className="h-7 w-7 cursor-pointer rounded-full p-1 text-muted-foreground hover:bg-secondary/80"
+            className={cn('h-7 w-7 cursor-pointer rounded-full p-1 text-muted-foreground hover:bg-secondary/80', {
+              hidden: !closeable,
+            })}
             onClick={() => handleClear()}
           />
         )}
       </CardHeader>
-      <div className="max-h-[140px] overflow-auto">
+      <div className="overflow-auto" style={{ maxHeight }}>
         <CardContent className="p-4 pt-0">
           {systemInstructionEditMode ? (
             <Form {...form}>
@@ -185,7 +150,7 @@ function SystemInstruction() {
               </form>
             </Form>
           ) : (
-            <div className="prose break-all text-sm leading-6" dangerouslySetInnerHTML={{ __html: html }}></div>
+            <Magicdown className="small">{html}</Magicdown>
           )}
         </CardContent>
       </div>

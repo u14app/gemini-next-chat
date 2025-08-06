@@ -1,4 +1,4 @@
-import { GoogleGenerativeAI, type ModelParams } from '@google/generative-ai'
+import { GoogleGenerativeAI, type ModelParams } from '@xiangfa/generative-ai'
 import {
   AIWritePrompt,
   changeArtifactLanguage,
@@ -7,6 +7,8 @@ import {
   continuation,
   addEmojis,
 } from '@/utils/prompt'
+import { getRandomKey } from '@/utils/common'
+import { DefaultModel } from '@/constant/model'
 import { GEMINI_API_BASE_URL } from '@/constant/urls'
 
 type Props = {
@@ -21,7 +23,7 @@ type Props = {
 
 export default async function artifact(props: Props) {
   const {
-    model = 'gemini-1.5-flash-latest',
+    model = DefaultModel,
     apiKey,
     baseUrl = GEMINI_API_BASE_URL,
     systemInstruction,
@@ -30,7 +32,7 @@ export default async function artifact(props: Props) {
     args = '{}',
   } = props
 
-  const genAI = new GoogleGenerativeAI(apiKey)
+  const genAI = new GoogleGenerativeAI(getRandomKey(apiKey))
 
   let prompt = ''
   const params = JSON.parse(args)
@@ -58,7 +60,7 @@ export default async function artifact(props: Props) {
   }
 
   const modelParams: ModelParams = {
-    model: model.includes('-thinking') ? 'gemini-1.5-flash-latest' : model,
+    model: model.includes('-thinking') ? 'gemini-2.0-flash' : model,
   }
 
   const geminiModel = genAI.getGenerativeModel(modelParams, { baseUrl })

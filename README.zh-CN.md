@@ -67,6 +67,10 @@
 
 支持插件功能，内置网络搜索、网页解读、论文搜索、实时天气等多种实用插件
 
+![Multimodal Live](./docs/images/multimodal-live.jpg)
+
+支持 Multimodal Live API，流畅的语音、视频体验
+
 ![Tray app](./docs/images/trayapp.png)
 
 跨平台的应用客户端，支持常驻菜单栏，让您的工作效率翻倍
@@ -98,13 +102,13 @@
 - 在 1 分钟内使用 Vercel **免费一键部署**
 - 提供体积极小（~4MB）的跨平台客户端（Windows/MacOS/Linux），可以常驻菜单栏，提升办公效率
 - 支持多模态模型，可以理解图片、视频、音频和部分文本文档
-- 语音模式：让您直接与 Gemini 对话
+- 语音模式：让您直接与 Gemini 对话，支持 Multimodal Live API
 - 视觉识别，让 Gemini 可以看懂图片内容
 - 助理市场，拥有数百精选的系统指令
 - 插件系统，内置网络搜索、网页解读、论文搜索、实时天气等多种实用插件
 - 会话列表，让您可以保持重要的会话内容或与 Gemini 讨论不同的话题
 - 支持 Artifact，让您可以更加优雅地修改对话内容
-- 完整的 Markdown 支持：KaTex 公式、代码高亮等等
+- 完整的 Markdown 支持：KaTex 公式、代码高亮, Mermaid 图表等
 - 自动压缩上下文聊天记录，在节省 Token 的同时支持超长对话
 - 隐私安全，所有数据保存在用户浏览器本地
 - 支持 PWA，可以以应用形式运行
@@ -120,7 +124,9 @@
 - [x] 实现基于 functionCall 插件
 - [x] 支持会话列表
 - [x] 支持对话导出功能
-- [ ] 启用 Multimodal Live API
+- [x] 启用 Multimodal Live API
+- [ ] 支持联网 Deep Research 模式
+- [ ] 支持本地知识库
 
 ## 开始使用
 
@@ -145,7 +151,8 @@
 
 #### `GEMINI_API_KEY`（可选）
 
-您的 Gemini api 密钥。 如果您需要“启用”服务器 api，这是必需的。
+您的 Gemini api 密钥。 如果您需要“启用”服务器 api，这是必需的。**该变量不会影响前端页面上的 Gemini 密钥的值。**
+支持多个 key，每个 key 之间使用 `,` 分隔，即 `key1,key2,key3`
 
 #### `GEMINI_API_BASE_URL`（可选）
 
@@ -153,7 +160,7 @@
 
 > 示例：`http://your-gemini-proxy.com`
 
-覆盖 Gemini api 请求基本 url。**为了避免服务端代理 url 泄漏，不会覆盖前端页面中的链接。**
+覆盖 Gemini api 请求基本 url。**为了避免服务端代理 url 泄漏，不会覆盖和影响前端页面中的值。**
 
 #### `NEXT_PUBLIC_GEMINI_MODEL_LIST`（可选）
 
@@ -272,13 +279,14 @@ pnpm build:export
 
 2、使用 Cloudflare Worker 进行 api 代理转发，详细设置请参考 [如何使用 Cloudflare Worker 代理 api](./docs/How-to-deploy-the-Cloudflare-Worker-api-proxy.zh-CN.md)。注意，该方案在某些情况下可能无法正常工作。
 
-#### 为什么我无法上传 doc、excel 和 ppt 这类常见文档
-
-目前 `Gemini 1.5` 和 `Gemini 2.0` 这两类模型支持的大部分的图片、音频、视频和部分文本类的文件。对于其他文档类型，后续将尝试使用 [LangChain.js](https://js.langchain.com/v0.2/docs/introduction/) 来实现。
-
 #### 为什么我用 vercel 一键部署后的网站无法在中国正常访问
 
 vercel 部署后生成的域名在几年前就已经被国内网络屏蔽，但并没有屏蔽服务器的 ip 地址。可以自定义域名，就可以在国内正常访问了。由于 vercel 在国内并没有服务器，所以有时候会出现些许的网络波动，属于正常现象。如何设置域名，可以参考我从网上找到的解决文章[Vercel绑定自定义域名](https://docs.tangly1024.com/article/vercel-domain)。
+
+#### 为什么我无法使用 Multimodal Live
+
+目前 Multimodal Live API 只有 Gemini 2.0 Flash 模型支持，因此需要使用 Gemini 2.0 Flash 模型才可以使用。由于在国内无法访问 Gemini Multimodal Live API，因此您可能需要使用 Cloudflare Worker 部署一个代理转发的 API。如何使用请参考 [使用 Cloudflare Worker 代理 Multimodal Live API](./docs/Proxying-the-Multimodal-Live-API-with-Cloudflare-Worker.zh-CN.md)。
+_目前 Multimodal Live API 尚不支持中文语音输出。_
 
 ## 致谢
 
@@ -292,12 +300,26 @@ vercel 部署后生成的域名在几年前就已经被国内网络屏蔽，但�
 ### 灵感来源
 
 - [Lobe Chat](https://github.com/lobehub/lobe-chat)
-- [ChatGPT-Next-Web](https://github.com/ChatGPTNextWeb/ChatGPT-Next-Web)
+- [Next Web](https://github.com/ChatGPTNextWeb/NextChat)
 - [Open Canvas](https://github.com/langchain-ai/open-canvas)
+
+## 贡献
+
+欢迎为该项目做出贡献！如果您愿意做出贡献，请按照以下步骤操作：
+
+1. 在 GitHub 上 Fork 存储库。
+2. 将您 Fork 的项目克隆到本地工作区。
+3. 为您的更改创建一个新分支。
+4. 进行更改并将其提交到您的分支。
+5. 将您的更改推送到 GitHub 上的分叉。
+6. 从您的分支向主存储库提交拉取请求。
+
+在提交拉取请求之前，请确保您的代码遵循项目的编码风格并且所有测试都通过。
+如果您发现任何错误或有改进建议，请随时在 GitHub 上创建新的 issue。
 
 ## 开源协议
 
-[MIT](https://www.apache.org/licenses/LICENSE-2.0)
+本项目遵循 [MIT](https://www.apache.org/licenses/LICENSE-2.0) 许可证。请参阅 LICENSE 文件以获取完整的许可证文本。
 
 ## 收藏历史
 

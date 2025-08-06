@@ -65,6 +65,14 @@
   "high": "Высокий",
   "installPwa": "Установить PWA",
   "pwaInstall": "Установить приложение браузера (PWA)",
+  "multimodalSettingDesc": "Настройка параметров для мультимодальной модели в реальном времени",
+  "voiceName": "Название голоса",
+  "responseType": "Тип ответа",
+  "text": "Текст",
+  "audio": "Аудио",
+  "image": "Изображение",
+  "exit": "Выйти",
+  "autoStartRecord": "Автоначало записи",
   "autoStopRecord": "Автоматическое завершение записи",
   "settingEnable": "Включено",
   "settingDisable": "Отключено",
@@ -168,5 +176,7 @@
   "shortest": "Самый короткий",
   "continuation": "Продолжение",
   "addEmojis": "Добавить эмодзи",
-  "moreTools": "Больше инструментов"
+  "moreTools": "Больше инструментов",
+  "chatContentCleared": "Содержимое чата очищено",
+  "undo": "Отменить"
 }

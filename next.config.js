@@ -24,6 +24,7 @@ module.exports = async (phase) => {
 
   if (mode !== 'export') {
     nextConfig.rewrites = async () => {
+      const apiKey = geminiApiKey.split(',')[0]
       const beforeFilesConfig = geminiApiKey
         ? [
             {
@@ -35,7 +36,7 @@ module.exports = async (phase) => {
                   value: '(?<key>.*)',
                 },
               ],
-              destination: `${uploadProxyUrl}/upload/v1beta/files?key=${geminiApiKey}`,
+              destination: `${uploadProxyUrl}/upload/v1beta/files?key=${apiKey}`,
             },
             {
               source: '/api/google/v1beta/files/:id',
@@ -46,7 +47,7 @@ module.exports = async (phase) => {
                   value: '(?<key>.*)',
                 },
               ],
-              destination: `${uploadProxyUrl}/v1beta/files/:id?key=${geminiApiKey}`,
+              destination: `${uploadProxyUrl}/v1beta/files/:id?key=${apiKey}`,
             },
           ]
         : [

@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { handleError } from '../utils'
 import { ErrorType } from '@/constant/errors'
+import { getRandomKey } from '@/utils/common'
 
 const geminiApiKey = process.env.GEMINI_API_KEY as string
 const geminiApiBaseUrl = process.env.GEMINI_API_BASE_URL as string
@@ -17,10 +18,9 @@ export async function GET(req: NextRequest) {
   }
 
   try {
+    const apiKey = getRandomKey(geminiApiKey)
     const apiBaseUrl = geminiApiBaseUrl || 'https://generativelanguage.googleapis.com'
-    const response = await fetch(`${apiBaseUrl}/v1beta/models?key=${geminiApiKey}`, {
-      cache: 'no-store',
-    })
+    const response = await fetch(`${apiBaseUrl}/v1beta/models?key=${apiKey}`, { next: { revalidate: 60 } })
     const result = await response.json()
     return NextResponse.json(result)
   } catch (error) {

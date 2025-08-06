@@ -65,6 +65,14 @@
   "high": "高い",
   "installPwa": "PWA をインストール",
   "pwaInstall": "ブラウザアプリ（PWA）をインストールする",
+  "multimodalSettingDesc": "マルチモーダルライブモデルの設定パラメーター",
+  "voiceName": "声の名前",
+  "responseType": "応答タイプ",
+  "text": "テキスト",
+  "audio": "音声",
+  "image": "画像",
+  "exit": "終了",
+  "autoStartRecord": "自動録音を開始",
   "autoStopRecord": "録音を自動的に終了する",
   "settingEnable": "有効",
   "settingDisable": "無効",
@@ -168,5 +176,7 @@
   "shortest": "最も短い",
   "continuation": "継続",
   "addEmojis": "絵文字を追加",
-  "moreTools": "その他のツール"
+  "moreTools": "その他のツール",
+  "chatContentCleared": "チャット内容がクリアされました",
+  "undo": "元に戻す"
 }

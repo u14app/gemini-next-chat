@@ -65,6 +65,14 @@
   "high": "높은",
   "installPwa": "PWA 설치",
   "pwaInstall": "브라우저 애플리케이션(PWA) 설치하기",
+  "multimodalSettingDesc": "멀티모달 라이브 모델의 설정 매개변수",
+  "voiceName": "음성 이름",
+  "responseType": "응답 유형",
+  "text": "텍스트",
+  "audio": "오디오",
+  "image": "이미지",
+  "exit": "종료",
+  "autoStartRecord": "자동 녹음 시작",
   "autoStopRecord": "녹음 자동 종료",
   "settingEnable": "활성화되었습니다",
   "settingDisable": "비활성화됨",
@@ -168,5 +176,7 @@
   "shortest": "가장 짧은",
   "continuation": "계속",
   "addEmojis": "이모지 추가",
-  "moreTools": "더 많은 도구"
+  "moreTools": "더 많은 도구",
+  "chatContentCleared": "채팅 내용이 지워졌습니다",
+  "undo": "실행 취소"
 }

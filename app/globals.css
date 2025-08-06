@@ -97,109 +97,6 @@ html,
 body {
   height: 100%;
 }
-.hljs-warpper {
-  position: relative;
-  width: 100%;
-  max-width: 692px;
-  margin: 0.5em 0;
-  font-size: 0.8em;
-  overflow-x: auto;
-  overflow-y: hidden;
-  border-radius: 4px;
-  background-color: rgb(242, 246, 249);
-}
-.hljs-warpper .hljs {
-  background-color: transparent;
-}
-.hljs-warpper .info {
-  display: flex;
-  justify-content: space-between;
-  width: 100%;
-  height: 3em;
-  padding: 0.5em 1em;
-  background-color: rgb(226, 232, 240);
-  font-size: 1em;
-  text-align: right;
-  line-height: 2em;
-  color: rgba(100, 116, 139, 0.8);
-  transition: opacity 0.15s linear;
-}
-.hljs-warpper .copy {
-  cursor: pointer;
-  color: rgba(100, 116, 139, 0.8);
-}
-.hljs-warpper .copy:hover {
-  color: rgba(100, 116, 139, 1);
-}
-.katex-block-warpper,
-.katex-inline-warpper {
-  position: relative;
-  width: 100%;
-  max-width: 692px;
-  overflow-x: auto;
-  overflow-y: hidden;
-}
-.katex-block-warpper .copy,
-.katex-inline-warpper .copy {
-  position: absolute;
-  top: 0;
-  right: 1em;
-  z-index: 10;
-  opacity: 0;
-  font-size: 0.8em;
-  text-align: right;
-  line-height: 2em;
-  color: rgba(120, 120, 120, 0.6);
-  transition: opacity 0.15s linear;
-  cursor: pointer;
-}
-.katex-inline-warpper .copy {
-  line-height: 3em;
-}
-.katex-block-warpper:hover .copy,
-.katex-inline-warpper:hover .copy {
-  opacity: 1;
-}
-.text-line-clamp-2 {
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.text-line-clamp-3 {
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.hljs-warpper ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
-}
-.hljs-warpper ::-webkit-scrollbar-thumb {
-  background-color: rgb(226, 232, 240);
-  border-radius: 4px;
-}
-.hljs-warpper ::-webkit-scrollbar-thumb:hover {
-  background-color: rgb(203, 213, 225);
-}
-.hljs-warpper ::-webkit-scrollbar-track {
-  background-color: transparent;
-}
-html.dark .hljs-warpper {
-  background-color: rgb(15, 23, 42);
-}
-html.dark .hljs-warpper .info {
-  background-color: rgb(31, 41, 55);
-}
-html.dark .hljs-warpper ::-webkit-scrollbar-thumb {
-  background-color: rgb(31, 41, 55);
-}
-html.dark .hljs-warpper ::-webkit-scrollbar-thumb:hover {
-  background-color: rgb(71, 85, 105);
-}
 .inline-image {
   max-height: 200px;
   border-radius: 4px;
@@ -218,7 +115,33 @@ html.dark .hljs-warpper ::-webkit-scrollbar-thumb:hover {
   width: 20px;
   height: 20px;
 }
-
+.text-line-clamp {
+  display: -webkit-box;
+  -webkit-line-clamp: 1;
+  line-clamp: 1;
+  -webkit-box-orient: vertical;
+  box-orient: vertical;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.text-line-clamp-2 {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  box-orient: vertical;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.text-line-clamp-3 {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  -webkit-box-orient: vertical;
+  box-orient: vertical;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .chat-content img {
   width: 100%;
   max-width: 500px;
@@ -226,13 +149,6 @@ html.dark .hljs-warpper ::-webkit-scrollbar-thumb:hover {
 }
 
 @media (max-width: 768px) {
-  .hljs-warpper {
-    max-width: calc(100vw - 76px);
-  }
-  .katex-block-warpper,
-  .katex-inline-warpper {
-    max-width: calc(100vw - 76px);
-  }
   .chat-content {
     max-width: calc(100vw - 76px);
   }

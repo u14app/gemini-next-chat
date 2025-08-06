@@ -1056,7 +1056,7 @@ dependencies = [
 
 [[package]]
 name = "gemini-next-chat"
-version = "1.4.0"
+version = "1.9.1"
 dependencies = [
  "serde",
  "serde_json",

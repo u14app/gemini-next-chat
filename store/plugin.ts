@@ -1,8 +1,8 @@
 import { create } from 'zustand'
 import { persist, type StorageValue } from 'zustand/middleware'
 import storage from '@/utils/Storage'
-import { type FunctionDeclaration } from '@google/generative-ai'
-import { find, findIndex, filter, omitBy, isFunction, isNull } from 'lodash-es'
+import { type FunctionDeclaration } from '@xiangfa/generative-ai'
+import { find, findIndex, filter, omitBy, isFunction } from 'lodash-es'
 
 type PluginStore = {
   plugins: PluginManifest[]
@@ -68,27 +68,7 @@ export const usePluginStore = create(
       version: 1,
       storage: {
         getItem: async (key: string) => {
-          const store = await storage.getItem<StorageValue<PluginStore>>(key)
-          /**
-           * Since the data storage structure has changed since version 0.13.0,
-           * the logic here is used to migrate the data content of the old version.
-           */
-          if (isNull(store)) {
-            try {
-              const state: Record<string, any> = {}
-              const oldState: string[] = ['plugins', 'installed', 'tools']
-              for await (const name of oldState) {
-                const data = await storage.getItem(name)
-                if (data) state[name] = data
-                await storage.removeItem(name)
-              }
-              return { state, version: 1 } as StorageValue<PluginStore>
-            } catch (err) {
-              console.error(err)
-              return store
-            }
-          }
-          return store
+          return await storage.getItem<StorageValue<PluginStore>>(key)
         },
         setItem: async (key: string, store: StorageValue<PluginStore>) => {
           return await storage.setItem(key, {

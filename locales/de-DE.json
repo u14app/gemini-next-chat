@@ -65,6 +65,14 @@
   "high": "Hoch",
   "installPwa": "PWA installieren",
   "pwaInstall": "Browser-App (PWA) installieren",
+  "multimodalSettingDesc": "Einstellen von Parametern für das multimodale Live-Modell",
+  "voiceName": "Stimmenname",
+  "responseType": "Antworttyp",
+  "text": "Text",
+  "audio": "Audiodatei",
+  "image": "Bild",
+  "exit": "Beenden",
+  "autoStartRecord": "Automatisch mit der Aufnahme beginnen",
   "autoStopRecord": "Automatische Beendigung der Aufnahme",
   "settingEnable": "Aktiviert",
   "settingDisable": "Deaktiviert",
@@ -168,5 +176,7 @@
   "shortest": "Am kürzesten",
   "continuation": "Fortsetzung",
   "addEmojis": "Emojis hinzufügen",
-  "moreTools": "Weitere Werkzeuge"
+  "moreTools": "Weitere Werkzeuge",
+  "chatContentCleared": "Chatinhalt gelöscht",
+  "undo": "Rückgängig"
 }

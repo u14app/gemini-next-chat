@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { handleError } from '../utils'
 import { ErrorType } from '@/constant/errors'
+import { getRandomKey } from '@/utils/common'
 import { isNull } from 'lodash-es'
 
 export const runtime = 'edge'
@@ -16,7 +17,8 @@ export async function POST(req: NextRequest) {
   try {
     if (uploadType === 'resumable') {
       const { fileName, mimeType } = await req.json()
-      const response = await fetch(`${geminiApiBaseUrl}/upload/v1beta/files?uploadType=resumable&key=${geminiApiKey}`, {
+      const apiKey = getRandomKey(geminiApiKey, true)
+      const response = await fetch(`${geminiApiBaseUrl}/upload/v1beta/files?uploadType=resumable&key=${apiKey}`, {
         method: 'POST',
         body: JSON.stringify({
           file: {

@@ -65,6 +65,14 @@
   "high": "高",
   "installPwa": "安装 PWA",
   "pwaInstall": "安装浏览器应用(PWA)",
+  "multimodalSettingDesc": "设置实时多模态模型参数",
+  "voiceName": "声音名称",
+  "responseType": "响应类型",
+  "text": "文本",
+  "audio": "音频",
+  "image": "图片",
+  "exit": "退出",
+  "autoStartRecord": "自动开始录音",
   "autoStopRecord": "自动结束录音",
   "settingEnable": "已启用",
   "settingDisable": "未启用",
@@ -168,5 +176,7 @@
   "shortest": "更短",
   "continuation": "续写",
   "addEmojis": "添加表情",
-  "moreTools": "更多工具"
+  "moreTools": "更多工具",
+  "chatContentCleared": "聊天内容已清空",
+  "undo": "撤销"
 }

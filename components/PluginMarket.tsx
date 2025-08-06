@@ -274,7 +274,7 @@ function PluginMarket({ open, onClose }: PluginStoreProps) {
 
   return (
     <ResponsiveDialog
-      className="max-w-screen-md"
+      className="max-w-screen-lg max-lg:max-w-screen-md"
       open={open}
       onClose={handleClose}
       title={t('pluginMarket')}

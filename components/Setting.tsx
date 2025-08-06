@@ -15,12 +15,14 @@ import { Label } from '@/components/ui/label'
 import { Slider } from '@/components/ui/slider'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { Switch } from '@/components/ui/switch'
+import { useToast } from '@/components/ui/use-toast'
 import Button from '@/components/Button'
 import ResponsiveDialog from '@/components/ResponsiveDialog'
 import i18n from '@/utils/i18n'
 import { fetchModels } from '@/utils/models'
+import { getRandomKey } from '@/utils/common'
 import locales from '@/constant/locales'
-import { Model } from '@/constant/model'
+import { Model, DefaultModel } from '@/constant/model'
 import { GEMINI_API_BASE_URL, ASSISTANT_INDEX_URL } from '@/constant/urls'
 import { useSettingStore, useEnvStore } from '@/store/setting'
 import { useModelStore } from '@/store/model'
@@ -50,15 +52,18 @@ const formSchema = z.object({
   sttLang: z.string().optional(),
   ttsLang: z.string().optional(),
   ttsVoice: z.string().optional(),
+  autoStartRecord: z.boolean().default(false),
   autoStopRecord: z.boolean().default(false),
 })
 
-let cachedModelList = false
+function filterModel(models: Model[] = []) {
+  return models.filter((model) => model.name.startsWith('models/gemini-'))
+}
 
 function Setting({ open, hiddenTalkPanel, onClose }: SettingProps) {
   const { t } = useTranslation()
+  const { toast } = useToast()
   const pwaInstall = usePWAInstall()
-  const { apiKey, apiProxy, password, update, reset } = useSettingStore()
   const modelStore = useModelStore()
   const { isProtected, buildMode, modelList: MODEL_LIST } = useEnvStore()
   const [ttsLang, setTtsLang] = useState<string>('')
@@ -67,7 +72,7 @@ function Setting({ open, hiddenTalkPanel, onClose }: SettingProps) {
     return new EdgeSpeech({ locale: ttsLang }).voiceOptions || []
   }, [ttsLang])
   const modelOptions = useMemo(() => {
-    const { update } = useSettingStore.getState()
+    const { model, update } = useSettingStore.getState()
 
     if (modelStore.models.length > 0) {
       const models = values(Model)
@@ -80,7 +85,7 @@ function Setting({ open, hiddenTalkPanel, onClose }: SettingProps) {
     }
 
     let modelList: string[] = []
-    let defaultModel = 'gemini-1.5-flash-latest'
+    let defaultModel = DefaultModel
     const defaultModelList: string[] = keys(Model)
     const userModels: string[] = MODEL_LIST ? MODEL_LIST.split(',') : []
 
@@ -96,15 +101,17 @@ function Setting({ open, hiddenTalkPanel, onClose }: SettingProps) {
       } else if (modelName.startsWith('@')) {
         const name = modelName.substring(1)
         if (!modelList.includes(name)) modelList.push(name)
-        update({ model: name })
-        defaultModel = name
+        if (model === '') {
+          update({ model: name })
+          defaultModel = name
+        }
       } else {
         modelList.push(modelName.startsWith('+') ? modelName.substring(1) : modelName)
       }
     })
 
     const models = modelList.length > 0 ? modelList : defaultModelList
-    if (!models.includes(defaultModel)) {
+    if (models.length > 0 && !models.includes(defaultModel)) {
       update({ model: models[0] })
     }
 
@@ -118,7 +125,9 @@ function Setting({ open, hiddenTalkPanel, onClose }: SettingProps) {
         const state = useSettingStore.getState()
         const store = omitBy(state, (item) => isFunction(item)) as z.infer<typeof formSchema>
         setTtsLang(state.ttsLang)
-        resolve(store)
+        setTimeout(() => {
+          resolve(store)
+        }, 500)
       })
     },
   })
@@ -164,16 +173,18 @@ function Setting({ open, hiddenTalkPanel, onClose }: SettingProps) {
   )
 
   const handleReset = useCallback(() => {
+    const { reset } = useSettingStore.getState()
     const defaultValues = reset()
     form.reset(defaultValues)
-  }, [reset, form])
+  }, [form])
 
   const handleSubmit = useCallback(
     (values: z.infer<typeof formSchema>) => {
+      const { update } = useSettingStore.getState()
       update(values as Partial<Setting>)
       onClose()
     },
-    [onClose, update],
+    [onClose],
   )
 
   const handlePwaInstall = useCallback(async () => {
@@ -184,30 +195,30 @@ function Setting({ open, hiddenTalkPanel, onClose }: SettingProps) {
   }, [pwaInstall])
 
   const uploadModelList = useCallback(() => {
-    const { update } = useModelStore.getState()
+    const { update: updateModelList } = useModelStore.getState()
+    const { apiKey, apiProxy, password } = useSettingStore.getState()
     if (apiKey || password || !isProtected) {
-      fetchModels({ apiKey, apiProxy, password })
-        .then((models) => {
-          if (models.length > 0) {
-            update(models)
-            cachedModelList = true
-          }
-        })
-        .catch(console.error)
+      const key = getRandomKey(apiKey)
+      fetchModels({ apiKey: key, apiProxy, password }).then((result) => {
+        if (result.error) {
+          return toast({
+            description: result.error.message,
+            duration: 3000,
+          })
+        }
+        const models = filterModel(result.models)
+        if (models.length > 0) {
+          updateModelList(models)
+        }
+      })
     }
-  }, [apiKey, apiProxy, password, isProtected])
-
-  useEffect(() => {
-    if (open && !cachedModelList) {
-      uploadModelList()
-    }
-  }, [open, uploadModelList])
+  }, [isProtected, toast])
 
   useLayoutEffect(() => {
-    if (buildMode === 'export') {
+    if (buildMode === 'export' || !isProtected) {
       setHiddenPasswordInput(true)
     }
-  }, [buildMode])
+  }, [buildMode, isProtected])
 
   return (
     <ResponsiveDialog
@@ -274,7 +285,7 @@ function Setting({ open, hiddenTalkPanel, onClose }: SettingProps) {
                     <FormItem className="grid grid-cols-4 items-center gap-4 space-y-0">
                       <FormLabel className="text-right">{t('language')}</FormLabel>
                       <FormControl>
-                        <Select defaultValue={field.value} onValueChange={handleLangChange}>
+                        <Select value={field.value} onValueChange={handleLangChange}>
                           <SelectTrigger className="col-span-3">
                             <SelectValue placeholder={t('followTheSystem')} />
                           </SelectTrigger>
@@ -389,7 +400,7 @@ function Setting({ open, hiddenTalkPanel, onClose }: SettingProps) {
                       <FormControl>
                         <div className="col-span-3 flex gap-1">
                           <Select
-                            defaultValue={field.value}
+                            value={field.value}
                             onValueChange={(value) => {
                               field.onChange(value)
                               handleModelChange(value)
@@ -432,7 +443,7 @@ function Setting({ open, hiddenTalkPanel, onClose }: SettingProps) {
                         <div className="col-span-3 flex h-10">
                           <Slider
                             className="flex-1"
-                            defaultValue={[field.value]}
+                            value={[field.value]}
                             max={50}
                             step={1}
                             onValueChange={(values) => field.onChange(values[0])}
@@ -459,7 +470,7 @@ function Setting({ open, hiddenTalkPanel, onClose }: SettingProps) {
                         <div className="col-span-3 flex h-10">
                           <Slider
                             className="flex-1"
-                            defaultValue={[field.value]}
+                            value={[field.value]}
                             max={1}
                             step={0.01}
                             onValueChange={(values) => field.onChange(values[0])}
@@ -480,7 +491,7 @@ function Setting({ open, hiddenTalkPanel, onClose }: SettingProps) {
                         <div className="col-span-3 flex h-10">
                           <Slider
                             className="flex-1"
-                            defaultValue={[field.value]}
+                            value={[field.value]}
                             max={128}
                             step={1}
                             onValueChange={(values) => field.onChange(values[0])}
@@ -501,7 +512,7 @@ function Setting({ open, hiddenTalkPanel, onClose }: SettingProps) {
                         <div className="col-span-3 flex h-10">
                           <Slider
                             className="flex-1"
-                            defaultValue={[field.value]}
+                            value={[field.value]}
                             max={2}
                             step={0.1}
                             onValueChange={(values) => field.onChange(values[0])}
@@ -522,7 +533,7 @@ function Setting({ open, hiddenTalkPanel, onClose }: SettingProps) {
                         <div className="col-span-3 flex h-10">
                           <Slider
                             className="flex-1"
-                            defaultValue={[field.value]}
+                            value={[field.value]}
                             max={8192}
                             step={1}
                             onValueChange={(values) => field.onChange(values[0])}
@@ -543,7 +554,7 @@ function Setting({ open, hiddenTalkPanel, onClose }: SettingProps) {
                         <div className="col-span-3 flex h-10">
                           <RadioGroup
                             className="grid w-full grid-cols-4"
-                            defaultValue={field.value}
+                            value={field.value}
                             onValueChange={(value) => field.onChange(value)}
                           >
                             <div className="flex items-center space-x-2">
@@ -579,7 +590,7 @@ function Setting({ open, hiddenTalkPanel, onClose }: SettingProps) {
                     <FormItem className="grid grid-cols-4 items-center gap-4 space-y-0">
                       <FormLabel className="text-right">{t('speechRecognition')}</FormLabel>
                       <FormControl>
-                        <Select defaultValue={field.value} onValueChange={field.onChange}>
+                        <Select value={field.value} onValueChange={field.onChange}>
                           <SelectTrigger className="col-span-3">
                             <SelectValue placeholder={t('followTheSystem')} />
                           </SelectTrigger>
@@ -598,7 +609,7 @@ function Setting({ open, hiddenTalkPanel, onClose }: SettingProps) {
                     <FormItem className="grid grid-cols-4 items-center gap-4 space-y-0">
                       <FormLabel className="text-right">{t('speechSynthesis')}</FormLabel>
                       <FormControl>
-                        <Select defaultValue={field.value} onValueChange={handleTTSChange}>
+                        <Select value={field.value} onValueChange={handleTTSChange}>
                           <SelectTrigger className="col-span-3">
                             <SelectValue placeholder={t('followTheSystem')} />
                           </SelectTrigger>
@@ -617,7 +628,7 @@ function Setting({ open, hiddenTalkPanel, onClose }: SettingProps) {
                     <FormItem className="grid grid-cols-4 items-center gap-4 space-y-0">
                       <FormLabel className="text-right">{t('soundSource')}</FormLabel>
                       <FormControl>
-                        <Select defaultValue={field.value} onValueChange={field.onChange}>
+                        <Select value={field.value} onValueChange={field.onChange}>
                           <SelectTrigger className="col-span-3">
                             <SelectValue placeholder={t('followTheSystem')} />
                           </SelectTrigger>
@@ -631,6 +642,21 @@ function Setting({ open, hiddenTalkPanel, onClose }: SettingProps) {
                             })}
                           </SelectContent>
                         </Select>
+                      </FormControl>
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="autoStartRecord"
+                  render={({ field }) => (
+                    <FormItem className="grid grid-cols-4 items-center gap-4 space-y-0">
+                      <FormLabel className="text-right">{t('autoStartRecord')}</FormLabel>
+                      <FormControl>
+                        <>
+                          <Switch checked={field.value} onCheckedChange={field.onChange} />
+                          <span className="text-center">{field.value ? t('settingEnable') : t('settingDisable')}</span>
+                        </>
                       </FormControl>
                     </FormItem>
                   )}

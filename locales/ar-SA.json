@@ -1,5 +1,4 @@
 {
-  "title": "Gemini Next Chat",
   "status": {
     "thinking": "التفكير"
   },
@@ -66,6 +65,14 @@
   "high": "مرتفع",
   "installPwa": "تثبيت PWA",
   "pwaInstall": "تثبيت تطبيق المتصفح(PWA)",
+  "multimodalSettingDesc": "إعداد المعلمات للنموذج متعدد الوسائط المباشر",
+  "voiceName": "اسم الصوت",
+  "responseType": "نوع الاستجابة",
+  "text": "نص",
+  "audio": "صوت",
+  "image": "صورة",
+  "exit": "خروج",
+  "autoStartRecord": "بدء التسجيل تلقائيًا",
   "autoStopRecord": "إنهاء التسجيل تلقائيًا",
   "settingEnable": "تم التفعيل",
   "settingDisable": "غير مفعل",
@@ -169,5 +176,7 @@
   "shortest": "الأقصر",
   "continuation": "استمرار",
   "addEmojis": "إضافة رموز تعبيرية",
-  "moreTools": "المزيد من الأدوات"
+  "moreTools": "المزيد من الأدوات",
+  "chatContentCleared": "تم مسح محتوى الدردشة",
+  "undo": "تراجع"
 }

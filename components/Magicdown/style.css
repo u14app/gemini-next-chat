@@ -1,0 +1,128 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+.markdown {
+  @apply w-full leading-normal text-gray-900 dark:text-gray-100;
+}
+
+.markdown.small {
+  @apply text-sm;
+}
+
+.markdown li + li {
+  @apply mt-1;
+}
+
+.markdown li > p + p {
+  @apply mt-6;
+}
+
+.markdown strong {
+  @apply font-semibold;
+}
+
+.markdown img {
+  @apply my-4 rounded-md bg-gray-100;
+}
+
+.markdown hr {
+  @apply my-4;
+}
+
+.markdown a {
+  @apply text-blue-600 dark:text-blue-400;
+}
+
+.markdown strong a {
+  @apply font-bold;
+}
+
+.markdown h1 {
+  @apply my-4 border-b pb-2 text-2xl font-semibold leading-tight;
+}
+
+.markdown h2 {
+  @apply my-4 border-b pb-2 text-xl font-semibold leading-tight;
+}
+
+.markdown h3 {
+  @apply my-3 text-base font-semibold leading-snug;
+}
+
+.markdown h4 {
+  @apply my-3 text-sm font-semibold leading-none;
+}
+
+.markdown h5 {
+  @apply my-2 text-sm font-semibold leading-tight;
+}
+
+.markdown h6 {
+  @apply my-2 text-sm font-semibold leading-tight text-gray-600 dark:text-gray-400;
+}
+
+.markdown blockquote {
+  @apply border-l-4 border-gray-300/60 pl-4 pr-4 text-base text-gray-600 dark:border-gray-700 dark:text-gray-400;
+}
+
+.markdown code {
+  @apply inline rounded bg-gray-200/50 px-1 py-0.5 font-mono text-sm dark:bg-[rgb(15,23,42)];
+}
+
+.markdown pre {
+  @apply rounded bg-gray-100 dark:bg-gray-800;
+}
+
+.markdown pre code {
+  @apply block overflow-visible rounded-none bg-transparent p-0;
+}
+
+.markdown ul {
+  @apply list-disc pl-8 text-base;
+}
+
+.markdown li {
+  @apply list-outside;
+}
+
+.markdown.small ul {
+  @apply text-sm;
+}
+
+.markdown ol {
+  @apply list-decimal pl-8 text-base;
+}
+
+.markdown.small ol {
+  @apply text-sm;
+}
+
+.markdown kbd {
+  @apply inline-block rounded border px-1 py-0.5 align-middle font-mono text-xs font-normal shadow;
+}
+
+.markdown table {
+  @apply block w-max max-w-full border-collapse border-spacing-0 overflow-auto border-gray-600 text-base dark:border-gray-300;
+}
+
+.markdown.small table {
+  @apply text-sm;
+}
+
+.markdown table img {
+  @apply bg-transparent;
+}
+
+.markdown th,
+.markdown td {
+  @apply border px-3 py-1;
+}
+
+.markdown th {
+  @apply bg-gray-100 dark:bg-gray-900;
+}
+
+.markdown tr:nth-child(2n) {
+  @apply bg-gray-50 dark:bg-gray-950;
+}

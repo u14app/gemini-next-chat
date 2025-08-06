@@ -1,5 +1,5 @@
-import { FunctionDeclaration, SchemaType } from '@google/generative-ai'
-import type { FunctionDeclarationSchema, FunctionDeclarationSchemaProperty, Schema } from '@google/generative-ai'
+import { FunctionDeclaration, SchemaType } from '@xiangfa/generative-ai'
+import type { FunctionDeclarationSchema, FunctionDeclarationSchemaProperty, Schema } from '@xiangfa/generative-ai'
 import { entries, values, isString, isArray, isObject } from 'lodash-es'
 
 export function findOperationById(plugin: OpenAPIDocument, id: string) {
@@ -13,7 +13,7 @@ export function findOperationById(plugin: OpenAPIDocument, id: string) {
 }
 
 function filterProperties(properties: FunctionDeclarationSchemaProperty) {
-  const schemaProperties: FunctionDeclarationSchemaProperty = { type: SchemaType.OBJECT }
+  const schemaProperties: any = { type: SchemaType.OBJECT }
   for (const [key, value] of entries(properties)) {
     if (key === 'type') {
       if (isString(value) && values(['string', 'number', 'integer', 'boolean', 'array', 'object']).includes(value)) {
@@ -25,7 +25,7 @@ function filterProperties(properties: FunctionDeclarationSchemaProperty) {
       }
     } else if (key === 'items') {
       if (isObject(value)) {
-        schemaProperties.items = filterProperties(value)
+        schemaProperties.items = filterProperties(value as FunctionDeclarationSchemaProperty)
       }
     } else if (key === 'anyOf' || key === 'allOf' || key === 'oneOf') {
       if (isArray(value)) {
@@ -65,7 +65,7 @@ function convertOpenAPIParameter(parameters: OpenAPIParameter[]): FunctionDeclar
   let properties: Record<string, FunctionDeclarationSchemaProperty> = {}
   let required: string[] = []
   for (const parameter of parameters) {
-    let props: FunctionDeclarationSchemaProperty = {}
+    let props: any = {}
     if (parameter.schema) {
       const schema = filterProperties(parameter.schema as FunctionDeclarationSchemaProperty)
       props = { ...schema }

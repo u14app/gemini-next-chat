@@ -98,3 +98,40 @@ export function downloadFile(content: string, filename: string, fileType: string
   document.body.removeChild(a)
   URL.revokeObjectURL(url)
 }
+
+export function hasUploadFiles(messages: Message[] = []): boolean {
+  return messages.some((message) => message.parts.some((part) => part.fileData))
+}
+
+export function getRandomKey(apiKey: string, useUploadKey = false): string {
+  const apiKeyList = apiKey.split(',')
+  if (apiKeyList[0].startsWith('AI') && apiKeyList[0].length === 39) {
+    if (apiKeyList.length === 1) return apiKeyList[0]
+    return useUploadKey ? apiKeyList[0] : shuffleArray(apiKeyList)[0]
+  } else {
+    return apiKey
+  }
+}
+
+export function convertSvgToImage(svg: ChildNode | null) {
+  if (svg) {
+    const text = new XMLSerializer().serializeToString(svg)
+    return downloadFile(text, 'Mermaid', 'image/svg+xml')
+  }
+}
+
+export function isOfficeFile(mimeType: string) {
+  const officeFileTypes = {
+    docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    odt: 'application/vnd.oasis.opendocument.text',
+    odp: 'application/vnd.oasis.opendocument.presentation',
+    ods: 'application/vnd.oasis.opendocument.spreadsheet',
+  }
+  return Object.values(officeFileTypes).includes(mimeType)
+}
+
+export function isFullGemini2FlashModel(model: string) {
+  return model.startsWith('gemini-2.0-flash') && !model.includes('lite') && !model.includes('thinking')
+}

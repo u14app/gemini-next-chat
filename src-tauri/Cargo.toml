@@ -1,6 +1,6 @@
 [package]
 name = "gemini-next-chat"
-version = "1.5.3"
+version = "1.10.1"
 description = "Your private Gemini application."
 authors = ["Amery2010<amery@xiangfa.org>"]
 license = "MIT"

@@ -103,10 +103,9 @@ function AssistantForm(props: Props) {
   const optimizeAssistantPrompt = useCallback(async () => {
     const content = form.getValues('systemInstruction')
     if (content === '') return false
-    const { apiKey, apiProxy, model, password } = useSettingStore.getState()
+    const { apiKey, apiProxy, password } = useSettingStore.getState()
     const config: RequestProps = {
       apiKey,
-      model,
       content,
     }
     if (apiKey !== '') {

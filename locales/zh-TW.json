@@ -65,6 +65,14 @@
   "high": "高",
   "installPwa": "安裝 PWA",
   "pwaInstall": "安裝瀏覽器應用(PWA)",
+  "multimodalSettingDesc": "設定多模態直播模型的參數",
+  "voiceName": "語音名稱",
+  "responseType": "回應類型",
+  "text": "文字",
+  "audio": "音訊",
+  "image": "圖片",
+  "exit": "退出",
+  "autoStartRecord": "自動開始錄音",
   "autoStopRecord": "自動結束錄音",
   "settingEnable": "已啟用",
   "settingDisable": "未啟用",
@@ -168,5 +176,7 @@
   "shortest": "最短",
   "continuation": "續集",
   "addEmojis": "添加表情",
-  "moreTools": "更多工具"
+  "moreTools": "更多工具",
+  "chatContentCleared": "聊天內容已清除",
+  "undo": "撤銷"
 }

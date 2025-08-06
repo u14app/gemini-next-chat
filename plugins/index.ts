@@ -4,6 +4,7 @@ import * as unsplash from './unsplash'
 import * as time from './time'
 import * as weather from './weather'
 import * as search from './search'
+import * as imagen from './imagen'
 
 export const officialPlugins: Record<string, OpenAPIDocument> = {
   OfficialReader: reader.openapi,
@@ -12,10 +13,12 @@ export const officialPlugins: Record<string, OpenAPIDocument> = {
   OfficialTime: time.openapi,
   OfficialWeather: weather.openapi,
   OfficialSearch: search.openapi,
+  OfficialImagen: imagen.openapi,
 }
 
 export const OFFICAL_PLUGINS = {
   SEARCH: 'OfficialSearch',
+  IMAGEN: 'OfficialImagen',
   READER: 'OfficialReader',
   WEATHER: 'OfficialWeather',
   TIME: 'OfficialTime',
@@ -23,20 +26,20 @@ export const OFFICAL_PLUGINS = {
   ARXIV: 'OfficialArxiv',
 }
 
-export function pluginHandle(name: string, options: any) {
+export function pluginHandle(name: string, payload: any) {
   switch (name) {
     case 'OfficialArxiv':
-      return arxiv.handle(options.query)
+      return arxiv.handle(payload.query)
     case 'OfficialReader':
-      return reader.handle(options.query)
+      return reader.handle(payload.query)
     case 'OfficialUnsplash':
-      return unsplash.handle(options.query)
+      return unsplash.handle(payload.query)
     case 'OfficialTime':
-      return time.handle(options.query)
+      return time.handle(payload.query)
     case 'OfficialWeather':
-      return weather.handle(options.query)
+      return weather.handle(payload.query)
     case 'OfficialSearch':
-      return search.handle(options.query)
+      return search.handle(payload.query)
     default:
       throw new Error('Unable to find plugin')
   }

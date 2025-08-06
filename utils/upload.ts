@@ -1,7 +1,7 @@
 import imageCompression from 'browser-image-compression'
 import FileManager, { type FileManagerOptions } from '@/utils/FileManager'
 import { encodeBase64 } from '@/utils/signature'
-import { formatSize } from '@/utils/common'
+import { formatSize, readFileAsDataURL } from '@/utils/common'
 import { isNull, isFunction, isString } from 'lodash-es'
 
 type fileUploadOptions = {
@@ -21,8 +21,7 @@ type imageUploadOptions = {
 }
 
 const compressionOptions = {
-  maxSizeMB: 2,
-  maxWidthOrHeight: 1024,
+  maxSizeMB: 4,
   useWebWorker: true,
   initialQuality: 0.85,
   libURL: 'scripts/browser-image-compression.js',
@@ -56,7 +55,7 @@ export async function fileUpload({
     if (file.type.startsWith('image/')) {
       const compressedFile = await imageCompression(file, compressionOptions)
       uploadFile = new File([compressedFile], file.name, { type: file.type })
-      fileInfor.preview = await imageCompression.getDataUrlFromFile(uploadFile)
+      fileInfor.dataUrl = await imageCompression.getDataUrlFromFile(uploadFile)
       fileInfor.size = uploadFile.size
     } else {
       uploadFile = file
@@ -86,8 +85,15 @@ export async function fileUpload({
     }
 
     const fileManager = new FileManager(fileManagerOptions)
-    // Files smaller than 8MB are uploaded directly
-    if (file.size <= 8388608) {
+    if (uploadFile.size <= 2097152) {
+      // If the file is smaller than 2MB, use DataUrl
+      fileInfor.status = 'ACTIVE'
+      if (!fileInfor.dataUrl) {
+        fileInfor.dataUrl = await readFileAsDataURL(uploadFile)
+      }
+      updateAttachment(fileInfor.id, fileInfor)
+    } else if (file.size <= 8388608) {
+      // If the file is smaller than 8MB are uploaded directly
       fileManager
         .uploadFile(uploadFile)
         .then((fileMetadata) => {
@@ -144,7 +150,7 @@ export async function imageUpload({ files, addAttachment, updateAttachment, onEr
       }
     })
     if (compressedFile) {
-      fileInfor.preview = await imageCompression.getDataUrlFromFile(compressedFile)
+      fileInfor.dataUrl = await imageCompression.getDataUrlFromFile(compressedFile)
       fileInfor.size = compressedFile.size
       fileInfor.status = 'ACTIVE'
       updateAttachment(fileInfor.id, fileInfor)

@@ -1,7 +1,6 @@
 import { create } from 'zustand'
 import { persist, type StorageValue } from 'zustand/middleware'
 import storage from '@/utils/Storage'
-import { customAlphabet } from 'nanoid'
 import { omitBy, isFunction } from 'lodash-es'
 
 type ConversationStore = {

@@ -85,29 +85,11 @@ function ConversationItem(props: Props) {
   const [editTitleMode, setEditTitleMode] = useState<boolean>(false)
   const conversationTitle = useMemo(() => (title ? title : t('chatAnything')), [title, t])
 
-  const handleSelect = useCallback((id: string) => {
-    const { currentId, query, addOrUpdate, setCurrentId } = useConversationStore.getState()
-    const { backup, restore } = useMessageStore.getState()
-    const oldConversation = backup()
-    addOrUpdate(currentId, oldConversation)
-
-    const newConversation = query(id)
-    setCurrentId(id)
-    restore(newConversation)
-  }, [])
-
-  const editTitle = useCallback(
-    (text: string) => {
-      setTitle(text)
-      setEditTitleMode(false)
-    },
-    [setTitle],
-  )
-
   const handleSummaryTitle = useCallback(async (id: string) => {
     const { lang, apiKey, apiProxy, password } = useSettingStore.getState()
     const { currentId, query, addOrUpdate } = useConversationStore.getState()
     const { messages, systemInstruction, setTitle } = useMessageStore.getState()
+
     const conversation = query(id)
     const config: RequestProps = {
       apiKey,
@@ -115,6 +97,9 @@ function ConversationItem(props: Props) {
       messages: id === currentId ? messages : conversation.messages,
       systemRole: id === currentId ? systemInstruction : conversation.systemInstruction,
     }
+
+    if (config.messages.length === 0) return false
+
     if (apiKey !== '') {
       config.baseUrl = apiProxy || GEMINI_API_BASE_URL
     } else {
@@ -132,6 +117,30 @@ function ConversationItem(props: Props) {
     addOrUpdate(id, { ...conversation, title: content })
     if (id === currentId) setTitle(content)
   }, [])
+
+  const handleSelect = useCallback(
+    (id: string) => {
+      const { currentId, query, addOrUpdate, setCurrentId } = useConversationStore.getState()
+      const { title, backup, restore } = useMessageStore.getState()
+      const oldConversation = backup()
+      addOrUpdate(currentId, oldConversation)
+
+      const newConversation = query(id)
+      setCurrentId(id)
+      restore(newConversation)
+
+      if (!title && currentId !== 'default') handleSummaryTitle(currentId)
+    },
+    [handleSummaryTitle],
+  )
+
+  const editTitle = useCallback(
+    (text: string) => {
+      setTitle(text)
+      setEditTitleMode(false)
+    },
+    [setTitle],
+  )
 
   const handleCopy = useCallback(
     (id: string) => {
@@ -175,7 +184,7 @@ function ConversationItem(props: Props) {
       let mdContentList: string[] = []
 
       const wrapJsonCode = (content: string) => {
-        return `\`\`\`json \n${content} \n\`\`\``
+        return `\`\`\`json\n${content}\n\`\`\``
       }
 
       if (conversation.systemInstruction) {
@@ -190,19 +199,12 @@ function ConversationItem(props: Props) {
         } else if (item.role === 'function') {
           mdContentList.push('> Plugin')
         }
-        if (item.attachments) {
-          item.attachments.forEach((attachment) => {
-            if (attachment.preview) {
-              mdContentList.push(`![${attachment.name}](${attachment.preview})`)
-            } else {
-              mdContentList.push(`[${attachment.name}](${attachment.metadata?.uri})`)
-            }
-          })
-        }
         item.parts.forEach((part) => {
-          if (part.inlineData) {
+          if (part.fileData) {
+            mdContentList.push(`[${part.fileData.mimeType}](${part.fileData.fileUri})`)
+          } else if (part.inlineData) {
             mdContentList.push(
-              `[${part.inlineData.mimeType}](data:${part.inlineData.mimeType};base64,${part.inlineData.data})`,
+              `${part.inlineData.mimeType.startsWith('data:image/') ? '!' : ''}[${part.inlineData.mimeType}](data:${part.inlineData.mimeType};base64,${part.inlineData.data})`,
             )
           } else if (part.functionCall) {
             mdContentList.push(part.functionCall.name)
@@ -211,7 +213,12 @@ function ConversationItem(props: Props) {
             mdContentList.push(part.functionResponse.name)
             mdContentList.push(wrapJsonCode(JSON.stringify(part.functionResponse.response, null, 2)))
           } else if (part.text) {
-            mdContentList.push(part.text)
+            let content = part.text
+            if (item.groundingMetadata) {
+              const { groundingChunks = [] } = item.groundingMetadata
+              content += `\n\n---\n\n${groundingChunks.map((item) => `- [${item.web?.title}](${item.web?.uri})`).join('\n')}`
+            }
+            mdContentList.push(content)
           }
         })
       })
@@ -232,11 +239,7 @@ function ConversationItem(props: Props) {
     >
       {editTitleMode ? (
         <div className="relative w-full">
-          <Input
-            className="my-1 h-8"
-            defaultValue={conversationTitle}
-            onChange={(ev) => setCustomTitle(ev.target.value)}
-          />
+          <Input className="my-1 h-8" value={conversationTitle} onChange={(ev) => setCustomTitle(ev.target.value)} />
           <Button
             className="absolute right-1 top-2 h-6 w-6"
             size="icon"
@@ -394,7 +397,7 @@ function AppSidebar() {
             <SidebarGroupContent>
               <SidebarMenu>
                 <SidebarMenuItem>
-                  {pinnedList.map((item) => {
+                  {pinnedList.reverse().map((item) => {
                     return (
                       <ConversationItem
                         key={item.id}
@@ -416,7 +419,7 @@ function AppSidebar() {
             <SidebarGroupContent>
               <SidebarMenu>
                 <SidebarMenuItem>
-                  {list.map((item) => {
+                  {list.reverse().map((item) => {
                     return (
                       <ConversationItem
                         key={item.id}

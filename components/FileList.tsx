@@ -12,9 +12,9 @@ type Props = {
 
 function FileCover({ file }: { file: FileInfor }) {
   if (file.mimeType.startsWith('image/')) {
-    return file.preview ? (
+    return file.dataUrl || file.preview ? (
       // eslint-disable-next-line
-      <img className="block h-14 w-full rounded-sm object-cover" src={file.preview} alt="preview" />
+      <img className="block h-14 w-full rounded-sm object-cover" src={file.dataUrl || file.preview} alt="preview" />
     ) : (
       <FileImage className="m-1 h-12 w-12" />
     )
@@ -34,24 +34,26 @@ function FileList({ fileList, onRemove }: Props) {
         return (
           <div
             className={cn(
-              'flex rounded-md border p-1.5',
+              'flex rounded-md border p-1.5 text-left',
               file.status === 'FAILED' ? 'border-red-500 text-red-500' : '',
             )}
             key={file.id}
           >
-            <div className="relative mr-1.5 h-14 w-1/3">
+            <div className="relative mr-1.5 h-14 w-1/4">
               {<FileCover file={file} />}
               {file.status === 'PROCESSING' ? <Loader2 className="absolute left-4 top-4 h-6 w-6 animate-spin" /> : null}
             </div>
-            <div className="relative h-14 w-2/3 flex-auto pr-4 text-sm">
-              <h4 className="text-line-clamp-2 font-medium leading-5" title={file.name}>
-                {file.name}
-              </h4>
-              <p>
-                <small>{formatSize(file.size)}</small>
-              </p>
+            <div className="flex h-14 w-3/4 flex-auto text-sm">
+              <div className="flex-1">
+                <h4 className="text-line-clamp-2 break-all font-medium leading-5" title={file.name}>
+                  {file.name}
+                </h4>
+                <p>
+                  <small>{formatSize(file.size)}</small>
+                </p>
+              </div>
               {isFunction(onRemove) ? (
-                <X className="absolute -right-1 -top-0.5 h-5 w-5 cursor-pointer" onClick={() => onRemove(file.id)} />
+                <X className="relative -top-0.5 h-5 w-5 cursor-pointer" onClick={() => onRemove(file.id)} />
               ) : null}
             </div>
           </div>

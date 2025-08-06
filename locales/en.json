@@ -1,6 +1,6 @@
 {
   "status": {
-    "thinking": "Thingking"
+    "thinking": "Thinking"
   },
   "clearChatContent": "Clear chat content",
   "chatMode": "Chat Mode",
@@ -65,7 +65,15 @@
   "high": "High",
   "installPwa": "Install PWA",
   "pwaInstall": "Install browser application (PWA)",
-  "autoStopRecord": "Automatically end recording",
+  "multimodalSettingDesc": "Setting parameters for the multimodal live model",
+  "voiceName": "Voice Name",
+  "responseType": "Response type",
+  "text": "Text",
+  "audio": "Audio",
+  "image": "Image",
+  "exit": "Exit",
+  "autoStartRecord": "Auto start recording",
+  "autoStopRecord": "Auto end recording",
   "settingEnable": "Enabled",
   "settingDisable": "Disabled",
   "resetSetting": "Reset Setting",
@@ -168,5 +176,7 @@
   "shortest": "Shortest",
   "continuation": "Continuation",
   "addEmojis": "Add Emojis",
-  "moreTools": "More Tools"
+  "moreTools": "More Tools",
+  "chatContentCleared": "Chat content cleared",
+  "undo": "Undo"
 }

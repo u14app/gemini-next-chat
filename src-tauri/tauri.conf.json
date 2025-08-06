@@ -36,7 +36,7 @@
   },
   "productName": "gemini-next-chat",
   "mainBinaryName": "gemini-next-chat",
-  "version": "1.5.3",
+  "version": "1.10.1",
   "identifier": "com.u14.app",
   "plugins": {},
   "app": {

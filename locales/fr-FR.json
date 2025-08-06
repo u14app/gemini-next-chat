@@ -65,6 +65,14 @@
   "high": "Haut",
   "installPwa": "Installer PWA",
   "pwaInstall": "Installer l'application de navigateur (PWA)",
+  "multimodalSettingDesc": "Paramètres de configuration pour le modèle multimodal en direct",
+  "voiceName": "Nom de la voix",
+  "responseType": "Type de réponse",
+  "text": "Texte",
+  "audio": "Audio",
+  "image": "Image",
+  "exit": "Sortir",
+  "autoStartRecord": "Démarrer l'enregistrement automatiquement",
   "autoStopRecord": "Arrêter l'enregistrement automatiquement",
   "settingEnable": "Activé",
   "settingDisable": "Désactivé",
@@ -168,5 +176,7 @@
   "shortest": "Le Plus Court",
   "continuation": "Continuation",
   "addEmojis": "Ajouter des Emojis",
-  "moreTools": "Plus d'Outils"
+  "moreTools": "Plus d'Outils",
+  "chatContentCleared": "Contenu du chat effacé",
+  "undo": "Annuler"
 }

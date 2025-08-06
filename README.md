@@ -67,6 +67,10 @@ Supports Gemini 1.5 and Gemini 2.0 multimodal models
 
 Support plugins, with built-in Web search, Web reader, Arxiv search, Weather and other practical plugins
 
+![Multimodal Live](./docs/images/multimodal-live.jpg)
+
+Support Multimodal Live API, smooth voice and video experience
+
 ![Tray app](./docs/images/trayapp.png)
 
 A cross-platform application client that supports a permanent menu bar, doubling your work efficiency
@@ -98,13 +102,13 @@ A cross-platform application client that supports a permanent menu bar, doubling
 - **Deploy for free with one-click** on Vercel in under 1 minute
 - Provides a very small (~4MB) cross-platform client (Windows/MacOS/Linux), can stay in the menu bar to improve office efficiency
 - Supports multi-modal models and can understand images, videos, audios and some text documents
-- Talk mode: Let you talk directly to Gemini
+- Talk mode: Let you talk directly to Gemini, support Multimodal Live API
 - Visual recognition allows Gemini to understand the content of the picture
 - Assistant market with hundreds of selected system instruction
 - Support plugins, with built-in Web search, Web reader, Arxiv search, Weather and other practical plugins
 - Conversation list, so you can keep track of important conversations or discuss different topics with Gemini
 - Artifact support, allowing you to modify the conversation content more elegantly
-- Full Markdown support: KaTex formulas, code highlighting, and more
+- Full Markdown support: KaTex formulas, code highlighting, Mermaid charts, etc.
 - Automatically compress contextual chat records to save Tokens while supporting very long conversations
 - Privacy and security, all data is saved locally in the user's browser
 - Support PWA, can run as an application
@@ -120,12 +124,14 @@ A cross-platform application client that supports a permanent menu bar, doubling
 - [x] Implementation based on functionCall plug-in
 - [x] Support conversation list
 - [x] Support conversation export features
-- [ ] Enable Multimodal Live API
+- [x] Enable Multimodal Live API
+- [ ] Support networked Deep Research mode
+- [ ] Support local knowledge base
 
 ## Get Started
 
 1. Get [Gemini API Key](https://aistudio.google.com/app/apikey)
-2. One-click deployment of the project, you can choose to deploy to Vercel or Cloudflare
+2. One-click deployment of the project, you can choose to deploy to Vercel
 
    [![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fu14app%2Fgemini-next-chat&project-name=gemini-next-chat&env=GEMINI_API_KEY&env=ACCESS_PASSWORD&repository-name=gemini-next-chat)
 
@@ -145,7 +151,8 @@ You can star or watch this project or follow author to get release notifications
 
 #### `GEMINI_API_KEY` (optional)
 
-Your Gemini api key. If you need to `enable` the server api, this is required.
+Your Gemini api key. This is required if you need to `enable` the server api. **This variable does not affect the value of the Gemini key on the frontend pages.**
+Supports multiple keys, each key is separated by `,`, i.e. `key1,key2,key3`
 
 #### `GEMINI_API_BASE_URL` (optional)
 
@@ -153,7 +160,7 @@ Your Gemini api key. If you need to `enable` the server api, this is required.
 
 > Examples: `http://your-gemini-proxy.com`
 
-Override Gemini api request base url. **To avoid server-side proxy url leaks, links in front-end pages will not be overwritten. **
+Override the Gemini api request base url. **In order to avoid server-side proxy url leakage, the value in the front-end page will not be overwritten and affected.**
 
 #### `NEXT_PUBLIC_GEMINI_MODEL_LIST` (optional)
 
@@ -276,7 +283,7 @@ If you deploy the project in a subdirectory and encounter resource loading failu
 ### Inspiration
 
 - [Lobe Chat](https://github.com/lobehub/lobe-chat)
-- [ChatGPT-Next-Web](https://github.com/ChatGPTNextWeb/ChatGPT-Next-Web)
+- [Next Web](https://github.com/ChatGPTNextWeb/NextChat)
 - [Open Canvas](https://github.com/langchain-ai/open-canvas)
 
 ## FAQ
@@ -287,13 +294,31 @@ If you deploy the project in a subdirectory and encounter resource loading failu
 
 2. Use Cloudflare Worker for API proxy forwarding. For detailed settings, please refer to [How to Use Cloudflare Worker Proxy API](./docs/How-to-deploy-the-Cloudflare-Worker-api-proxy.md). Note that this solution may not work properly in some cases.
 
-#### Why can’t I upload common documents such as doc, excel, and ppt?
+#### Why can't I access the website in China after deploying it with one click using Vercel
 
-Currently, the two kind models `Gemini 1.5` and `Gemini 2.0` support most images, audios, videos and some text files. For details. For other document types, we will try to use [LangChain.js](https://js.langchain.com/v0.2/docs/introduction/) later.
+The domain name generated after deploying Vercel was blocked by the Chinese network a few years ago, but the server's IP address was not blocked. You can customize the domain name and access it normally in China. Since Vercel does not have a server in China, it is normal to have some network fluctuations sometimes. For how to set the domain name, you can refer to the solution article [Vercel binds a custom domain name](https://docs.tangly1024.com/article/vercel-domain) that I found online.
+
+#### Why can't I use Multimodal Live
+
+Currently, the Multimodal Live API is only supported by the Gemini 2.0 Flash model, so you need to use the Gemini 2.0 Flash model to use it. Since the Gemini Multimodal Live API is not accessible in China, you may need to deploy a proxy forwarding API using Cloudflare Worker. For more information, refer to [Proxying the Multimodal Live API with Cloudflare Worker](./docs/Proxying-the-Multimodal-Live-API-with-Cloudflare-Worker.md).
+_Currently, Multimodal Live API does not support Chinese voice output._
+
+## Contributing
+
+Contributions to this project are welcome! If you would like to contribute, please follow these steps:
+
+1. Fork the repository on GitHub.
+2. Clone your fork to your local machine.
+3. Create a new branch for your changes.
+4. Make your changes and commit them to your branch.
+5. Push your changes to your fork on GitHub.
+6. Open a pull request from your branch to the main repository.
+
+Please ensure that your code follows the project's coding style and that all tests pass before submitting a pull request. If you find any bugs or have suggestions for improvements, feel free to open an issue on GitHub.
 
 ## LICENSE
 
-[MIT](https://www.apache.org/licenses/LICENSE-2.0)
+This project is licensed under the [MIT](https://www.apache.org/licenses/LICENSE-2.0) License. See the LICENSE file for the full license text.
 
 ## Star History
 
