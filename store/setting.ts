@@ -1,8 +1,5 @@
 import { create } from 'zustand'
-import { persist, type StorageValue } from 'zustand/middleware'
-import storage from '@/utils/Storage'
 import { DefaultModel } from '@/constant/model'
-import { omitBy, isFunction } from 'lodash-es'
 
 type DefaultSetting = Omit<Setting, 'isProtected' | 'talkMode' | 'sidebarState'>
 
@@ -39,36 +36,16 @@ const defaultSetting: DefaultSetting = {
   autoStopRecord: false,
 }
 
-export const useSettingStore = create(
-  persist<SettingStore>(
-    (set) => ({
-      ...defaultSetting,
-      talkMode: 'chat',
-      sidebarState: 'collapsed',
-      update: (values) => set((state) => ({ ...state, ...values })),
-      reset: () => {
-        set(defaultSetting)
-        return defaultSetting
-      },
-    }),
-    {
-      name: 'settingStore',
-      version: 1,
-      storage: {
-        getItem: async (key: string) => {
-          return await storage.getItem<StorageValue<SettingStore>>(key)
-        },
-        setItem: async (key: string, store: StorageValue<SettingStore>) => {
-          return await storage.setItem(key, {
-            state: omitBy(store.state, (item) => isFunction(item)),
-            version: store.version,
-          })
-        },
-        removeItem: async (key: string) => await storage.removeItem(key),
-      },
-    },
-  ),
-)
+export const useSettingStore = create<SettingStore>((set) => ({
+  ...defaultSetting,
+  talkMode: 'chat',
+  sidebarState: 'collapsed',
+  update: (values) => set((state) => ({ ...state, ...values })),
+  reset: () => {
+    set(defaultSetting)
+    return defaultSetting
+  },
+}))
 
 export const useEnvStore = create<EnvStore>((set) => ({
   modelList: '',
