@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { persist } from 'zustand/middleware'
 import { DefaultModel } from '@/constant/model'
 
 type DefaultSetting = Omit<Setting, 'isProtected' | 'talkMode' | 'sidebarState'>
@@ -36,16 +37,21 @@ const defaultSetting: DefaultSetting = {
   autoStopRecord: false,
 }
 
-export const useSettingStore = create<SettingStore>((set) => ({
-  ...defaultSetting,
-  talkMode: 'chat',
-  sidebarState: 'collapsed',
-  update: (values) => set((state) => ({ ...state, ...values })),
-  reset: () => {
-    set(defaultSetting)
-    return defaultSetting
-  },
-}))
+export const useSettingStore = create(
+  persist<SettingStore>(
+    (set) => ({
+      ...defaultSetting,
+      talkMode: 'chat',
+      sidebarState: 'collapsed',
+      update: (values) => set((state) => ({ ...state, ...values })),
+      reset: () => {
+        set(defaultSetting)
+        return defaultSetting
+      },
+    }),
+    { name: 'twg-settings' },
+  ),
+)
 
 export const useEnvStore = create<EnvStore>((set) => ({
   modelList: '',

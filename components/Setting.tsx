@@ -65,6 +65,7 @@ function Setting({ open, hiddenTalkPanel, onClose }: SettingProps) {
   const { toast } = useToast()
   const pwaInstall = usePWAInstall()
   const modelStore = useModelStore()
+  const settingStore = useSettingStore()
   const { isProtected, buildMode, modelList: MODEL_LIST } = useEnvStore()
   const [ttsLang, setTtsLang] = useState<string>('')
   const [hiddenPasswordInput, setHiddenPasswordInput] = useState<boolean>(false)
@@ -120,16 +121,7 @@ function Setting({ open, hiddenTalkPanel, onClose }: SettingProps) {
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
-    defaultValues: async () => {
-      return new Promise((resolve) => {
-        const state = useSettingStore.getState()
-        const store = omitBy(state, (item) => isFunction(item)) as z.infer<typeof formSchema>
-        setTtsLang(state.ttsLang)
-        setTimeout(() => {
-          resolve(store)
-        }, 500)
-      })
-    },
+    defaultValues: omitBy(settingStore, (item) => isFunction(item)),
   })
 
   const handleTTSChange = (value: string) => {
