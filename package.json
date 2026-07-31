@@ -31,7 +31,7 @@
     "@automerge/automerge": "^3.3.2",
     "@google/genai": "^2.11.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
-    "@radix-ui/react-dropdown-menu": "^2.1.21",
+    "@radix-ui/react-dropdown-menu": "^2.1.24",
     "@tanstack/react-virtual": "^3.14.7",
     "@xiangfa/mindmap": "^0.7.1",
     "aws4fetch": "^1.0.20",
