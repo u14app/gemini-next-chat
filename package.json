@@ -42,7 +42,7 @@
     "localforage": "^1.10.0",
     "lucide-react": "1.24.0",
     "mermaid": "^11.16.0",
-    "next": "^16.2.11",
+    "next": "^16.2.12",
     "next-intl": "^4.13.1",
     "openai": "^6.47.0",
     "opfs-tools": "^0.7.4",
