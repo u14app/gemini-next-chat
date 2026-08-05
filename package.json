@@ -74,7 +74,7 @@
     "babel-plugin-react-compiler": "^1.0.0",
     "eslint": "^9.39.4",
     "eslint-config-next": "^16.2.10",
-    "jsdom": "^29.1.1",
+    "jsdom": "^30.0.1",
     "prettier": "^3.9.4",
     "tailwindcss": "^4.3.3",
     "typescript": "^6.0.3",
