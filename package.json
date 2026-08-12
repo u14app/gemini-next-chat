@@ -32,7 +32,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.111.0",
     "@automerge/automerge": "^3.3.2",
-    "@google/genai": "^2.15.0",
+    "@google/genai": "^2.16.0",
     "@modelcontextprotocol/sdk": "^1.30.0",
     "@radix-ui/react-dropdown-menu": "^2.1.24",
     "@tanstack/react-virtual": "^3.14.7",
