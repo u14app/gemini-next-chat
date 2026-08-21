@@ -83,8 +83,9 @@ See [CHANGELOG.md](CHANGELOG.md) for the complete release notes.
 
 ## Features
 
-- Multi-provider chat with Google, Anthropic, OpenAI, and OpenAI-compatible
-  endpoints, including provider-scoped custom model capabilities.
+- Multi-provider chat with Google, Anthropic, OpenAI, OpenAI-compatible,
+  and OrcaRouter endpoints, including provider-scoped custom model
+  capabilities.
 - Native image generation and image editing for models whose metadata exposes image output/input, with ordered mixed text/image message blocks and OPFS-backed Blob URL display caching.
 - File-backed multimodal image input without Base64 for native OpenAI, Google,
   and Anthropic chat; HEIC/HEIF conversion and staged client-side compression

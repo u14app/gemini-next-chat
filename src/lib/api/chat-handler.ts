@@ -36,7 +36,6 @@ import {
   isOpenAIProviderType,
   isAnthropicProviderType,
   isGoogleProviderType,
-  OPENAI_COMPATIBLE_PROVIDER_TYPE,
 } from "../providers/providerTypes";
 import { safeServerLogError } from "../utils/safeServerLog";
 import { ValidationError } from "../errors";
@@ -236,7 +235,7 @@ export async function handleChatStream(options: ChatHandlerOptions) {
         } finally {
           await prepared.cleanup();
         }
-      } else if (provider.type === OPENAI_COMPATIBLE_PROVIDER_TYPE) {
+      } else if (isOpenAIProviderType(provider.type)) {
         if (hasUploadedImageFiles(history, attachments || [])) {
           throw new ValidationError(
             "This OpenAI-compatible provider does not support file-based image inputs. Use a remote HTTPS image URL or a native OpenAI, Google, or Anthropic provider.",

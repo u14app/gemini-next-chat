@@ -1,7 +1,7 @@
 import type { LocalEncryptedSecretEnvelope } from "../security/localSecrets";
 
 export type ProviderType =
-  "OpenAI Compatible" | "OpenAI" | "Anthropic" | "Google";
+  "OpenAI Compatible" | "OpenAI" | "Anthropic" | "Google" | "OrcaRouter";
 
 export interface ModelProvider {
   id: string;

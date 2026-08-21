@@ -42,8 +42,10 @@ import {
   GOOGLE_PROVIDER_TYPE,
   OPENAI_COMPATIBLE_PROVIDER_TYPE,
   OPENAI_PROVIDER_TYPE,
+  ORCAROUTER_PROVIDER_TYPE,
   isAnthropicProviderType,
   isGoogleProviderType,
+  isOrcaRouterProviderType,
 } from "@/lib/providers/providerTypes";
 import {
   encryptLocalSecret,
@@ -72,6 +74,9 @@ function getProviderApiKeyHelpUrl(type: ProviderType | undefined) {
   if (type === OPENAI_PROVIDER_TYPE) {
     return "https://platform.openai.com/api-keys";
   }
+  if (isOrcaRouterProviderType(type)) {
+    return "https://www.orcarouter.ai";
+  }
   return undefined;
 }
 
@@ -94,6 +99,7 @@ function getProviderBaseUrlPlaceholder(
 ) {
   if (isGoogleProviderType(type)) return t("googleBaseUrlPlaceholder");
   if (isAnthropicProviderType(type)) return t("anthropicBaseUrlPlaceholder");
+  if (isOrcaRouterProviderType(type)) return t("orcarouterBaseUrlPlaceholder");
   return t("openaiBaseUrlPlaceholder");
 }
 
@@ -200,6 +206,12 @@ const ProviderSettings = () => {
       label: t("anthropic"),
       endpointPath: "/v1/messages",
       endpointClassName: "text-amber-500 dark:text-amber-400",
+    },
+    {
+      value: ORCAROUTER_PROVIDER_TYPE,
+      label: t("orcarouter"),
+      endpointPath: "/v1/chat/completions",
+      endpointClassName: "text-cyan-600 dark:text-cyan-400",
     },
   ];
 
