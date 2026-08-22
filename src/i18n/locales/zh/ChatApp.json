@@ -9,7 +9,7 @@
   "foreignGenerationActive": "另一台设备正在生成此回复。在其检查点失效前，本对话仅可读取。",
   "offlineReadOnly": "当前为离线模式：仍可查看历史与切换分支，草稿会保存在本地；无法修改对话或生成内容。",
   "sessionUsage": "会话 Token 与上下文预算",
-  "sessionUsageAria": "打开会话用量：{count} 个 Token",
+  "sessionUsageAria": "打开会话用量：{count} 个词元",
   "sessionTotalTokens": "会话总量",
   "promptTokens": "输入",
   "completionTokens": "输出",

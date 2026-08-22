@@ -72,6 +72,7 @@ describe("chat shell accessibility", () => {
     expect(chatShell).toContain(
       '<MessageSquarePlus size={16} aria-hidden="true" />',
     );
+    expect(chatShell).toContain('className="md:hidden"');
   });
 
   it("contains workspace settings scrolling on small viewports", () => {

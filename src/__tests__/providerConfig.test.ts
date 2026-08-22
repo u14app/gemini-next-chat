@@ -127,6 +127,26 @@ describe("provider config normalization", () => {
     expect(provider?.baseUrl).toBe("http://127.0.0.1:11434/v1/");
   });
 
+  it("enables direct calls only for the literal boolean true", () => {
+    expect(
+      normalizeModelProvider({ id: "TRUE", directCall: true })?.directCall,
+    ).toBe(true);
+    expect(
+      normalizeModelProvider({ id: "STRING", directCall: "false" })?.directCall,
+    ).toBeUndefined();
+    expect(
+      normalizeModelProvider({ id: "NUMBER", directCall: 1 })?.directCall,
+    ).toBeUndefined();
+  });
+
+  it("keeps existing providers without a direct-call setting disabled", () => {
+    const migrated = migrateCoreSettingsState({
+      providers: [{ id: "EXISTING", type: "OpenAI Compatible" }],
+    });
+
+    expect(migrated.providers?.[0]?.directCall).toBeUndefined();
+  });
+
   it("filters invalid providers and caps provider/model counts", () => {
     const providers = Array.from(
       { length: PROVIDER_CONFIG_LIMITS.maxProviders + 5 },

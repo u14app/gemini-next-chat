@@ -260,6 +260,13 @@ user account system. Before offering Neo Chat as a public multi-user SaaS, add
 account authentication, tenant isolation, server-side secret storage, quotas,
 audit logs, abuse controls, and provider spend limits.
 
+The per-provider **direct call** toggle bypasses this gate entirely: those
+requests go from the browser to the provider without touching the server, so
+`ACCESS_PASSWORD`, request-proof signing, and rate limiting do not apply to
+them. For BYOK providers the user is spending their own key, but do not assume
+"gate the app" equals "gate the models". The server default provider is never
+eligible for direct calls, so server-held keys stay behind the gate.
+
 ## Dependency Gate
 
 Production changes should pass:

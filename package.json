@@ -2,7 +2,7 @@
   "name": "neo-chat",
   "description": "An omni AI chat application with a clean UI and excellent performance.",
   "private": true,
-  "version": "2.4.0",
+  "version": "2.5.0",
   "license": "MIT",
   "packageManager": "pnpm@10.30.3",
   "type": "module",

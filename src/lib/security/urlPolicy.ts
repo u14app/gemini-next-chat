@@ -198,27 +198,78 @@ export function isLocalhostName(hostname: string): boolean {
   return host === "localhost" || host.endsWith(".localhost");
 }
 
+function normalizeIpAddress(address: string): string {
+  return address.toLowerCase().replace(/^\[/, "").replace(/\]$/, "");
+}
+
+function parseIpv4Parts(input: string): number[] | null {
+  const parts = input.split(".").map((part) => Number(part));
+  if (
+    parts.length !== 4 ||
+    parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)
+  ) {
+    return null;
+  }
+  return parts;
+}
+
+function ipv4ToNumber(parts: number[]): number {
+  return parts.reduce((acc, part) => (acc << 8) + part, 0) >>> 0;
+}
+
+function isIpv4InCidr(parts: number[], base: number, prefix: number): boolean {
+  const mask = prefix === 0 ? 0 : (0xffffffff << (32 - prefix)) >>> 0;
+  return (ipv4ToNumber(parts) & mask) === (base & mask);
+}
+
+function parseIpv4MappedIpv6(value: string): number[] | null {
+  const dottedMatch = value.match(
+    /^(?:::ffff:|0:0:0:0:0:ffff:)(\d{1,3}(?:\.\d{1,3}){3})$/,
+  );
+  if (dottedMatch) return parseIpv4Parts(dottedMatch[1]);
+
+  const hexadecimalMatch = value.match(
+    /^(?:::ffff:|0:0:0:0:0:ffff:)([0-9a-f]{1,4}):([0-9a-f]{1,4})$/,
+  );
+  if (!hexadecimalMatch) return null;
+
+  const high = Number.parseInt(hexadecimalMatch[1], 16);
+  const low = Number.parseInt(hexadecimalMatch[2], 16);
+  return [high >>> 8, high & 0xff, low >>> 8, low & 0xff];
+}
+
+/**
+ * Literal IP ranges that are safe targets for an explicit browser-to-LAN
+ * direct call. Hostnames are intentionally excluded to prevent DNS aliases
+ * from widening the HTTP allowlist.
+ */
+export function isLocalNetworkIpAddress(address: string): boolean {
+  const value = normalizeIpAddress(address);
+  const mappedIpv4 = parseIpv4MappedIpv6(value);
+  const ipv4 = mappedIpv4 || parseIpv4Parts(value);
+  if (ipv4) {
+    const cidrs: Array<[number, number]> = [
+      [0x0a000000, 8],
+      [0x7f000000, 8],
+      [0xa9fe0000, 16],
+      [0xac100000, 12],
+      [0xc0a80000, 16],
+    ];
+    return cidrs.some(([base, prefix]) => isIpv4InCidr(ipv4, base, prefix));
+  }
+
+  if (value === "::1" || value === "0:0:0:0:0:0:0:1") return true;
+  if (!value.includes(":")) return false;
+
+  const firstSegment = Number.parseInt(value.split(":", 1)[0], 16);
+  if (!Number.isFinite(firstSegment)) return false;
+  return (
+    (firstSegment & 0xfe00) === 0xfc00 || (firstSegment & 0xffc0) === 0xfe80
+  );
+}
+
 export function isPrivateIpAddress(address: string): boolean {
-  const value = address.toLowerCase();
-
-  const parseIpv4Parts = (input: string): number[] | null => {
-    const parts = input.split(".").map((part) => Number(part));
-    if (
-      parts.length !== 4 ||
-      parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)
-    ) {
-      return null;
-    }
-    return parts;
-  };
-
-  const ipv4ToNumber = (parts: number[]) =>
-    parts.reduce((acc, part) => (acc << 8) + part, 0) >>> 0;
-
-  const isIpv4InCidr = (parts: number[], base: number, prefix: number) => {
-    const mask = prefix === 0 ? 0 : (0xffffffff << (32 - prefix)) >>> 0;
-    return (ipv4ToNumber(parts) & mask) === (base & mask);
-  };
+  const value = normalizeIpAddress(address);
 
   const isNonPublicIpv4 = (input: string) => {
     const parts = parseIpv4Parts(input);
@@ -250,10 +301,8 @@ export function isPrivateIpAddress(address: string): boolean {
   }
 
   if (value.includes(":")) {
-    const ipv4MappedMatch = value.match(/::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/);
-    if (ipv4MappedMatch) {
-      return isPrivateIpAddress(ipv4MappedMatch[1]);
-    }
+    const ipv4Mapped = parseIpv4MappedIpv6(value);
+    if (ipv4Mapped) return isNonPublicIpv4(ipv4Mapped.join("."));
 
     return (
       value === "::" ||

@@ -55,6 +55,11 @@ import {
   supportsModality,
 } from "@/lib/utils/model";
 import { Button } from "@/components/ui/primitives";
+import {
+  describeDirectCallError,
+  fetchDirectProviderModels,
+  shouldUseDirectCall,
+} from "@/services/api/chat/transport";
 
 type ProviderTypeOption = {
   value: ProviderType;
@@ -173,6 +178,11 @@ const ProviderSettings = () => {
   const providerBaseUrlInputId = `${currentProviderDomId}-provider-base-url`;
   const providerApiKeyInputId = `${currentProviderDomId}-provider-api-key`;
   const providerEnabledInputId = `${currentProviderDomId}-provider-enabled`;
+  const providerDirectCallInputId = `${currentProviderDomId}-provider-direct-call`;
+  // HTTP 仅允许本机或局域网地址；HTTPS 页面还可能拦截混合内容
+  const showDirectCallInsecureWarning =
+    Boolean(currentProvider?.directCall) &&
+    currentProviderBaseUrl.trim().toLowerCase().startsWith("http://");
   const providerApiKeyHelpUrl = getProviderApiKeyHelpUrl(currentProvider?.type);
   const providerBaseUrlPreview = currentProvider
     ? getProviderBaseUrlPreview(currentProviderBaseUrl, currentProvider.type)
@@ -290,37 +300,57 @@ const ProviderSettings = () => {
     setFetchingProviderId(providerSnapshot.id);
     setFetchError(null);
     try {
-      const response = await fetchWithByokRetry(async () =>
-        signedApiFetch("/api/providers/models", {
-          method: "POST",
-          signal: controller.signal,
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            provider: await buildProviderRuntimeConfig(providerSnapshot),
+      let models: string[];
+
+      if (shouldUseDirectCall(providerSnapshot)) {
+        try {
+          models = await fetchDirectProviderModels(
+            providerSnapshot,
+            controller.signal,
+          );
+        } catch (error) {
+          throw describeDirectCallError(error, providerSnapshot);
+        }
+
+        if (
+          requestId !== fetchRequestIdRef.current ||
+          controller.signal.aborted
+        ) {
+          return;
+        }
+      } else {
+        const response = await fetchWithByokRetry(async () =>
+          signedApiFetch("/api/providers/models", {
+            method: "POST",
+            signal: controller.signal,
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              provider: await buildProviderRuntimeConfig(providerSnapshot),
+            }),
           }),
-        }),
-      );
-
-      if (
-        requestId !== fetchRequestIdRef.current ||
-        controller.signal.aborted
-      ) {
-        return;
-      }
-
-      if (!response.ok) {
-        throw new Error(
-          await getResponseErrorMessage(response, t("failedToFetchModels")),
         );
-      }
 
-      const data = await readJsonResponseOrThrow<{ models?: string[] }>(
-        response,
-        t("failedToFetchModels"),
-      );
-      const models = data.models || [];
+        if (
+          requestId !== fetchRequestIdRef.current ||
+          controller.signal.aborted
+        ) {
+          return;
+        }
+
+        if (!response.ok) {
+          throw new Error(
+            await getResponseErrorMessage(response, t("failedToFetchModels")),
+          );
+        }
+
+        const data = await readJsonResponseOrThrow<{ models?: string[] }>(
+          response,
+          t("failedToFetchModels"),
+        );
+        models = data.models || [];
+      }
 
       if (models.length > 0) {
         updateProvider(providerSnapshot.id, { modelsList: models });
@@ -520,7 +550,7 @@ const ProviderSettings = () => {
             <div className="animate-in fade-in slide-in-from-bottom-2 duration-300 space-y-6">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 {!isServerDefaultProvider && (
-                  <div className="space-y-2">
+                  <div className="space-y-3">
                     <label
                       htmlFor={providerNameInputId}
                       className="text-sm font-medium text-gray-700 dark:text-foreground/85"
@@ -545,7 +575,7 @@ const ProviderSettings = () => {
                   </div>
                 )}
                 {!isServerDefaultProvider && (
-                  <div className="space-y-2">
+                  <div className="space-y-3">
                     <label
                       htmlFor={providerTypeInputId}
                       className="text-sm font-medium text-gray-700 dark:text-foreground/85"
@@ -578,7 +608,7 @@ const ProviderSettings = () => {
                   </div>
                 )}
                 {!isServerDefaultProvider && (
-                  <div className="col-span-1 md:col-span-2 space-y-2">
+                  <div className="col-span-1 md:col-span-2 space-y-3">
                     <label
                       htmlFor={providerBaseUrlInputId}
                       className="text-sm font-medium text-gray-700 dark:text-foreground/85"
@@ -628,7 +658,7 @@ const ProviderSettings = () => {
                     ) : null}
                   </div>
                 )}
-                <div className="col-span-1 md:col-span-2 space-y-2">
+                <div className="col-span-1 md:col-span-2 space-y-3">
                   <label
                     htmlFor={providerApiKeyInputId}
                     className="text-sm font-medium text-gray-700 dark:text-foreground/85 flex items-center justify-between gap-2"
@@ -683,6 +713,38 @@ const ProviderSettings = () => {
                 {isServerDefaultProvider && (
                   <div className="col-span-1 md:col-span-2 rounded-xl border border-blue-100 bg-blue-50/70 px-4 py-3 text-xs text-blue-700 dark:border-blue-900/40 dark:bg-blue-900/10 dark:text-blue-200">
                     {t("serverDefaultProviderDesc")}
+                  </div>
+                )}
+                {!isServerDefaultProvider && (
+                  <div className="col-span-1 md:col-span-2 pt-2">
+                    <label className="inline-flex items-center cursor-pointer group">
+                      <div className="relative">
+                        <input
+                          id={providerDirectCallInputId}
+                          name="providerDirectCall"
+                          type="checkbox"
+                          className="sr-only peer"
+                          checked={Boolean(currentProvider.directCall)}
+                          onChange={() =>
+                            updateProvider(currentProvider.id, {
+                              directCall: !currentProvider.directCall,
+                            })
+                          }
+                        />
+                        <div className="w-11 h-6 bg-gray-200 dark:bg-accent peer-focus-visible:ring-2 peer-focus-visible:ring-blue-500/60 peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-white dark:peer-focus-visible:ring-offset-background rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-transform peer-checked:bg-blue-500 peer-checked:shadow-[0_0_0_3px_rgba(59,130,246,0.18)] dark:peer-checked:bg-blue-400"></div>
+                      </div>
+                      <span className="ml-3 text-sm font-medium text-gray-700 dark:text-foreground/85 group-hover:text-gray-900 dark:group-hover:text-foreground transition-colors">
+                        {t("directCall")}
+                      </span>
+                    </label>
+                    <p className="mt-2 text-xs text-gray-500 dark:text-foreground/50">
+                      {t("directCallDesc")}
+                    </p>
+                    {showDirectCallInsecureWarning && (
+                      <p className="mt-2 rounded-xl border border-amber-100 bg-amber-50/70 px-4 py-3 text-xs text-amber-700 dark:border-amber-900/40 dark:bg-amber-900/10 dark:text-amber-200">
+                        {t("directCallInsecureWarning")}
+                      </p>
+                    )}
                   </div>
                 )}
                 <div className="col-span-1 md:col-span-2 flex items-center justify-between pt-2">

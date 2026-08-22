@@ -17,7 +17,7 @@
   "llamaParseKeyPlaceholder": "llx-…",
   "llamaParseHelp": "从 PDF 等复杂文档中提取高质量的 Markdown 和表格。",
   "documentChunking": "文档分块",
-  "chunkSize": "分块大小（Tokens）",
+  "chunkSize": "分块大小（词元）",
   "chunkSizeHelp": "决定存入数据库的文本片段大小。较小的分块（如 512）检索更精确，较大的分块（如 2048）每条结果包含更多上下文。",
   "vectorStorage": "向量存储",
   "defaultVectorStorage": "默认向量存储",

@@ -28,8 +28,18 @@ import {
   resolveMimoApiKey,
 } from "@/lib/security/localSecretResolvers";
 import { getBrowserVoiceLanguage } from "@/lib/voice/language";
+import {
+  buildDirectProviderConfig,
+  describeDirectCallError,
+  getBrowserProviderRuntime,
+  shouldUseDirectCall,
+} from "./chat/transport";
+import {
+  synthesizeWithModelProvider,
+  transcribeWithModelProvider,
+} from "@/lib/voice/modelVoice";
 
-const getProviderForModel = async (modelString: string) => {
+const getProviderForModel = (modelString: string) => {
   const { providers } = useCoreSettingsStore.getState();
   const availableModel = getAvailableProviderModel(modelString, providers);
 
@@ -41,10 +51,7 @@ const getProviderForModel = async (modelString: string) => {
 
   const { provider, modelId } = availableModel;
 
-  return {
-    modelProvider: await buildProviderRuntimeConfig(provider),
-    modelId,
-  };
+  return { provider, modelId };
 };
 
 export const transcribeAudio = async (
@@ -162,15 +169,37 @@ export const transcribeAudio = async (
   if (settings.sttProvider === "model") {
     if (!settings.sttModel) throw new Error("No model selected for STT");
     const sttModel = settings.sttModel;
+    const { provider, modelId } = getProviderForModel(sttModel);
+
+    if (shouldUseDirectCall(provider)) {
+      try {
+        const [runtime, directProvider] = await Promise.all([
+          getBrowserProviderRuntime(),
+          buildDirectProviderConfig(provider),
+        ]);
+        const result = await transcribeWithModelProvider(
+          directProvider,
+          modelId,
+          audioBlob,
+          settings.sttLanguage || "auto",
+          runtime,
+        );
+        if (!result.ok) throw new Error(result.error);
+        return result.value;
+      } catch (error) {
+        throw describeDirectCallError(error, provider);
+      }
+    }
 
     const response = await fetchWithByokRetry(async () => {
-      const { modelProvider: retryModelProvider, modelId: retryModelId } =
-        await getProviderForModel(sttModel);
       const retryFormData = new FormData();
       retryFormData.append("audio", audioBlob);
       retryFormData.append("provider", "model");
-      retryFormData.append("modelProvider", JSON.stringify(retryModelProvider));
-      retryFormData.append("modelId", retryModelId);
+      retryFormData.append(
+        "modelProvider",
+        JSON.stringify(await buildProviderRuntimeConfig(provider)),
+      );
+      retryFormData.append("modelId", modelId);
       retryFormData.append("language", settings.sttLanguage || "auto");
 
       return signedApiFetch("/api/voice/transcribe", {
@@ -343,9 +372,30 @@ export const synthesizeSpeech = async (
     if (!settings.ttsModel) throw new Error("No model selected for TTS");
     if (!text.trim()) return;
     const ttsModel = settings.ttsModel;
+    const { provider, modelId } = getProviderForModel(ttsModel);
+
+    if (shouldUseDirectCall(provider)) {
+      try {
+        const [runtime, directProvider] = await Promise.all([
+          getBrowserProviderRuntime(),
+          buildDirectProviderConfig(provider),
+        ]);
+        const result = await synthesizeWithModelProvider(
+          directProvider,
+          modelId,
+          text,
+          runtime,
+        );
+        if (!result.ok) throw new Error(result.error);
+        return createDisposableAudioFromBlob(
+          new Blob([result.value.audio], { type: result.value.mimeType }),
+        );
+      } catch (error) {
+        throw describeDirectCallError(error, provider);
+      }
+    }
 
     const response = await fetchWithByokRetry(async () => {
-      const { modelProvider, modelId } = await getProviderForModel(ttsModel);
       return signedApiFetch("/api/voice/synthesize", {
         method: "POST",
         headers: {
@@ -354,7 +404,7 @@ export const synthesizeSpeech = async (
         body: JSON.stringify({
           text,
           provider: "model",
-          modelProvider,
+          modelProvider: await buildProviderRuntimeConfig(provider),
           modelId,
         }),
       });

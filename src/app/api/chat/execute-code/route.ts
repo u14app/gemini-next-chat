@@ -16,12 +16,27 @@ import {
 } from "@/lib/api/middleware";
 import { resolveProviderRuntimeConfig } from "@/lib/byok/server";
 import {
-  isAnthropicProviderType,
-  isGoogleProviderType,
-  isOpenAIProviderType,
-} from "@/lib/providers/providerTypes";
+  simulateCode,
+  type CodeSimulationResult,
+} from "@/lib/chat/simulateCode";
 import { safeServerLogError } from "@/lib/utils/safeServerLog";
-import { createAnthropicMessageText } from "@/lib/streaming/anthropic";
+
+const serverCodeSimulationRuntime = {
+  assertOutboundAllowed: assertProviderOutboundAllowed,
+  createOpenAIClient,
+  createAnthropicClient,
+  createGoogleClient,
+};
+
+function createCodeSimulationResponse(result: CodeSimulationResult) {
+  if (!result.ok) {
+    return NextResponse.json(
+      { error: result.error },
+      { status: result.status },
+    );
+  }
+  return NextResponse.json({ output: result.output });
+}
 
 const ExecuteCodeSchema = z.object({
   provider: ProviderRuntimeConfigSchema,
@@ -34,103 +49,14 @@ export async function POST(request: NextRequest) {
     const body = ExecuteCodeSchema.parse(await readJsonRequestBody(request));
     const { modelName, code } = body;
     const provider = await resolveProviderRuntimeConfig(body.provider);
-    await assertProviderOutboundAllowed(provider);
-
-    const prompt = `Please simulate the following Python code and return the likely output.
-    
-\`\`\`python
-${code}
-\`\`\`
-`;
-
-    if (isOpenAIProviderType(provider.type)) {
-      const openai = createOpenAIClient(provider);
-
-      const response = await openai.chat.completions.create({
-        model: modelName,
-        messages: [
-          {
-            role: "system",
-            content:
-              "You explain and simulate Python code. You do not have a real execution sandbox. Provide ONLY the likely output, and mention uncertainty only if the result depends on external state.",
-          },
-          { role: "user", content: prompt },
-        ],
-      });
-
-      return NextResponse.json({
-        output: response.choices[0].message.content || "No output returned.",
-      });
-    }
-
-    if (isAnthropicProviderType(provider.type)) {
-      const anthropic = createAnthropicClient(provider);
-      const output = await createAnthropicMessageText({
-        client: anthropic,
-        model: modelName,
-        prompt,
-        system:
-          "You explain and simulate Python code. You do not have a real execution sandbox. Provide ONLY the likely output, and mention uncertainty only if the result depends on external state.",
-      });
-
-      return NextResponse.json({
-        output: output || "No output returned.",
-      });
-    }
-
-    if (isGoogleProviderType(provider.type)) {
-      // Google
-      const ai = createGoogleClient(provider);
-
-      const response = await ai.models.generateContent({
-        model: modelName,
-        contents: prompt,
-        config: {
-          tools: [{ codeExecution: {} }],
-        },
-      });
-
-      const candidates = response.candidates;
-      if (
-        candidates &&
-        candidates.length > 0 &&
-        candidates[0].content &&
-        candidates[0].content.parts
-      ) {
-        const parts = candidates[0].content.parts;
-        let output = "";
-        let hasExecutionResult = false;
-
-        for (const part of parts) {
-          if (part.text) {
-            if (!part.text.trim().startsWith("```python")) {
-              output += part.text + "\n";
-            }
-          }
-
-          if (part.codeExecutionResult) {
-            hasExecutionResult = true;
-            const resultOutput = part.codeExecutionResult.output;
-            if (resultOutput) {
-              output += resultOutput;
-            }
-          }
-        }
-
-        if (hasExecutionResult) {
-          return NextResponse.json({ output: output.trim() });
-        }
-        return NextResponse.json({
-          output: output.trim() || "No output generated.",
-        });
-      }
-
-      return NextResponse.json({ output: response.text || "No output." });
-    }
-
-    return NextResponse.json(
-      { error: `${provider.type} does not support code execution` },
-      { status: 400 },
+    return createCodeSimulationResponse(
+      await simulateCode(
+        provider,
+        modelName,
+        code,
+        serverCodeSimulationRuntime,
+        request.signal,
+      ),
     );
   } catch (error: any) {
     safeServerLogError("Code execution error:", error);

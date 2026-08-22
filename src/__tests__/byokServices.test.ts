@@ -8,6 +8,8 @@ const mocks = vi.hoisted(() => ({
   getImageCompressionConfig: vi.fn(),
   compressImageAttachments: vi.fn(),
   prepareGeneratedImageAttachments: vi.fn(),
+  createBrowserGoogleClient: vi.fn(),
+  createDisposableAudioFromBlob: vi.fn(),
 }));
 
 vi.mock("@/store/core/coreSettingsStore", () => ({
@@ -86,7 +88,13 @@ vi.mock("@/lib/utils/contextCompression", () => ({
 }));
 
 vi.mock("@/lib/utils/disposableAudio", () => ({
-  createDisposableAudioFromBlob: vi.fn(),
+  createDisposableAudioFromBlob: mocks.createDisposableAudioFromBlob,
+}));
+
+vi.mock("@/lib/providers/browserClients", () => ({
+  createBrowserOpenAIClient: vi.fn(),
+  createBrowserAnthropicClient: vi.fn(),
+  createBrowserGoogleClient: mocks.createBrowserGoogleClient,
 }));
 
 vi.mock("@/lib/utils/voiceModels", async () =>
@@ -143,6 +151,72 @@ describe("BYOK service requests", () => {
     );
     mocks.prepareGeneratedImageAttachments.mockImplementation(
       async (attachments) => attachments,
+    );
+  });
+
+  it("keeps direct code simulation and model voice requests off the server", async () => {
+    const directProvider: ModelProvider = {
+      ...providerWithoutLocalKey,
+      apiKey: "local-key",
+      directCall: true,
+    };
+    mocks.coreGetState.mockReturnValue({ providers: [directProvider] });
+
+    const generateContent = vi.fn(async (request: any) => {
+      if (request.config?.tools) {
+        return {
+          candidates: [
+            {
+              content: {
+                parts: [
+                  { codeExecutionResult: { output: "direct-code-output" } },
+                ],
+              },
+            },
+          ],
+        };
+      }
+      if (request.config?.responseModalities) {
+        return {
+          candidates: [
+            {
+              content: {
+                parts: [{ inlineData: { data: "AQI=" } }],
+              },
+            },
+          ],
+        };
+      }
+      return { text: "direct-transcript" };
+    });
+    mocks.createBrowserGoogleClient.mockReturnValue({
+      models: { generateContent },
+    });
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+
+    const { executeCode } = await import("../services/api/chatService");
+    const { synthesizeSpeech, transcribeAudio } =
+      await import("../services/api/voiceService");
+
+    await expect(
+      executeCode("env-provider:gemini-title", "print('hi')"),
+    ).resolves.toBe("direct-code-output");
+    await expect(
+      transcribeAudio(new Blob(["audio"], { type: "audio/webm" }), {
+        sttProvider: "model",
+        sttModel: "env-provider:audio-model",
+        sttLanguage: "auto",
+      } as any),
+    ).resolves.toBe("direct-transcript");
+    await synthesizeSpeech("hello", {
+      ttsProvider: "model",
+      ttsModel: "env-provider:audio-model",
+    } as any);
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(generateContent).toHaveBeenCalledTimes(3);
+    expect(mocks.createDisposableAudioFromBlob).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "audio/wav" }),
     );
   });
 

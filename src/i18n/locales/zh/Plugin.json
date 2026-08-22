@@ -13,7 +13,7 @@
   "mcpServerUrlPlaceholder": "http://192.168.1.10:3000/mcp",
   "mcpServerUrlHint": "远程 MCP 支持基于 HTTP、HTTPS 和私网地址的 Streamable HTTP 与旧版 SSE。本地 Docker 中的 stdio 服务可通过鉴权桥接连接。",
   "mcpBearerTokenLabel": "Bearer Token（可选）",
-  "mcpBearerTokenPlaceholder": "如果服务需要鉴权，请粘贴 token",
+  "mcpBearerTokenPlaceholder": "如果服务需要鉴权，请粘贴 Token",
   "mcpBearerTokenHint": "填写后会在安装时作为 Authorization: Bearer 发送，并加密保存在本地。",
   "mcpInstallAuthTitle": "连接需要鉴权的 MCP 服务",
   "mcpInstallAuthDescription": "{title} 需要凭据才能发现其工具。凭据会加密传输，并加密保存在当前浏览器中。",

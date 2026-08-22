@@ -93,6 +93,7 @@ export function normalizeModelProvider(
     ),
     modelsList,
     ...(raw.isServerDefault ? { isServerDefault: true } : {}),
+    ...(raw.directCall === true ? { directCall: true } : {}),
   };
 }
 

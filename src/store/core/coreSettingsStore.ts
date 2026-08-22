@@ -177,6 +177,7 @@ export const useCoreSettingsStore = create<CoreSettingsState>()(
           baseUrl: "https://api.openai.com",
           apiKey: "",
           enabled: true,
+          directCall: true,
           models: [],
           modelsList: [],
         };

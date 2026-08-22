@@ -14,6 +14,8 @@ export interface ModelProvider {
   models: string[];
   modelsList?: string[];
   isServerDefault?: boolean;
+  /** 由浏览器直接请求该 provider，不经服务端代理 */
+  directCall?: boolean;
 }
 
 export interface ModelMetadata {

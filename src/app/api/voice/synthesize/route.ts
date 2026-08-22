@@ -6,17 +6,12 @@ import {
 import { VoiceSynthesizeRequestSchema } from "@/lib/api/schemas";
 import { safeFetchArrayBuffer, safeFetchJson } from "@/lib/security/safeFetch";
 import { getSafeUrlPolicy } from "@/lib/security/urlPolicy";
-import { ProviderFactory } from "@/lib/providers/base";
-import { Modality } from "@google/genai";
+import { ProviderFactory, type ProviderConfig } from "@/lib/providers/base";
 import { BYOK_CONTEXTS } from "@/lib/byok/shared";
 import {
   decryptSecretEnvelope,
   resolveProviderRuntimeConfig,
 } from "@/lib/byok/server";
-import {
-  isGoogleProviderType,
-  isOpenAIProviderType,
-} from "@/lib/providers/providerTypes";
 import {
   getDefaultElevenLabsApiKey,
   getDefaultElevenLabsTtsModel,
@@ -27,20 +22,26 @@ import {
   getDefaultVoiceProvider,
 } from "@/lib/defaultConfig/server";
 import { safeServerLogError } from "@/lib/utils/safeServerLog";
-import {
-  base64ToBytes,
-  bytesToArrayBuffer,
-  createPcmWavBytes,
-} from "@/lib/utils/binary";
+import { base64ToBytes, bytesToArrayBuffer } from "@/lib/utils/binary";
 import {
   DEFAULT_ELEVENLABS_TTS_MODEL,
   isElevenLabsTTSModel,
 } from "@/lib/utils/voiceModels";
+import { synthesizeWithModelProvider } from "@/lib/voice/modelVoice";
 
 const ELEVENLABS_API_URL = "https://api.elevenlabs.io/v1";
 const MIMO_CHAT_COMPLETIONS_URL =
   "https://api.xiaomimimo.com/v1/chat/completions";
 const MIMO_TTS_MODEL = "mimo-v2.5-tts";
+
+const serverModelVoiceRuntime = {
+  assertOutboundAllowed: (provider: ProviderConfig, signal?: AbortSignal) =>
+    ProviderFactory.assertProviderOutboundAllowed(provider, signal),
+  createOpenAIClient: (provider: ProviderConfig) =>
+    ProviderFactory.createOpenAIClient(provider),
+  createGoogleClient: (provider: ProviderConfig) =>
+    ProviderFactory.createGoogleClient(provider),
+};
 
 type MimoSynthesisResponse = {
   choices?: Array<{
@@ -252,62 +253,23 @@ export async function POST(request: NextRequest) {
 
       const resolvedProvider =
         await resolveProviderRuntimeConfig(modelProvider);
-      await ProviderFactory.assertProviderOutboundAllowed(resolvedProvider);
-
-      if (isOpenAIProviderType(resolvedProvider.type)) {
-        const openai = ProviderFactory.createOpenAIClient(resolvedProvider);
-        const audio = await openai.audio.speech.create({
-          model: modelId,
-          voice: "alloy",
-          input: text,
-        });
-        const audioBuffer = await audio.arrayBuffer();
-
-        return new NextResponse(audioBuffer, {
-          headers: {
-            "Content-Type": audio.headers.get("content-type") || "audio/mpeg",
-            "Content-Length": audioBuffer.byteLength.toString(),
-          },
-        });
-      }
-
-      if (!isGoogleProviderType(resolvedProvider.type)) {
+      const result = await synthesizeWithModelProvider(
+        resolvedProvider,
+        modelId,
+        text,
+        serverModelVoiceRuntime,
+        request.signal,
+      );
+      if (!result.ok) {
         return NextResponse.json(
-          {
-            error: `${resolvedProvider.type} does not support speech synthesis`,
-          },
-          { status: 400 },
+          { error: result.error },
+          { status: result.status },
         );
       }
-
-      const gemini = ProviderFactory.createGoogleClient(resolvedProvider);
-      const response = await gemini.models.generateContent({
-        model: modelId,
-        contents: { parts: [{ text }] },
-        config: {
-          responseModalities: [Modality.AUDIO],
-          speechConfig: {
-            voiceConfig: {
-              prebuiltVoiceConfig: { voiceName: "Kore" },
-            },
-          },
-        },
-      });
-
-      const base64Audio =
-        response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
-      if (!base64Audio) {
-        return NextResponse.json(
-          { error: "Model did not return audio data" },
-          { status: 502 },
-        );
-      }
-
-      const wavBytes = createPcmWavBytes(base64ToBytes(base64Audio));
-      return new NextResponse(bytesToArrayBuffer(wavBytes), {
+      return new NextResponse(result.value.audio, {
         headers: {
-          "Content-Type": "audio/wav",
-          "Content-Length": wavBytes.byteLength.toString(),
+          "Content-Type": result.value.mimeType,
+          "Content-Length": result.value.audio.byteLength.toString(),
         },
       });
     }

@@ -77,6 +77,15 @@ import {
   fetchWithByokRetry,
 } from "@/lib/byok/client";
 import {
+  buildDirectProviderConfig,
+  getBrowserImageRuntime,
+  describeDirectCallError,
+  directSimpleGenerator,
+  getBrowserProviderRuntime,
+  hydrateDirectProviderImageFiles,
+  shouldUseDirectCall,
+} from "./chat/transport";
+import {
   parseMemoryDreamToolCall,
   parseMemoryRecordToolCall,
 } from "@/lib/memory/entities";
@@ -294,6 +303,26 @@ export const executeCode = async (
 
   if (!provider) throw new Error("No provider found");
 
+  if (shouldUseDirectCall(provider)) {
+    try {
+      const [{ simulateCode }, runtime, directProvider] = await Promise.all([
+        import("@/lib/chat/simulateCode"),
+        getBrowserProviderRuntime(),
+        buildDirectProviderConfig(provider),
+      ]);
+      const result = await simulateCode(
+        directProvider,
+        modelName,
+        code,
+        runtime,
+      );
+      if (!result.ok) throw new Error(result.error);
+      return result.output;
+    } catch (error) {
+      throw describeDirectCallError(error, provider);
+    }
+  }
+
   try {
     const response = await fetchWithByokRetry(async () =>
       signedApiFetch("/api/chat/execute-code", {
@@ -349,6 +378,22 @@ export const generateChatTitle = async (
   if (!targetProvider) return fallbackTitle();
 
   try {
+    if (shouldUseDirectCall(targetProvider)) {
+      const [{ generateTitleWith }, generate, directProvider] =
+        await Promise.all([
+          import("@/lib/chat/auxiliaryGeneration"),
+          directSimpleGenerator(),
+          buildDirectProviderConfig(targetProvider),
+        ]);
+      return await generateTitleWith(
+        generate,
+        directProvider,
+        modelName,
+        history,
+        signal,
+      );
+    }
+
     const response = await fetchWithByokRetry(async () =>
       signedApiFetch("/api/chat/generate-title", {
         method: "POST",
@@ -403,6 +448,22 @@ export const generateRelatedQuestions = async (
   if (!targetProvider) return [];
 
   try {
+    if (shouldUseDirectCall(targetProvider)) {
+      const [{ generateRelatedQuestionsWith }, generate, directProvider] =
+        await Promise.all([
+          import("@/lib/chat/auxiliaryGeneration"),
+          directSimpleGenerator(),
+          buildDirectProviderConfig(targetProvider),
+        ]);
+      return await generateRelatedQuestionsWith(
+        generate,
+        directProvider,
+        modelName,
+        history,
+        signal,
+      );
+    }
+
     const response = await fetchWithByokRetry(async () =>
       signedApiFetch("/api/chat/related-questions", {
         method: "POST",
@@ -460,6 +521,22 @@ export const generateRAGSearchQueries = async (
   if (!targetProvider) return [userPrompt];
 
   try {
+    if (shouldUseDirectCall(targetProvider)) {
+      const [{ generateRAGQueriesWith }, generate, directProvider] =
+        await Promise.all([
+          import("@/lib/chat/auxiliaryGeneration"),
+          directSimpleGenerator(),
+          buildDirectProviderConfig(targetProvider),
+        ]);
+      return await generateRAGQueriesWith(
+        generate,
+        directProvider,
+        modelName,
+        userPrompt,
+        signal,
+      );
+    }
+
     const response = await fetchWithByokRetry(async () =>
       signedApiFetch("/api/chat/rag-queries", {
         method: "POST",
@@ -525,6 +602,47 @@ export const generateImage = async (
     const requestAttachments = preparedAttachments
       ? await stripAttachmentsDisplayCacheForModel(preparedAttachments)
       : undefined;
+    if (shouldUseDirectCall(provider)) {
+      const [{ generateImage }, runtime, directProvider] = await Promise.all([
+        import("@/lib/chat/generateImage"),
+        getBrowserImageRuntime(),
+        buildDirectProviderConfig(provider),
+      ]);
+      const directImages = await hydrateDirectProviderImageFiles(
+        [],
+        requestAttachments || [],
+        { signal },
+      );
+
+      let result;
+      try {
+        result = await generateImage(
+          {
+            provider: directProvider,
+            modelName,
+            prompt,
+            imageCount: options.imageCount,
+            attachments: directImages.attachments,
+            signal,
+          },
+          runtime,
+        );
+      } catch (error) {
+        throw describeDirectCallError(error, provider);
+      }
+
+      if (!result.ok) throw new Error(result.error);
+
+      return {
+        images: await prepareGeneratedImageAttachments(
+          result.images,
+          imageCompressionConfig,
+          { signal },
+        ),
+        message: result.message,
+      };
+    }
+
     const response = await fetchWithByokRetry(async () => {
       const request = await createChatRequestBody(
         {
@@ -991,56 +1109,29 @@ export const streamChatResponse = async (
         systemInstruction: effectiveSystemInstruction,
         tools,
       });
-      const response = await fetchWithByokRetry(async () => {
-        const request = await createChatRequestBody(
-          {
-            provider: await buildProviderRuntimeConfig(provider, signal),
-            modelName,
-            history: boundedRequestHistory,
-            newMessage: requestMessage,
-            attachments: requestAttachments,
-            config: requestConfig,
-            systemInstruction: effectiveSystemInstruction,
-            tools,
-            enableImageGeneration:
-              supportsImageGeneration(selectedModelMetadata) &&
-              (provider.type === "OpenAI" ||
-                isGoogleProviderType(provider.type)),
-            enableGoogleSearch:
-              requestConfig?.useSearch &&
-              !agentModeEnabled &&
-              searchCompatibility.mode === "gemini-google",
-            enableOpenAIWebSearch:
-              requestConfig?.useSearch &&
-              !agentModeEnabled &&
-              searchCompatibility.mode === "openai-web",
-          },
-          { signal },
-        );
-        return signedApiFetch("/api/chat", {
-          method: "POST",
-          headers: request.headers,
-          body: request.body,
-          signal,
-        });
-      });
+      const requestPayload = {
+        modelName,
+        history: boundedRequestHistory,
+        newMessage: requestMessage,
+        attachments: requestAttachments,
+        config: requestConfig,
+        systemInstruction: effectiveSystemInstruction,
+        tools,
+        enableImageGeneration:
+          supportsImageGeneration(selectedModelMetadata) &&
+          (provider.type === "OpenAI" || isGoogleProviderType(provider.type)),
+        enableGoogleSearch:
+          requestConfig?.useSearch &&
+          !agentModeEnabled &&
+          searchCompatibility.mode === "gemini-google",
+        enableOpenAIWebSearch:
+          requestConfig?.useSearch &&
+          !agentModeEnabled &&
+          searchCompatibility.mode === "openai-web",
+      };
 
-      const contentType = response.headers.get("content-type");
-      const isSSE = contentType?.includes("text/event-stream");
-
-      if (!response.ok && !isSSE) {
-        throw new Error(
-          await getResponseErrorMessage(response, "Stream request failed"),
-        );
-      }
-
-      const reader = response.body?.getReader();
-      if (!reader) throw new Error("No response body");
-
-      const decoder = new TextDecoder();
       let fullContent = "";
       let fullReasoning = "";
-      let buffer = "";
       const roundToolCalls: ToolCall[] = [];
 
       const getRoundPayload = (): ChatStreamRoundPayload => ({
@@ -1049,11 +1140,7 @@ export const streamChatResponse = async (
         toolCalls: roundToolCalls,
       });
 
-      const handleEventData = async (data: string) => {
-        if (!data) return false;
-        if (data === "[DONE]") return true;
-        const parsed = JSON.parse(data);
-
+      const handleMessage = async (parsed: any) => {
         switch (parsed.type) {
           case "content":
             fullContent += parsed.content;
@@ -1146,6 +1233,116 @@ export const streamChatResponse = async (
           default:
             return false;
         }
+      };
+
+      // 直连：由浏览器直接请求 provider，逐条消费 runChatStream 产生的消息
+      if (shouldUseDirectCall(provider)) {
+        // send 是同步的，而 handleMessage 可能异步（图片附件），串行排队保证顺序
+        let pump: Promise<boolean> = Promise.resolve(false);
+        let pumpError: unknown = null;
+
+        const send = (message: any) => {
+          pump = pump.then(async (done) => {
+            if (done || pumpError) return true;
+            try {
+              return await handleMessage(message);
+            } catch (error) {
+              pumpError = error;
+              return true;
+            }
+          });
+        };
+
+        try {
+          const [{ runChatStream }, runtime, directProvider] =
+            await Promise.all([
+              import("@/lib/chat/runChatStream"),
+              getBrowserProviderRuntime(),
+              buildDirectProviderConfig(provider),
+            ]);
+          const directImages = await hydrateDirectProviderImageFiles(
+            requestPayload.history,
+            requestPayload.attachments,
+            { signal },
+          );
+
+          await runChatStream({
+            ...requestPayload,
+            history: directImages.history,
+            attachments: directImages.attachments,
+            provider: directProvider,
+            signal,
+            runtime,
+            send,
+          });
+          await pump;
+          if (pumpError) throw pumpError;
+
+          if (signal?.aborted) {
+            return {
+              status: "aborted",
+              error: createAbortError(signal),
+              ...getRoundPayload(),
+            };
+          }
+
+          if (outputBlockBuilder.finalizeActiveReasoning()) {
+            emitOutputBlocks();
+          }
+          return { status: "done", ...getRoundPayload() };
+        } catch (error) {
+          await pump.catch(() => undefined);
+          const normalizedError = describeDirectCallError(error, provider);
+          if (isAbortError(normalizedError, signal)) {
+            return {
+              status: "aborted",
+              error: createAbortError(signal),
+              ...getRoundPayload(),
+            };
+          }
+          return {
+            status: "error",
+            error: normalizedError,
+            ...getRoundPayload(),
+          };
+        }
+      }
+
+      const response = await fetchWithByokRetry(async () => {
+        const request = await createChatRequestBody(
+          {
+            ...requestPayload,
+            provider: await buildProviderRuntimeConfig(provider, signal),
+          },
+          { signal },
+        );
+        return signedApiFetch("/api/chat", {
+          method: "POST",
+          headers: request.headers,
+          body: request.body,
+          signal,
+        });
+      });
+
+      const contentType = response.headers.get("content-type");
+      const isSSE = contentType?.includes("text/event-stream");
+
+      if (!response.ok && !isSSE) {
+        throw new Error(
+          await getResponseErrorMessage(response, "Stream request failed"),
+        );
+      }
+
+      const reader = response.body?.getReader();
+      if (!reader) throw new Error("No response body");
+
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      const handleEventData = async (data: string) => {
+        if (!data) return false;
+        if (data === "[DONE]") return true;
+        return handleMessage(JSON.parse(data));
       };
 
       const processSSEEvent = async (event: string) => {
@@ -1942,6 +2139,42 @@ export const streamGenerateContent = async (
 
   if (!provider) throw new Error("No provider found");
 
+  if (shouldUseDirectCall(provider)) {
+    let fullText = "";
+    try {
+      const [{ runChatStream }, runtime, directProvider] = await Promise.all([
+        import("@/lib/chat/runChatStream"),
+        getBrowserProviderRuntime(),
+        buildDirectProviderConfig(provider),
+      ]);
+
+      await runChatStream({
+        provider: directProvider,
+        modelName,
+        history: [],
+        newMessage: prompt,
+        attachments: [],
+        config: { temperature: 0.7 },
+        signal,
+        runtime,
+        send: (message) => {
+          if (message.type === "content") {
+            fullText += message.content;
+            onChunk(fullText);
+          }
+        },
+      });
+
+      if (signal?.aborted) throw createAbortError(signal);
+      return fullText;
+    } catch (error) {
+      if (isAbortError(error, signal)) throw createAbortError(signal);
+      const normalizedError = describeDirectCallError(error, provider);
+      logDevError("Stream generate error:", normalizedError);
+      throw normalizedError;
+    }
+  }
+
   let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
   try {
     const response = await fetchWithByokRetry(async () =>
@@ -2051,6 +2284,44 @@ export const streamGenerateToolCall = async (
   if (!provider) {
     logDevWarn("Skill tool selection skipped: no provider found.");
     return null;
+  }
+
+  if (shouldUseDirectCall(provider)) {
+    let pendingToolCall: ToolCall | null = null;
+    try {
+      const [{ runChatStream }, runtime, directProvider] = await Promise.all([
+        import("@/lib/chat/runChatStream"),
+        getBrowserProviderRuntime(),
+        buildDirectProviderConfig(provider),
+      ]);
+
+      await runChatStream({
+        provider: directProvider,
+        modelName,
+        history: [],
+        newMessage: prompt,
+        attachments: [],
+        config: { temperature: 0 },
+        tools,
+        signal,
+        runtime,
+        send: (message) => {
+          if (message.type === "tool_call") {
+            pendingToolCall = message.toolCall || null;
+          }
+        },
+      });
+
+      if (signal?.aborted) throw createAbortError(signal);
+      return pendingToolCall;
+    } catch (error) {
+      if (isAbortError(error, signal)) throw createAbortError(signal);
+      logDevWarn(
+        "Skill tool selection failed:",
+        describeDirectCallError(error, provider),
+      );
+      return null;
+    }
   }
 
   try {

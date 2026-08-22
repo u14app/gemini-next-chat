@@ -114,6 +114,31 @@ BYOK_KEY_ID=prod-2026-07
 If the server private key changes, existing local envelopes cannot be decrypted
 until users re-enter the affected secrets.
 
+## Direct Browser Calls
+
+Each user-configured provider has a **direct call** toggle. When it is on, the
+browser sends model requests straight to the provider endpoint and the server
+never sees the prompt, the message context, the attachments, or the API key.
+The key is used directly by the browser instead of being wrapped in a BYOK
+envelope. It is sent to the configured provider, but never to the Neo Chat
+server.
+
+This is the most private transport, but it has hard limits:
+
+- The provider endpoint must return CORS headers for this origin. Many
+  self-hosted and gateway endpoints do not, and a browser preflight failure is
+  opaque. Verify with **Fetch models** in provider settings before relying on
+  it; there is no automatic fallback to the proxy.
+- Direct `http://` calls are limited to `localhost`, loopback addresses, and
+  literal private LAN IPs. Hostnames and public IPs must use HTTPS. An
+  HTTPS-served app may still block an allowed local HTTP endpoint as mixed
+  content.
+- The server-side URL safety gates, response size limits, and error logging do
+  not apply on this path.
+
+The server default provider is always proxied. Its key is server environment
+material and is never exposed to the browser.
+
 ## Server Proxy Boundaries
 
 Server routes can receive prompts, message context, applied skill instructions,

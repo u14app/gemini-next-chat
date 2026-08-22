@@ -9,16 +9,12 @@ import { safeFetchJson } from "@/lib/security/safeFetch";
 import { getSafeUrlPolicy } from "@/lib/security/urlPolicy";
 import { API_INPUT_LIMITS, VOICE_LIMITS } from "@/config/limits";
 import { getUploadBlobValidationError } from "@/lib/api/uploads";
-import { ProviderFactory } from "@/lib/providers/base";
+import { ProviderFactory, type ProviderConfig } from "@/lib/providers/base";
 import { BYOK_CONTEXTS } from "@/lib/byok/shared";
 import {
   decryptSecretEnvelope,
   resolveProviderRuntimeConfig,
 } from "@/lib/byok/server";
-import {
-  isGoogleProviderType,
-  isOpenAIProviderType,
-} from "@/lib/providers/providerTypes";
 import {
   getDefaultElevenLabsApiKey,
   getDefaultElevenLabsSttModel,
@@ -28,10 +24,9 @@ import {
 } from "@/lib/defaultConfig/server";
 import { safeServerLogError } from "@/lib/utils/safeServerLog";
 import {
-  getGeminiTranscriptionPrompt,
-  getProviderTranscriptionLanguage,
-} from "@/lib/voice/language";
-import { bytesToBase64 } from "@/lib/utils/binary";
+  blobToBase64,
+  transcribeWithModelProvider,
+} from "@/lib/voice/modelVoice";
 
 const ELEVENLABS_API_URL = "https://api.elevenlabs.io/v1";
 const MIMO_CHAT_COMPLETIONS_URL =
@@ -46,19 +41,14 @@ type MimoTranscriptionResponse = {
   }>;
 };
 
-function getAudioExtension(mimeType: string): string {
-  if (mimeType.includes("mp4")) return "mp4";
-  if (mimeType.includes("mpeg")) return "mp3";
-  if (mimeType.includes("wav")) return "wav";
-  if (mimeType.includes("ogg")) return "ogg";
-  if (mimeType.includes("m4a")) return "m4a";
-  if (mimeType.includes("aac")) return "aac";
-  return "webm";
-}
-
-async function blobToBase64(blob: Blob): Promise<string> {
-  return bytesToBase64(new Uint8Array(await blob.arrayBuffer()));
-}
+const serverModelVoiceRuntime = {
+  assertOutboundAllowed: (provider: ProviderConfig, signal?: AbortSignal) =>
+    ProviderFactory.assertProviderOutboundAllowed(provider, signal),
+  createOpenAIClient: (provider: ProviderConfig) =>
+    ProviderFactory.createOpenAIClient(provider),
+  createGoogleClient: (provider: ProviderConfig) =>
+    ProviderFactory.createGoogleClient(provider),
+};
 
 function getMimoAudioMimeType(blob: Blob): string {
   const mimeType = blob.type || "audio/wav";
@@ -270,47 +260,21 @@ export async function POST(request: NextRequest) {
 
       const resolvedProvider =
         await resolveProviderRuntimeConfig(modelProvider);
-      await ProviderFactory.assertProviderOutboundAllowed(resolvedProvider);
-
-      if (isOpenAIProviderType(resolvedProvider.type)) {
-        const openai = ProviderFactory.createOpenAIClient(resolvedProvider);
-        const extension = getAudioExtension(validAudioBlob.type || "");
-        const file = new File([validAudioBlob], `audio.${extension}`, {
-          type: validAudioBlob.type || `audio/${extension}`,
-        });
-        const response = await openai.audio.transcriptions.create({
-          file,
-          model: modelId,
-          language: getProviderTranscriptionLanguage(language),
-        });
-
-        return NextResponse.json({ text: response.text || "" });
-      }
-
-      if (!isGoogleProviderType(resolvedProvider.type)) {
+      const result = await transcribeWithModelProvider(
+        resolvedProvider,
+        modelId,
+        validAudioBlob,
+        language,
+        serverModelVoiceRuntime,
+        request.signal,
+      );
+      if (!result.ok) {
         return NextResponse.json(
-          { error: `${resolvedProvider.type} does not support transcription` },
-          { status: 400 },
+          { error: result.error },
+          { status: result.status },
         );
       }
-
-      const gemini = ProviderFactory.createGoogleClient(resolvedProvider);
-      const response = await gemini.models.generateContent({
-        model: modelId,
-        contents: {
-          parts: [
-            {
-              inlineData: {
-                mimeType: validAudioBlob.type || "audio/wav",
-                data: await blobToBase64(validAudioBlob),
-              },
-            },
-            { text: getGeminiTranscriptionPrompt(language) },
-          ],
-        },
-      });
-
-      return NextResponse.json({ text: response.text || "" });
+      return NextResponse.json({ text: result.value });
     }
 
     return NextResponse.json(

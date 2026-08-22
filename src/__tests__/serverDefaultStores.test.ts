@@ -76,7 +76,7 @@ describe("server default store injection", () => {
     useCoreSettingsStore.setState(useCoreSettingsStore.getInitialState(), true);
   });
 
-  it("creates new model providers as OpenAI Compatible by default", async () => {
+  it("creates new model providers as OpenAI Compatible with direct calls enabled", async () => {
     const { useCoreSettingsStore } =
       await import("../store/core/coreSettingsStore");
 
@@ -85,8 +85,11 @@ describe("server default store injection", () => {
     expect(
       useCoreSettingsStore
         .getState()
-        .providers.find((provider) => provider.id === providerId)?.type,
-    ).toBe("OpenAI Compatible");
+        .providers.find((provider) => provider.id === providerId),
+    ).toMatchObject({
+      type: "OpenAI Compatible",
+      directCall: true,
+    });
   });
 
   it("selects default search for fresh settings but preserves persisted search choices", async () => {

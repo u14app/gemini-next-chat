@@ -710,6 +710,7 @@ const ChatAppShell = ({
                       />
                     }
                     position="left"
+                    className="md:hidden"
                   >
                     <Button
                       variant="bare"
