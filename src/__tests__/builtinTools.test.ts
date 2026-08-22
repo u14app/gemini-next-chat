@@ -62,9 +62,12 @@ describe("built-in tool registry", () => {
       message: "What do you remember about my document parser?",
     });
 
-    expect(collected.definitions).toHaveLength(1);
+    expect(collected.definitions).toHaveLength(2);
     expect(collected.definitions[0]?.function.name).toBe("memory_search");
-    expect([...collected.bindingsByName.keys()]).toEqual(["memory_search"]);
+    expect([...collected.bindingsByName.keys()]).toEqual([
+      "memory_search",
+      "start_long_text_output",
+    ]);
     expect(collected.bindingsByName.get("memory_search")).toMatchObject({
       risk: "read",
       displayKey: "memorySearch",
@@ -75,14 +78,22 @@ describe("built-in tool registry", () => {
     expect(
       collectBuiltinTools({ message: "Which parser should I use?" })
         .definitions,
-    ).toEqual([]);
+    ).toEqual([
+      expect.objectContaining({
+        function: expect.objectContaining({ name: "start_long_text_output" }),
+      }),
+    ]);
 
     mocks.memoryState.settings.searchEnabled = false;
     expect(
       collectBuiltinTools({
         message: "What do you remember about my parser?",
       }).definitions,
-    ).toEqual([]);
+    ).toEqual([
+      expect.objectContaining({
+        function: expect.objectContaining({ name: "start_long_text_output" }),
+      }),
+    ]);
 
     mocks.memoryState.settings.searchEnabled = true;
     mocks.memoryState.settings.enabled = false;
@@ -90,7 +101,11 @@ describe("built-in tool registry", () => {
       collectBuiltinTools({
         message: "What do you remember about my parser?",
       }).definitions,
-    ).toEqual([]);
+    ).toEqual([
+      expect.objectContaining({
+        function: expect.objectContaining({ name: "start_long_text_output" }),
+      }),
+    ]);
 
     mocks.memoryState.settings.enabled = true;
     vi.stubGlobal("window", {});
@@ -99,7 +114,11 @@ describe("built-in tool registry", () => {
       collectBuiltinTools({
         message: "What do you remember about my parser?",
       }).definitions,
-    ).toEqual([]);
+    ).toEqual([
+      expect.objectContaining({
+        function: expect.objectContaining({ name: "start_long_text_output" }),
+      }),
+    ]);
 
     mocks.memoryState._hasHydrated = true;
     expect(
@@ -176,6 +195,51 @@ describe("built-in tool registry", () => {
     expect(mocks.memoryState.markMemoriesUsed).not.toHaveBeenCalled();
   });
 
+  it("registers long text output outside Agent mode and enforces one declaration", async () => {
+    mocks.memoryState.settings.enabled = false;
+    const collected = collectBuiltinTools({ message: "Write a report" });
+    const binding = collected.bindingsByName.get("start_long_text_output");
+    const emitLongText = vi.fn(() => ({ ok: true as const }));
+
+    expect(collected.definitions.map((item) => item.function.name)).toEqual([
+      "start_long_text_output",
+    ]);
+    expect(binding?.definition.function.parameters).toMatchObject({
+      additionalProperties: false,
+      required: ["title"],
+      properties: {
+        title: { minLength: 1, maxLength: 180 },
+        format: { enum: ["markdown", "plain_text"], default: "markdown" },
+      },
+    });
+
+    await expect(
+      binding!.execute(
+        { title: "Architecture notes" },
+        {
+          sessionId: "session-1",
+          emit: { longText: emitLongText },
+        },
+      ),
+    ).resolves.toEqual({ ok: true, capture: "next_model_text" });
+    expect(emitLongText).toHaveBeenCalledWith({
+      title: "Architecture notes",
+      format: "markdown",
+    });
+
+    await expect(
+      binding!.execute(
+        { title: "Second document" },
+        { sessionId: "session-1", emit: { longText: emitLongText } },
+      ),
+    ).resolves.toMatchObject({
+      error: {
+        code: "LONG_TEXT_OUTPUT_ALREADY_STARTED",
+        recoverable: true,
+      },
+    });
+  });
+
   it("collects Agent capabilities only under their effective availability rules", () => {
     mocks.memoryState.settings.enabled = false;
 
@@ -186,7 +250,11 @@ describe("built-in tool registry", () => {
         useSearch: true,
         searchMode: "external",
       }).definitions,
-    ).toEqual([]);
+    ).toEqual([
+      expect.objectContaining({
+        function: expect.objectContaining({ name: "start_long_text_output" }),
+      }),
+    ]);
 
     const agentTools = collectBuiltinTools({
       message: "Research this",
@@ -208,6 +276,7 @@ describe("built-in tool registry", () => {
     }).definitions.map((definition) => definition.function.name);
 
     expect(agentTools).toEqual([
+      "start_long_text_output",
       "update_task_plan",
       "web_search",
       "search_knowledge",
@@ -225,7 +294,11 @@ describe("built-in tool registry", () => {
       searchMode: "openai-web",
     }).definitions.map((definition) => definition.function.name);
 
-    expect(names).toEqual(["update_task_plan", "run_javascript"]);
+    expect(names).toEqual([
+      "start_long_text_output",
+      "update_task_plan",
+      "run_javascript",
+    ]);
     expect(names).not.toContain("web_search");
   });
 });

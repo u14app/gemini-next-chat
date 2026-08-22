@@ -213,4 +213,39 @@ describe("image display cache", () => {
       expect(toolGroup.toolCalls[0]).not.toHaveProperty("resultImages");
     }
   });
+
+  it("keeps full long text content while stripping local document metadata from model history", async () => {
+    const stripped = await stripMessageDisplayCacheForModel({
+      id: "long-text-message",
+      role: "model",
+      content: "Full document body",
+      timestamp: 1,
+      outputBlocks: [
+        {
+          id: "long-text",
+          type: "text",
+          content: "Full document body",
+          presentation: {
+            kind: "long_text",
+            title: "Document",
+            format: "markdown",
+            document: {
+              fileName: "Document.md",
+              mimeType: "text/markdown",
+              url: "opfs://chat/long-text/document.md",
+            },
+          },
+        },
+      ],
+    });
+
+    expect(stripped.content).toBe("Full document body");
+    expect(stripped.outputBlocks).toEqual([
+      {
+        id: "long-text",
+        type: "text",
+        content: "Full document body",
+      },
+    ]);
+  });
 });

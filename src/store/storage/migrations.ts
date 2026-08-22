@@ -7,6 +7,7 @@ import {
 import { normalizeSearchSettings } from "@/lib/settings/searchRag";
 import { parseTaskPlan } from "@/lib/agent/taskPlan";
 import { ATTACHMENT_LIMITS } from "@/config/limits";
+import { normalizeLongTextPresentation } from "@/lib/chat/longText";
 
 function normalizeStringList(value: unknown, maxItems: number): string[] {
   if (!Array.isArray(value)) return [];
@@ -115,6 +116,16 @@ export function normalizeMessage(message: Message): Message {
   if (Array.isArray(message.outputBlocks)) {
     normalizedBlocks = [];
     for (const block of message.outputBlocks) {
+      if (block.type === "text") {
+        const presentation = normalizeLongTextPresentation(block.presentation);
+        normalizedBlocks.push({
+          id: block.id,
+          type: "text",
+          content: block.content,
+          ...(presentation ? { presentation } : {}),
+        });
+        continue;
+      }
       if (block.type === "task_plan") {
         const parsed = parseTaskPlan({
           steps: block.steps,

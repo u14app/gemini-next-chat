@@ -121,6 +121,11 @@ import {
   resolveSkillParameterValues,
 } from "@/lib/skills";
 import { MARKET_LIMITS, RAG_LIMITS } from "@/config/limits";
+import {
+  cleanupCreatedLongTextFiles,
+  persistLongTextOutputBlocks,
+} from "@/lib/chat/longTextFiles";
+import { getLongTextBlocks } from "@/lib/chat/longText";
 
 const logChatAppError = logDevError;
 const EMPTY_MESSAGES: Message[] = [];
@@ -326,6 +331,77 @@ const ChatApp = () => {
         );
       }),
     [updateMessageContent],
+  );
+  const longTextPersistenceQueueRef = useRef(new Map<string, Promise<void>>());
+  const persistLongTextFilesForMessage = useCallback(
+    (
+      sessionId: string,
+      messageId: string,
+      options: { expectedRequestId?: string; signal?: AbortSignal } = {},
+    ) => {
+      const queueKey = `${sessionId}:${messageId}`;
+      const previous =
+        longTextPersistenceQueueRef.current.get(queueKey) || Promise.resolve();
+      const queued = previous
+        .catch(() => undefined)
+        .then(async () => {
+          const before = useChatStore
+            .getState()
+            .activeMessages.find((message) => message.id === messageId);
+          if (
+            !before?.outputBlocks?.length ||
+            (options.expectedRequestId &&
+              before.generation?.requestId !== options.expectedRequestId)
+          ) {
+            return;
+          }
+          const beforeLongTextBlocks = getLongTextBlocks(before.outputBlocks);
+          if (beforeLongTextBlocks.length === 0) return;
+
+          const signature = beforeLongTextBlocks.map((block) => ({
+            id: block.id,
+            content: block.content,
+            url: block.presentation?.document.url,
+          }));
+          const result = await persistLongTextOutputBlocks(
+            before.outputBlocks,
+            { signal: options.signal },
+          );
+          const current = useChatStore
+            .getState()
+            .activeMessages.find((message) => message.id === messageId);
+          const currentSignature = getLongTextBlocks(current?.outputBlocks).map(
+            (block) => ({
+              id: block.id,
+              content: block.content,
+              url: block.presentation?.document.url,
+            }),
+          );
+          const isCurrent =
+            current &&
+            (!options.expectedRequestId ||
+              current.generation?.requestId === options.expectedRequestId) &&
+            JSON.stringify(currentSignature) === JSON.stringify(signature);
+
+          if (!isCurrent) {
+            await cleanupCreatedLongTextFiles(result.createdUrls);
+            return;
+          }
+          updateMessage(sessionId, messageId, {
+            outputBlocks: result.outputBlocks,
+          });
+        });
+
+      longTextPersistenceQueueRef.current.set(queueKey, queued);
+      const clearQueue = () => {
+        if (longTextPersistenceQueueRef.current.get(queueKey) === queued) {
+          longTextPersistenceQueueRef.current.delete(queueKey);
+        }
+      };
+      void queued.then(clearQueue, clearQueue);
+      return queued;
+    },
+    [updateMessage],
   );
 
   const currentSession = getCurrentSession(); // This is just metadata now
@@ -1483,6 +1559,11 @@ const ChatApp = () => {
 
       streamRenderer.flush();
       if (!isGenerationRunActive(generation)) return;
+      await persistLongTextFilesForMessage(targetSessionId, currentBotMsgId, {
+        expectedRequestId: botMsg.generation.requestId,
+        signal: generation.controller.signal,
+      });
+      if (!isGenerationRunActive(generation)) return;
       const endTime = Date.now();
       const completedGeneration = useChatStore
         .getState()
@@ -2054,6 +2135,11 @@ const ChatApp = () => {
 
       streamRenderer.flush();
       if (!isGenerationRunActive(generation)) return;
+      await persistLongTextFilesForMessage(currentSessionId, branchMessageId, {
+        expectedRequestId: requestId,
+        signal: generation.controller.signal,
+      });
+      if (!isGenerationRunActive(generation)) return;
       const endTime = Date.now();
       updateMessage(currentSessionId, branchMessageId, {
         generation: {
@@ -2211,6 +2297,14 @@ const ChatApp = () => {
 
     const existingContent = interruptedMessage.content;
     const existingReasoning = interruptedMessage.reasoning || "";
+    const interruptedLongTextBlocks = getLongTextBlocks(
+      interruptedMessage.outputBlocks,
+    );
+    const resumableLongTextBlock =
+      interruptedLongTextBlocks[interruptedLongTextBlocks.length - 1];
+    const continuationOutputBlocks = resumableLongTextBlock
+      ? interruptedMessage.outputBlocks
+      : undefined;
     const previousRequestId = interruptedMessage.generation.requestId;
     const requestId = uuidv7();
     const startedAt = Date.now();
@@ -2224,7 +2318,7 @@ const ChatApp = () => {
 
     updateMessage(sessionId, messageId, {
       generationError: undefined,
-      outputBlocks: undefined,
+      outputBlocks: continuationOutputBlocks,
       generation: {
         status: "streaming",
         requestId,
@@ -2303,20 +2397,37 @@ const ChatApp = () => {
               }),
               useSearch: false,
             },
-            (streamText, streamReasoning) => {
+            (streamText, streamReasoning, outputBlocks) => {
               if (!isGenerationRunActive(generation)) return;
+              const continuationContent = trimContinuationOverlap(
+                existingContent,
+                streamText,
+              );
               receivedVisibleOutput =
-                receivedVisibleOutput || Boolean(streamText || streamReasoning);
-              const content =
-                existingContent +
-                trimContinuationOverlap(existingContent, streamText);
+                receivedVisibleOutput ||
+                Boolean(streamText || streamReasoning || outputBlocks?.length);
+              const content = existingContent + continuationContent;
               const reasoning = streamReasoning
                 ? existingReasoning +
                   trimContinuationOverlap(existingReasoning, streamReasoning)
                 : existingReasoning;
+              const normalizedOutputBlocks = resumableLongTextBlock
+                ? outputBlocks?.map((block) =>
+                    block.type === "text" &&
+                    block.id === resumableLongTextBlock.id
+                      ? {
+                          ...block,
+                          content:
+                            resumableLongTextBlock.content +
+                            continuationContent,
+                        }
+                      : block,
+                  )
+                : undefined;
               streamRenderer?.schedule({
                 content,
                 reasoning: reasoning || undefined,
+                outputBlocks: normalizedOutputBlocks,
               });
               streamCheckpoint?.record(content.length + reasoning.length);
             },
@@ -2332,11 +2443,20 @@ const ChatApp = () => {
             undefined,
             undefined,
             toolConfirmationController,
-            { disableTools: true },
+            {
+              disableTools: true,
+              initialOutputBlocks: continuationOutputBlocks,
+              resumeLongTextBlockId: resumableLongTextBlock?.id,
+            },
           ),
       });
 
       streamRenderer.flush();
+      if (!isGenerationRunActive(generation)) return;
+      await persistLongTextFilesForMessage(sessionId, messageId, {
+        expectedRequestId: requestId,
+        signal: generation.controller.signal,
+      });
       if (!isGenerationRunActive(generation)) return;
       const endedAt = Date.now();
       const current = useChatStore
@@ -2465,10 +2585,18 @@ const ChatApp = () => {
       !useChatStore.getState().isActiveSessionLoading
     ) {
       updateMessageContent(currentSessionId, msgId, newContent);
-      void syncActiveSessionWithNotice(
-        currentSessionId,
-        "Failed to persist edited message",
-      );
+      const sessionId = currentSessionId;
+      void (async () => {
+        try {
+          await persistLongTextFilesForMessage(sessionId, msgId);
+        } catch (error) {
+          logChatAppError("Failed to update long text document file", error);
+        }
+        await syncActiveSessionWithNotice(
+          sessionId,
+          "Failed to persist edited message",
+        );
+      })();
     }
   };
 
@@ -2780,6 +2908,11 @@ const ChatApp = () => {
       });
 
       streamRenderer.flush();
+      if (!isGenerationRunActive(generation) || !modelMessageId) return;
+      await persistLongTextFilesForMessage(sessionId, modelMessageId, {
+        expectedRequestId: modelPlaceholder.generation.requestId,
+        signal: generation.controller.signal,
+      });
       if (!isGenerationRunActive(generation) || !modelMessageId) return;
       const endTime = Date.now();
       updateMessage(sessionId, modelMessageId, {

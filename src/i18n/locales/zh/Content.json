@@ -6,6 +6,7 @@
   "copyFailed": "复制失败",
   "thoughtProcessDetails": "思考过程详情",
   "taskPlanTitle": "任务计划",
+  "toolStartLongTextOutput": "创建长文本内容块",
   "taskPlanProgressAria": "已完成 {completed}/{total} 个步骤",
   "taskPlanDetails": "任务计划详情",
   "taskPlanStatusPending": "待处理",

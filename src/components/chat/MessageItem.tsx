@@ -10,7 +10,12 @@ import React, {
 import { createPortal } from "react-dom";
 import { useLocale, useTranslations } from "next-intl";
 import { toPng } from "html-to-image";
-import type { Attachment, Message, ToolConfirmationDecision } from "@/types";
+import type {
+  Attachment,
+  Message,
+  MessageOutputBlock,
+  ToolConfirmationDecision,
+} from "@/types";
 import type { ModelInfo } from "@/services/api/chatService";
 import MarkdownRenderer from "../content/MarkdownRenderer";
 import Tooltip from "../ui/Tooltip";
@@ -367,7 +372,7 @@ const MessageItem: React.FC<MessageItemProps> = ({
 
   // Immersive / Reading Mode State
   const [readingMode, setReadingMode] = useState<
-    "none" | "message" | "file" | "attachment"
+    "none" | "message" | "file" | "attachment" | "long_text"
   >("none");
   const [fileToRead, setFileToRead] = useState<MarkdownGeneratedFile | null>(
     null,
@@ -872,6 +877,23 @@ const MessageItem: React.FC<MessageItemProps> = ({
     }
   };
 
+  const handleLongTextOpen = useCallback(
+    (block: Extract<MessageOutputBlock, { type: "text" }>) => {
+      if (block.presentation?.kind !== "long_text" || !block.content) return;
+      setAttachmentToRead({
+        name: block.presentation.title,
+        mimeType: block.presentation.document.mimeType,
+        content: block.content,
+        downloadName: block.presentation.document.fileName,
+        renderAsMarkdown: block.presentation.format === "markdown",
+      });
+      setFileToRead(null);
+      setReaderCopyStatus("idle");
+      setReadingMode("long_text");
+    },
+    [],
+  );
+
   const getActiveReadingFile = (): ReadableAttachmentDocument | null => {
     if (readingMode === "file" && fileToRead) {
       return {
@@ -882,7 +904,10 @@ const MessageItem: React.FC<MessageItemProps> = ({
         renderAsMarkdown: false,
       };
     }
-    if (readingMode === "attachment" && attachmentToRead) {
+    if (
+      (readingMode === "attachment" || readingMode === "long_text") &&
+      attachmentToRead
+    ) {
       return attachmentToRead;
     }
     return null;
@@ -1177,7 +1202,9 @@ const MessageItem: React.FC<MessageItemProps> = ({
       ? t("readingFile", { name: fileToRead.name })
       : readingMode === "attachment" && attachmentToRead
         ? t("readingAttachment", { name: attachmentToRead.name })
-        : t("readingMessage");
+        : readingMode === "long_text" && attachmentToRead
+          ? t("longTextDocumentAria", { title: attachmentToRead.name })
+          : t("readingMessage");
 
   return (
     <>
@@ -1195,6 +1222,7 @@ const MessageItem: React.FC<MessageItemProps> = ({
               ragSources={pdfPrintJob.ragSources}
               forcedTheme="light"
               forceExpandCodeBlocks
+              forceExpandLongTextBlocks
             />
           </div>,
           document.body,
@@ -1218,6 +1246,7 @@ const MessageItem: React.FC<MessageItemProps> = ({
                   searchSources={imageExportJob.searchSources}
                   ragSources={imageExportJob.ragSources}
                   forceExpandCodeBlocks
+                  forceExpandLongTextBlocks
                   hideReasoning
                   hideToolCalls
                 />
@@ -1272,7 +1301,8 @@ const MessageItem: React.FC<MessageItemProps> = ({
                         {t("truncated")}
                       </span>
                     ) : null}
-                    {fileToRead?.incomplete && readingMode === "file" ? (
+                    {(fileToRead?.incomplete && readingMode === "file") ||
+                    (readingMode === "long_text" && isInterrupted) ? (
                       <span className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium text-gray-600 dark:bg-muted dark:text-foreground/85">
                         {t("incomplete")}
                       </span>
@@ -1345,6 +1375,7 @@ const MessageItem: React.FC<MessageItemProps> = ({
                         ? undefined
                         : onRevokeToolSessionApproval
                     }
+                    forceExpandLongTextBlocks
                   />
                 )}
               </div>
@@ -1556,6 +1587,7 @@ const MessageItem: React.FC<MessageItemProps> = ({
                 ragSources={ragSources}
                 onFileClick={handleFileClick}
                 onImageCached={persistCachedOutputImage}
+                onLongTextOpen={handleLongTextOpen}
                 onToolConfirmationDecision={
                   confirmationActionsDisabled
                     ? undefined

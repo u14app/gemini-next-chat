@@ -2044,6 +2044,7 @@ describe("chat service tool execution", () => {
         expect(body.enableGoogleSearch).toBe(false);
         expect(body.enableOpenAIWebSearch).toBe(false);
         expect(body.tools.map((tool: any) => tool.function.name)).toEqual([
+          "start_long_text_output",
           "update_task_plan",
           "web_search",
           "run_javascript",
@@ -2184,6 +2185,281 @@ describe("chat service tool execution", () => {
         }),
       ]),
     );
+  });
+
+  it("captures the next model round as one long text block", async () => {
+    const chunks: Array<{
+      text: string;
+      blocks?: MessageOutputBlock[];
+    }> = [];
+    const outputSnapshots: MessageOutputBlock[][] = [];
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementationOnce(async (_url, init) => {
+        const body = JSON.parse(String(init?.body));
+        expect(body.tools.map((tool: any) => tool.function.name)).toContain(
+          "start_long_text_output",
+        );
+        return sseResponse([
+          { type: "content", content: "I will prepare the report." },
+          {
+            type: "tool_call",
+            toolCall: {
+              id: "call-long-text",
+              name: "start_long_text_output",
+              args: { title: "Architecture report", format: "markdown" },
+              status: "pending",
+            },
+          },
+          { type: "done" },
+        ]);
+      })
+      .mockImplementationOnce(async (_url, init) => {
+        const body = JSON.parse(String(init?.body));
+        expect(body.tools).toEqual([]);
+        expect(body.newMessage).toContain("Output only the document body");
+        return sseResponse([
+          { type: "reasoning", content: "Outline first." },
+          { type: "content", content: "# Architecture report\n\n" },
+          { type: "content", content: "Complete document body." },
+          { type: "done" },
+        ]);
+      });
+
+    const { streamChatResponse } = await import("../services/api/chatService");
+    const result = await streamChatResponse(
+      "session-1",
+      "openai:gpt-4",
+      [],
+      "Write a detailed architecture report.",
+      [],
+      {},
+      (text, _reasoning, blocks) => chunks.push({ text, blocks }),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      (blocks) => outputSnapshots.push(blocks),
+    );
+
+    expect(result).toBe(
+      "I will prepare the report.\n\n# Architecture report\n\nComplete document body.",
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const finalBlocks = chunks.at(-1)?.blocks || outputSnapshots.at(-1);
+    expect(finalBlocks?.map((block) => block.type)).toEqual([
+      "text",
+      "tool_group",
+      "reasoning",
+      "text",
+    ]);
+    expect(finalBlocks?.at(-1)).toMatchObject({
+      type: "text",
+      content: "# Architecture report\n\nComplete document body.",
+      presentation: {
+        kind: "long_text",
+        title: "Architecture report",
+        format: "markdown",
+        document: {
+          fileName: "Architecture report.md",
+          mimeType: "text/markdown",
+        },
+      },
+    });
+  });
+
+  it("turns an empty long text follow-up into a recoverable tool failure", async () => {
+    const outputSnapshots: MessageOutputBlock[][] = [];
+    const toolSnapshots: ToolCall[][] = [];
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        sseResponse([
+          {
+            type: "tool_call",
+            toolCall: {
+              id: "call-empty-long-text",
+              name: "start_long_text_output",
+              args: { title: "Empty report" },
+              status: "pending",
+            },
+          },
+          { type: "done" },
+        ]),
+      )
+      .mockResolvedValueOnce(
+        sseResponse([{ type: "content", content: "\n  " }, { type: "done" }]),
+      );
+
+    const { streamChatResponse } = await import("../services/api/chatService");
+    const result = await streamChatResponse(
+      "session-1",
+      "openai:gpt-4",
+      [],
+      "Write a report.",
+      [],
+      {},
+      () => undefined,
+      undefined,
+      undefined,
+      (toolCalls) => toolSnapshots.push(toolCalls),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      (blocks) => outputSnapshots.push(blocks),
+    );
+
+    expect(result).toBe("\n  ");
+    expect(
+      outputSnapshots
+        .at(-1)
+        ?.some(
+          (block) =>
+            block.type === "text" && block.presentation?.kind === "long_text",
+        ),
+    ).toBe(false);
+    expect(toolSnapshots.at(-1)?.[0]).toMatchObject({
+      status: "error",
+      isError: true,
+      errorInfo: {
+        code: "LONG_TEXT_OUTPUT_EMPTY_BODY",
+        recoverable: true,
+      },
+    });
+  });
+
+  it("interrupts capture when the document body attempts another tool call", async () => {
+    const outputSnapshots: MessageOutputBlock[][] = [];
+    const toolSnapshots: ToolCall[][] = [];
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        sseResponse([
+          {
+            type: "tool_call",
+            toolCall: {
+              id: "call-nested-long-text",
+              name: "start_long_text_output",
+              args: { title: "Partial report" },
+              status: "pending",
+            },
+          },
+          { type: "done" },
+        ]),
+      )
+      .mockResolvedValueOnce(
+        sseResponse([
+          { type: "content", content: "# Partial report\n\nPreserved." },
+          {
+            type: "tool_call",
+            toolCall: {
+              id: "unexpected-tool",
+              name: "start_long_text_output",
+              args: { title: "Unexpected" },
+              status: "pending",
+            },
+          },
+          { type: "done" },
+        ]),
+      );
+
+    const { streamChatResponse } = await import("../services/api/chatService");
+    await expect(
+      streamChatResponse(
+        "session-1",
+        "openai:gpt-4",
+        [],
+        "Write a report.",
+        [],
+        {},
+        (_text, _reasoning, blocks) => {
+          if (blocks) outputSnapshots.push(blocks);
+        },
+        undefined,
+        undefined,
+        (toolCalls) => toolSnapshots.push(toolCalls),
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        (blocks) => outputSnapshots.push(blocks),
+      ),
+    ).rejects.toMatchObject({
+      code: "LONG_TEXT_OUTPUT_NESTED_TOOL_CALL",
+    });
+
+    expect(
+      outputSnapshots
+        .at(-1)
+        ?.find(
+          (block) =>
+            block.type === "text" && block.presentation?.kind === "long_text",
+        ),
+    ).toMatchObject({ content: "# Partial report\n\nPreserved." });
+    expect(toolSnapshots.at(-1)?.[0]).toMatchObject({
+      status: "error",
+      isError: true,
+      errorInfo: {
+        code: "LONG_TEXT_OUTPUT_NESTED_TOOL_CALL",
+        recoverable: true,
+      },
+    });
+  });
+
+  it("falls back to ordinary text when the model cannot call tools", async () => {
+    mocks.supportsToolCalls.mockReturnValue(false);
+    vi.spyOn(globalThis, "fetch").mockImplementationOnce(async (_url, init) => {
+      const body = JSON.parse(String(init?.body));
+      expect(body.tools).toEqual([]);
+      return sseResponse([
+        { type: "content", content: "A long but ordinary response." },
+        { type: "done" },
+      ]);
+    });
+
+    const outputSnapshots: MessageOutputBlock[][] = [];
+    const { streamChatResponse } = await import("../services/api/chatService");
+    const result = await streamChatResponse(
+      "session-1",
+      "openai:gpt-4",
+      [],
+      "Write at length.",
+      [],
+      {},
+      (_text, _reasoning, blocks) => {
+        if (blocks) outputSnapshots.push(blocks);
+      },
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      (blocks) => outputSnapshots.push(blocks),
+    );
+
+    expect(result).toBe("A long but ordinary response.");
+    expect(outputSnapshots.at(-1)).toEqual([
+      expect.objectContaining({
+        type: "text",
+        content: "A long but ordinary response.",
+      }),
+    ]);
+    expect(
+      outputSnapshots
+        .at(-1)
+        ?.some(
+          (block) =>
+            block.type === "text" && block.presentation?.kind === "long_text",
+        ),
+    ).toBe(false);
   });
 
   it("streams Agent web-search results through the existing citation channel", async () => {

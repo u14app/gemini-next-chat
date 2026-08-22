@@ -6,6 +6,7 @@
   "copyFailed": "コピーに失敗しました",
   "thoughtProcessDetails": "思考プロセスの詳細",
   "taskPlanTitle": "タスク計画",
+  "toolStartLongTextOutput": "長文ドキュメントを作成",
   "taskPlanProgressAria": "{total} 件中 {completed} 件のステップが完了",
   "taskPlanDetails": "タスク計画の詳細",
   "taskPlanStatusPending": "保留中",

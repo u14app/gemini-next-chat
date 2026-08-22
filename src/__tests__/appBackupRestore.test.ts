@@ -190,6 +190,23 @@ function makeBackup(): Blob {
                     url: missingAttachmentUrl,
                   },
                 ],
+                outputBlocks: [
+                  {
+                    id: "long-text",
+                    type: "text",
+                    content: "Recovered document body",
+                    presentation: {
+                      kind: "long_text",
+                      title: "Recovered document",
+                      format: "plain_text",
+                      document: {
+                        fileName: "Recovered document.txt",
+                        mimeType: "text/plain",
+                        url: missingAttachmentUrl,
+                      },
+                    },
+                  },
+                ],
               },
               childMessageIds: [],
             },
@@ -320,6 +337,9 @@ describe("browser backup restore", () => {
     const sessionMessages = JSON.stringify(
       storedItems.get("session_messages_new-session"),
     );
+    const restoredSessionMessages = storedItems.get(
+      "session_messages_new-session",
+    ) as any;
 
     expect(result).toMatchObject({
       restoredFileCount: 1,
@@ -348,6 +368,14 @@ describe("browser backup restore", () => {
       "opfs://chat/new-session/missing.txt",
     );
     expect(sessionMessages).toContain("localFileMissing");
+    expect(
+      restoredSessionMessages.nodesById.message.message.outputBlocks[0]
+        .presentation.document,
+    ).toMatchObject({
+      fileName: "Recovered document.txt",
+      mimeType: "text/plain",
+      localFileMissing: true,
+    });
     expect(sessionMessages).toContain(
       "Keep opfs://chat/new-session/not-a-reference.txt unchanged.",
     );

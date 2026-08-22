@@ -44,7 +44,9 @@ export const getOutputBlockAttachmentUrls = (
         ? getAttachmentUrls([block.image])
         : block.type === "tool_group"
           ? getToolCallAttachmentUrls(block.toolCalls)
-          : [];
+          : block.type === "text" && block.presentation?.document.url
+            ? [block.presentation.document.url]
+            : [];
     for (const url of blockUrls) {
       urls.add(url);
     }

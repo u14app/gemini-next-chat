@@ -22,6 +22,7 @@ import SourceBlock from "./SourceBlock";
 import ToolCallBlock from "./ToolCallBlock";
 import MemorySearchBlock from "./MemorySearchBlock";
 import TaskPlanBlock from "./TaskPlanBlock";
+import LongTextBlock from "./LongTextBlock";
 import SafeImage from "../ui/SafeImage";
 import { Button } from "@/components/ui/primitives";
 
@@ -36,6 +37,7 @@ interface MessageOutputRendererProps {
   onFileClick?: (file: MarkdownGeneratedFile) => void;
   forcedTheme?: MarkdownRendererProps["forcedTheme"];
   forceExpandCodeBlocks?: boolean;
+  forceExpandLongTextBlocks?: boolean;
   hideReasoning?: boolean;
   hideToolCalls?: boolean;
   onImageCached?: (image: Attachment) => void;
@@ -46,12 +48,22 @@ interface MessageOutputRendererProps {
   onRevokeToolSessionApproval?: (
     toolCall: NonNullable<Message["toolCalls"]>[number],
   ) => void;
+  onLongTextOpen?: (
+    block: Extract<MessageOutputBlock, { type: "text" }>,
+  ) => void;
 }
 
 const isMemorySearchTool = (name: string | undefined) =>
   name === "memory_search";
 
 const isWebSearchTool = (name: string | undefined) => name === "web_search";
+
+const isSuccessfulLongTextTool = (
+  toolCall: NonNullable<Message["toolCalls"]>[number],
+) =>
+  toolCall.name === "start_long_text_output" &&
+  toolCall.status === "success" &&
+  !toolCall.isError;
 
 const ImageGenerationStatusBlock: React.FC<{ label: string }> = ({ label }) => (
   <div
@@ -171,11 +183,13 @@ const MessageOutputRenderer: React.FC<MessageOutputRendererProps> = ({
   onFileClick,
   forcedTheme,
   forceExpandCodeBlocks,
+  forceExpandLongTextBlocks = false,
   hideReasoning = false,
   hideToolCalls = false,
   onImageCached,
   onToolConfirmationDecision,
   onRevokeToolSessionApproval,
+  onLongTextOpen,
 }) => {
   const t = useTranslations("Message");
   const blocks = useMemo(() => {
@@ -186,6 +200,8 @@ const MessageOutputRenderer: React.FC<MessageOutputRendererProps> = ({
       isTyping,
     );
   }, [displayedContent, isTyping, message]);
+  const isLongTextStreaming =
+    isTyping || message.generation?.status === "streaming";
 
   if (blocks.length === 0) return null;
 
@@ -194,6 +210,21 @@ const MessageOutputRenderer: React.FC<MessageOutputRendererProps> = ({
       {blocks.map((block, index) => {
         switch (block.type) {
           case "text":
+            if (block.presentation?.kind === "long_text") {
+              return (
+                <LongTextBlock
+                  key={block.id}
+                  content={block.content}
+                  presentation={block.presentation}
+                  isStreaming={isLongTextStreaming}
+                  isInterrupted={message.generation?.status === "interrupted"}
+                  forceExpanded={forceExpandLongTextBlocks}
+                  onOpen={
+                    onLongTextOpen ? () => onLongTextOpen(block) : undefined
+                  }
+                />
+              );
+            }
             return (
               <MarkdownRenderer
                 key={block.id}
@@ -258,7 +289,8 @@ const MessageOutputRenderer: React.FC<MessageOutputRendererProps> = ({
             const otherToolCalls = block.toolCalls.filter(
               (toolCall) =>
                 !isMemorySearchTool(toolCall.name) &&
-                !isWebSearchTool(toolCall.name),
+                !isWebSearchTool(toolCall.name) &&
+                !isSuccessfulLongTextTool(toolCall),
             );
 
             return (

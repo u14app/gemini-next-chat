@@ -6,6 +6,7 @@
   "copyFailed": "Copy failed",
   "thoughtProcessDetails": "Thought process details",
   "taskPlanTitle": "Task plan",
+  "toolStartLongTextOutput": "Start long text document",
   "taskPlanProgressAria": "{completed} of {total} steps completed",
   "taskPlanDetails": "Task plan details",
   "taskPlanStatusPending": "Pending",

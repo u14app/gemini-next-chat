@@ -11,6 +11,7 @@ import type {
   RagQueryError,
 } from "@/lib/knowledge/retrieveKnowledgeSources";
 import type { TaskPlanSnapshot } from "@/lib/agent/taskPlan";
+import type { LongTextOutputRequest } from "@/lib/chat/longText";
 
 import type { ChatToolDefinition } from "../types";
 
@@ -37,6 +38,12 @@ export interface BuiltinToolEmitters {
   knowledgeSources?: (sources: Source[], ragError?: RagQueryError) => void;
   skillInvocation?: (invocation: AppliedSkillInvocation) => void;
   taskPlan?: (plan: TaskPlanSnapshot) => void;
+  longText?: (request: LongTextOutputRequest) =>
+    | { ok: true }
+    | {
+        ok: false;
+        error: { code: string; message: string };
+      };
 }
 
 export interface BuiltinToolContext {

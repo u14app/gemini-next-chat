@@ -14,6 +14,7 @@ import {
   Wrench,
   CheckCircle2,
   AlertCircle,
+  FileText,
   ShieldAlert,
 } from "lucide-react";
 import { Blocks } from "lucide-react";
@@ -44,6 +45,10 @@ const BUILTIN_TOOL_PRESENTATIONS = {
   load_skill: { labelKey: "toolLoadSkill", icon: Sparkles },
   run_javascript: { labelKey: "toolRunJavaScript", icon: SquareCode },
   update_task_plan: { labelKey: "toolUpdateTaskPlan", icon: ListChecks },
+  start_long_text_output: {
+    labelKey: "toolStartLongTextOutput",
+    icon: FileText,
+  },
 } as const;
 
 type BuiltinToolName = keyof typeof BUILTIN_TOOL_PRESENTATIONS;

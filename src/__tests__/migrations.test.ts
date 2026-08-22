@@ -3,7 +3,10 @@ import {
   ensureLegacyGeminiNextChatMigration,
   normalizeLegacyGeminiMessage,
 } from "../store/storage/legacyGeminiMigration";
-import { normalizeToolCall } from "../store/storage/migrations";
+import {
+  normalizeMessage,
+  normalizeToolCall,
+} from "../store/storage/migrations";
 
 function createAsyncStorage(initial?: Record<string, unknown>) {
   const items = new Map<string, unknown>(Object.entries(initial || {}));
@@ -44,6 +47,59 @@ function persisted(state: unknown) {
 }
 
 describe("storage migrations", () => {
+  it("preserves valid long text metadata and drops malformed presentation data", () => {
+    const normalized = normalizeMessage({
+      id: "message",
+      role: "model",
+      content: "BodyLegacy",
+      timestamp: 1,
+      outputBlocks: [
+        {
+          id: "document",
+          type: "text",
+          content: "Body",
+          presentation: {
+            kind: "long_text",
+            title: "Notes",
+            format: "markdown",
+            document: {
+              fileName: "Notes.md",
+              mimeType: "text/markdown",
+              url: "opfs://chat/long-text/notes.md",
+            },
+          },
+        },
+        {
+          id: "legacy-text",
+          type: "text",
+          content: "Legacy",
+          presentation: {
+            kind: "long_text",
+            title: "",
+            format: "markdown",
+            document: {
+              fileName: "bad.md",
+              mimeType: "text/markdown",
+            },
+          },
+        },
+      ],
+    });
+
+    expect(normalized.outputBlocks).toEqual([
+      expect.objectContaining({
+        id: "document",
+        presentation: expect.objectContaining({
+          title: "Notes",
+          document: expect.objectContaining({
+            url: "opfs://chat/long-text/notes.md",
+          }),
+        }),
+      }),
+      { id: "legacy-text", type: "text", content: "Legacy" },
+    ]);
+  });
+
   it("derives missing tool call status from legacy fields", () => {
     expect(
       normalizeToolCall({

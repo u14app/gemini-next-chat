@@ -417,6 +417,20 @@ describe("app export helpers", () => {
                       },
                     },
                   },
+                  {
+                    type: "text",
+                    content: "Document body",
+                    presentation: {
+                      kind: "long_text",
+                      title: "Document",
+                      format: "markdown",
+                      document: {
+                        fileName: "Document.md",
+                        mimeType: "text/markdown",
+                        url: "opfs://chat/long-text/document.md",
+                      },
+                    },
+                  },
                 ],
               },
             ],
@@ -439,6 +453,7 @@ describe("app export helpers", () => {
     });
 
     expect([...referenced].sort()).toEqual([
+      "opfs://chat/long-text/document.md",
       "opfs://chat/s1/attachment.txt",
       "opfs://knowledge-base/c1/local.md",
       "opfs://workspaces/w1/preset.txt",

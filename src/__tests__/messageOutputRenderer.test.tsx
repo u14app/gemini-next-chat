@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import MessageOutputRenderer from "@/components/content/MessageOutputRenderer";
 import contentMessages from "@/i18n/locales/en/Content.json";
+import messageMessages from "@/i18n/locales/en/Message.json";
 import type { Message } from "@/types";
 
 afterEach(cleanup);
@@ -18,7 +19,7 @@ function renderMessage(message: Message) {
       locale="en"
       messages={{
         Content: contentMessages,
-        Message: { generatingImage: "Generating image" },
+        Message: messageMessages,
       }}
     >
       <MessageOutputRenderer
@@ -236,5 +237,68 @@ describe("MessageOutputRenderer web search presentation", () => {
     expect(screen.getByRole("button", { name: "Sources" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Used 1 Tool" })).toBeNull();
     expect(screen.queryByText("legacy raw tool result")).toBeNull();
+  });
+
+  it("hides successful long text declarations but keeps their failures", async () => {
+    const { rerender } = renderMessage({
+      id: "long-text-success",
+      role: "model",
+      content: "",
+      timestamp: 5,
+      outputBlocks: [
+        {
+          id: "tools-long-text-success",
+          type: "tool_group",
+          toolCalls: [
+            {
+              id: "long-text-call-success",
+              name: "start_long_text_output",
+              args: { title: "Report" },
+              status: "success",
+              result: { ok: true },
+            },
+          ],
+        },
+      ],
+    });
+    expect(screen.queryByRole("button", { name: "Used 1 Tool" })).toBeNull();
+
+    rerender(
+      <NextIntlClientProvider
+        locale="en"
+        messages={{ Content: contentMessages, Message: messageMessages }}
+      >
+        <MessageOutputRenderer
+          message={{
+            id: "long-text-error",
+            role: "model",
+            content: "",
+            timestamp: 6,
+            outputBlocks: [
+              {
+                id: "tools-long-text-error",
+                type: "tool_group",
+                toolCalls: [
+                  {
+                    id: "long-text-call-error",
+                    name: "start_long_text_output",
+                    args: { title: "Report" },
+                    status: "error",
+                    isError: true,
+                    result: { error: { message: "Document body missing" } },
+                  },
+                ],
+              },
+            ],
+          }}
+          displayedContent=""
+          searchSources={[]}
+        />
+      </NextIntlClientProvider>,
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: "Used 1 Tool" }));
+    expect(screen.getByText("Start long text document")).toBeTruthy();
+    expect(screen.getByText(/Document body missing/)).toBeTruthy();
   });
 });

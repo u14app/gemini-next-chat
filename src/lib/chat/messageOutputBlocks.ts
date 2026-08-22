@@ -7,6 +7,10 @@ import type {
   ToolCall,
 } from "@/types";
 import type { TaskPlanSnapshot } from "@/lib/agent/taskPlan";
+import {
+  createLongTextPresentation,
+  type LongTextOutputRequest,
+} from "@/lib/chat/longText";
 
 export interface MessageOutputBlockBuilderOptions {
   createId?: () => string;
@@ -36,7 +40,17 @@ const cloneImage = (
 const cloneBlock = (block: MessageOutputBlock): MessageOutputBlock => {
   switch (block.type) {
     case "text":
-      return { ...block };
+      return {
+        ...block,
+        ...(block.presentation
+          ? {
+              presentation: {
+                ...block.presentation,
+                document: { ...block.presentation.document },
+              },
+            }
+          : {}),
+      };
     case "reasoning":
       return { ...block };
     case "search":
@@ -73,6 +87,9 @@ export function createMessageOutputBlockBuilder(
   const blocks = (options.initialBlocks || []).map(cloneBlock);
   let activeSearchBlockId: string | undefined;
   let activeReasoningBlockId: string | undefined;
+  let pendingLongTextRequest: LongTextOutputRequest | undefined;
+  let pendingLongTextContent = "";
+  let activeLongTextBlockId: string | undefined;
   let taskPlanBlockId: string | undefined;
   for (let index = 0; index < blocks.length; index += 1) {
     const block = blocks[index];
@@ -100,6 +117,20 @@ export function createMessageOutputBlockBuilder(
   }
 
   const getLastBlock = () => blocks[blocks.length - 1];
+
+  const findActiveLongTextBlock = () =>
+    activeLongTextBlockId
+      ? blocks.find(
+          (block): block is Extract<MessageOutputBlock, { type: "text" }> =>
+            block.type === "text" && block.id === activeLongTextBlockId,
+        )
+      : undefined;
+
+  const finalizeLongTextCapture = () => {
+    if (!activeLongTextBlockId) return false;
+    activeLongTextBlockId = undefined;
+    return true;
+  };
 
   const finalizeActiveReasoning = (endedAt = Date.now()) => {
     if (!activeReasoningBlockId) return false;
@@ -144,8 +175,31 @@ export function createMessageOutputBlockBuilder(
     appendText(content: string) {
       if (!content) return;
       finalizeActiveReasoning();
+
+      if (pendingLongTextRequest) {
+        pendingLongTextContent += content;
+        if (!pendingLongTextContent.trim()) return;
+        const block: Extract<MessageOutputBlock, { type: "text" }> = {
+          id: createId(),
+          type: "text",
+          content: pendingLongTextContent,
+          presentation: createLongTextPresentation(pendingLongTextRequest),
+        };
+        pendingLongTextRequest = undefined;
+        pendingLongTextContent = "";
+        activeLongTextBlockId = block.id;
+        blocks.push(block);
+        return;
+      }
+
+      const activeLongTextBlock = findActiveLongTextBlock();
+      if (activeLongTextBlock) {
+        activeLongTextBlock.content += content;
+        return;
+      }
+
       const last = getLastBlock();
-      if (last?.type === "text") {
+      if (last?.type === "text" && !last.presentation) {
         last.content += content;
         return;
       }
@@ -158,23 +212,88 @@ export function createMessageOutputBlockBuilder(
 
     appendReasoning(content: string) {
       if (!content) return;
-      const last = getLastBlock();
-      if (last?.type === "reasoning" && !last.endedAt) {
-        if (!last.startedAt) {
-          last.startedAt = Date.now();
+      const activeReasoning = activeReasoningBlockId
+        ? blocks.find(
+            (
+              block,
+            ): block is Extract<MessageOutputBlock, { type: "reasoning" }> =>
+              block.type === "reasoning" && block.id === activeReasoningBlockId,
+          )
+        : undefined;
+      if (activeReasoning && !activeReasoning.endedAt) {
+        if (!activeReasoning.startedAt) {
+          activeReasoning.startedAt = Date.now();
         }
-        last.content += content;
-        activeReasoningBlockId = last.id;
+        activeReasoning.content += content;
         return;
       }
       const startedAt = Date.now();
-      blocks.push({
-        id: createId(),
-        type: "reasoning",
-        content,
-        startedAt,
-      });
-      activeReasoningBlockId = blocks[blocks.length - 1]?.id;
+      const reasoningBlock: Extract<MessageOutputBlock, { type: "reasoning" }> =
+        {
+          id: createId(),
+          type: "reasoning",
+          content,
+          startedAt,
+        };
+      const activeLongTextIndex = activeLongTextBlockId
+        ? blocks.findIndex((block) => block.id === activeLongTextBlockId)
+        : -1;
+      if (activeLongTextIndex >= 0) {
+        blocks.splice(activeLongTextIndex, 0, reasoningBlock);
+      } else {
+        blocks.push(reasoningBlock);
+      }
+      activeReasoningBlockId = reasoningBlock.id;
+    },
+
+    startLongTextCapture(request: LongTextOutputRequest) {
+      const hasLongTextBlock = blocks.some(
+        (block) =>
+          block.type === "text" && block.presentation?.kind === "long_text",
+      );
+      if (pendingLongTextRequest || activeLongTextBlockId || hasLongTextBlock) {
+        return {
+          ok: false as const,
+          error: {
+            code: "LONG_TEXT_OUTPUT_ALREADY_STARTED",
+            message: "Only one long text document can be created per response.",
+          },
+        };
+      }
+      pendingLongTextRequest = { ...request };
+      pendingLongTextContent = "";
+      return { ok: true as const };
+    },
+
+    resumeLongTextCapture(blockId: string) {
+      if (pendingLongTextRequest || activeLongTextBlockId) return false;
+      const target = blocks.find(
+        (block) =>
+          block.type === "text" &&
+          block.id === blockId &&
+          block.presentation?.kind === "long_text",
+      );
+      if (!target) return false;
+      activeLongTextBlockId = blockId;
+      return true;
+    },
+
+    cancelPendingLongTextCapture() {
+      if (!pendingLongTextRequest) return false;
+      pendingLongTextRequest = undefined;
+      pendingLongTextContent = "";
+      return true;
+    },
+
+    finalizeLongTextCapture,
+
+    getLongTextCaptureState() {
+      const activeBlock = findActiveLongTextBlock();
+      return {
+        pending: Boolean(pendingLongTextRequest),
+        activeBlockId: activeBlock?.id,
+        hasContent: Boolean(activeBlock?.content),
+      };
     },
 
     upsertSearch(update: SearchBlockUpdate) {

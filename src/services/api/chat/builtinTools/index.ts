@@ -11,6 +11,7 @@ import type {
 } from "./types";
 import { createWebSearchBinding } from "./webSearch";
 import { createTaskPlanBinding } from "./taskPlan";
+import { createLongTextOutputBinding } from "./longText";
 
 export function collectBuiltinTools({
   message,
@@ -35,6 +36,7 @@ export function collectBuiltinTools({
 
   const candidates: Array<BuiltinToolBinding | null> = [
     collectMemorySearchBinding(message),
+    createLongTextOutputBinding(),
   ];
   if (agentModeEnabled) {
     candidates.push(createTaskPlanBinding());

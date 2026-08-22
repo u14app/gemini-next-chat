@@ -630,6 +630,16 @@ describe("chat store persistence", () => {
           id: "text-1",
           type: "text",
           content: "before",
+          presentation: {
+            kind: "long_text",
+            title: "Draft",
+            format: "plain_text",
+            document: {
+              fileName: "Draft.txt",
+              mimeType: "text/plain",
+              url: "opfs://chat/long-text/draft.txt",
+            },
+          },
         },
       ],
     };
@@ -655,6 +665,16 @@ describe("chat store persistence", () => {
         id: "text-1",
         type: "text",
         content: "after",
+        presentation: {
+          kind: "long_text",
+          title: "Draft",
+          format: "plain_text",
+          document: {
+            fileName: "Draft.txt",
+            mimeType: "text/plain",
+            url: "opfs://chat/long-text/draft.txt",
+          },
+        },
       },
     ]);
     expectStoredActivePath("a", [activeMessage]);
@@ -1036,6 +1056,41 @@ describe("chat store persistence", () => {
 
     expect(deleteFromOPFSMock).toHaveBeenCalledTimes(1);
     expect(deleteFromOPFSMock).toHaveBeenCalledWith(cachedImageUrl);
+  });
+
+  it("cleans a long text document after its final message reference is deleted", async () => {
+    const documentUrl = "opfs://chat/long-text/document.md";
+    useChatStore.setState({
+      sessions: [makeSession("a")],
+      currentSessionId: "a",
+      activeMessages: [
+        {
+          ...makeModelMessage("m1", "Document body"),
+          outputBlocks: [
+            {
+              id: "long-text",
+              type: "text",
+              content: "Document body",
+              presentation: {
+                kind: "long_text",
+                title: "Document",
+                format: "markdown",
+                document: {
+                  fileName: "Document.md",
+                  mimeType: "text/markdown",
+                  url: documentUrl,
+                },
+              },
+            },
+          ],
+        },
+      ],
+    });
+
+    await useChatStore.getState().deleteMessage("a", "m1");
+
+    expect(deleteFromOPFSMock).toHaveBeenCalledTimes(1);
+    expect(deleteFromOPFSMock).toHaveBeenCalledWith(documentUrl);
   });
 
   it("preserves deleted message attachments still referenced by other messages", async () => {

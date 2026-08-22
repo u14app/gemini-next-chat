@@ -11,6 +11,8 @@ export type {
   ChatPipelinePhaseState,
   ChatPipelineState,
   ChatPipelineStatus,
+  LongTextFormat,
+  LongTextPresentation,
   Message,
   MessageGenerationState,
   MessageGenerationStatus,

@@ -57,6 +57,7 @@ import {
   resolveEffectiveSearchCapability,
 } from "@/lib/settings/searchRag";
 import { createMessageOutputBlockBuilder } from "@/lib/chat/messageOutputBlocks";
+import { LONG_TEXT_TOOL_NAME } from "@/lib/chat/longText";
 import { resolveImageGenerationOptions } from "@/lib/chat/imageGenerationOptions";
 import {
   buildCompressionSource,
@@ -698,6 +699,8 @@ export interface ModelInfo {
 
 export interface StreamChatResponseOptions {
   disableTools?: boolean;
+  initialOutputBlocks?: MessageOutputBlock[];
+  resumeLongTextBlockId?: string;
   knowledgeScope?: BuiltinKnowledgeScope;
   onKnowledgeSources?: (sources: Source[], ragError?: RagQueryError) => void;
   onSkillInvocation?: (invocation: AppliedSkillInvocation) => void;
@@ -759,7 +762,12 @@ export const streamChatResponse = async (
     modelProviderType: provider.type,
     selectedModel: model,
   });
-  const outputBlockBuilder = createMessageOutputBlockBuilder();
+  const outputBlockBuilder = createMessageOutputBlockBuilder({
+    initialBlocks: options?.initialOutputBlocks,
+  });
+  if (options?.resumeLongTextBlockId) {
+    outputBlockBuilder.resumeLongTextCapture(options.resumeLongTextBlockId);
+  }
   const emitOutputBlocks = () => {
     onOutputBlocks?.(outputBlockBuilder.getBlocks());
   };
@@ -995,6 +1003,7 @@ export const streamChatResponse = async (
       ...config,
       useAgentMode: agentModeEnabled,
     };
+    let requestTools = tools;
     const maxToolRounds = PLUGIN_EXECUTION_LIMITS.maxToolRounds;
     let executedToolCallCount = 0;
     const functionFingerprintCache = new Map<string, Promise<string>>();
@@ -1100,6 +1109,32 @@ export const streamChatResponse = async (
       emitToolCalls();
     };
 
+    let longTextCaptureToolCallId: string | undefined;
+    const failLongTextCapture = (code: string, message: string) => {
+      const captureState = outputBlockBuilder.getLongTextCaptureState();
+      if (!captureState.pending && !captureState.activeBlockId) return;
+
+      outputBlockBuilder.cancelPendingLongTextCapture();
+      outputBlockBuilder.finalizeLongTextCapture();
+      const current = longTextCaptureToolCallId
+        ? allToolCalls.find(
+            (toolCall) => toolCall.id === longTextCaptureToolCallId,
+          )
+        : undefined;
+      if (current) {
+        const failed: ToolCall = {
+          ...current,
+          status: "error",
+          isError: true,
+          errorInfo: { code, message, recoverable: true },
+          result: { error: { code, message, recoverable: true } },
+        };
+        outputBlockBuilder.updateToolCall(failed);
+        upsertToolCall(failed);
+      }
+      emitOutputBlocks();
+    };
+
     const runRound = async (): Promise<ChatStreamRoundResult> => {
       const boundedRequestHistory = boundHistoryForRequest(requestHistory, {
         newMessage: requestMessage,
@@ -1107,7 +1142,7 @@ export const streamChatResponse = async (
         modelInputTokenLimit: selectedModelMetadata?.limit?.context,
         reservedOutputTokens: selectedModelMetadata?.limit?.output,
         systemInstruction: effectiveSystemInstruction,
-        tools,
+        tools: requestTools,
       });
       const requestPayload = {
         modelName,
@@ -1116,7 +1151,7 @@ export const streamChatResponse = async (
         attachments: requestAttachments,
         config: requestConfig,
         systemInstruction: effectiveSystemInstruction,
-        tools,
+        tools: requestTools,
         enableImageGeneration:
           supportsImageGeneration(selectedModelMetadata) &&
           (provider.type === "OpenAI" || isGoogleProviderType(provider.type)),
@@ -1163,6 +1198,17 @@ export const streamChatResponse = async (
             return false;
 
           case "tool_call": {
+            const captureState = outputBlockBuilder.getLongTextCaptureState();
+            if (captureState.pending || captureState.activeBlockId) {
+              failLongTextCapture(
+                "LONG_TEXT_OUTPUT_NESTED_TOOL_CALL",
+                "The document body attempted another tool call instead of returning only text.",
+              );
+              throw new ChatStreamEventError(
+                "The long text document body attempted an unexpected tool call.",
+                "LONG_TEXT_OUTPUT_NESTED_TOOL_CALL",
+              );
+            }
             const toolCall: ToolCall = {
               id: parsed.toolCall?.id || uuidv7(),
               name: parsed.toolCall?.name,
@@ -1437,6 +1483,16 @@ export const streamChatResponse = async (
     for (let round = 0; round <= maxToolRounds; round++) {
       const result = await runRound();
       if (result.status !== "done") {
+        const captureState = outputBlockBuilder.getLongTextCaptureState();
+        if (captureState.pending) {
+          failLongTextCapture(
+            "LONG_TEXT_OUTPUT_MISSING_BODY",
+            "The model did not return a document body after starting long text output.",
+          );
+        } else if (captureState.activeBlockId) {
+          outputBlockBuilder.finalizeLongTextCapture();
+          emitOutputBlocks();
+        }
         throw result.error;
       }
       const pendingToolCalls = result.toolCalls.filter(
@@ -1448,6 +1504,16 @@ export const streamChatResponse = async (
       );
 
       if (pendingToolCalls.length === 0) {
+        const captureState = outputBlockBuilder.getLongTextCaptureState();
+        if (captureState.pending) {
+          failLongTextCapture(
+            "LONG_TEXT_OUTPUT_EMPTY_BODY",
+            "The model completed without returning the requested document body.",
+          );
+        } else if (captureState.activeBlockId) {
+          outputBlockBuilder.finalizeLongTextCapture();
+          emitOutputBlocks();
+        }
         return committedContent + result.content;
       }
 
@@ -1745,6 +1811,14 @@ export const streamChatResponse = async (
                       outputBlockBuilder.upsertTaskPlan(plan);
                       emitOutputBlocks();
                     },
+                    longText: (request) => {
+                      const capture =
+                        outputBlockBuilder.startLongTextCapture(request);
+                      if (capture.ok) {
+                        longTextCaptureToolCallId = toolCall.id;
+                      }
+                      return capture;
+                    },
                   },
                 })
               : await executePluginFunction(
@@ -1888,10 +1962,29 @@ export const streamChatResponse = async (
           timestamp: Date.now(),
         },
       ];
-      requestMessage =
-        roundPluginImages.length > 0
-          ? "Use the tool results above and the attached image outputs to answer the user's original request. Only call another tool if more external data is required."
-          : "Use the tool results above to answer the user's original request. Only call another tool if more external data is required.";
+      const successfulLongTextCall = completedToolCalls.find(
+        (toolCall) =>
+          toolCall.name === LONG_TEXT_TOOL_NAME &&
+          toolCall.status === "success" &&
+          !toolCall.isError,
+      );
+      if (successfulLongTextCall) {
+        const args = successfulLongTextCall.args as {
+          title?: unknown;
+          format?: unknown;
+        };
+        const title =
+          typeof args.title === "string" ? args.title : "Untitled document";
+        const format = args.format === "plain_text" ? "plain text" : "Markdown";
+        requestMessage = `Write the complete ${format} body for the document titled ${JSON.stringify(title)}. Output only the document body as ordinary text. Do not add a preamble, do not call another tool, and do not repeat the title unless it belongs in the document itself.`;
+        requestTools = [];
+      } else {
+        requestMessage =
+          roundPluginImages.length > 0
+            ? "Use the tool results above and the attached image outputs to answer the user's original request. Only call another tool if more external data is required."
+            : "Use the tool results above to answer the user's original request. Only call another tool if more external data is required.";
+        requestTools = tools;
+      }
       requestAttachments = roundPluginImages;
     }
 

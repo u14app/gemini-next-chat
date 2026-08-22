@@ -262,6 +262,9 @@ async function stripOutputBlockDisplayCacheForModel(
     resolveOPFSBlob?: ResolveOPFSBlob;
   },
 ): Promise<MessageOutputBlock> {
+  if (block.type === "text" && block.presentation) {
+    return { id: block.id, type: "text", content: block.content };
+  }
   if (block.type === "tool_group") {
     return {
       ...block,

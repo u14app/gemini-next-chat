@@ -74,6 +74,119 @@ describe("message output blocks", () => {
     ]);
   });
 
+  it("creates a long text block only when the next body token arrives", () => {
+    const builder = createMessageOutputBlockBuilder({
+      createId: (() => {
+        let index = 0;
+        return () => `block-${++index}`;
+      })(),
+    });
+
+    builder.appendText("I will prepare a document.");
+    builder.appendToolCall({
+      id: "long-text-call",
+      name: "start_long_text_output",
+      args: { title: "Release notes" },
+      status: "success",
+      result: { ok: true },
+    });
+    expect(
+      builder.startLongTextCapture({
+        title: "Release notes",
+        format: "markdown",
+      }),
+    ).toEqual({ ok: true });
+    builder.appendReasoning("Organizing sections.");
+
+    expect(builder.getLongTextCaptureState()).toEqual({
+      pending: true,
+      activeBlockId: undefined,
+      hasContent: false,
+    });
+    expect(
+      builder
+        .getBlocks()
+        .some(
+          (block) =>
+            block.type === "text" && block.presentation?.kind === "long_text",
+        ),
+    ).toBe(false);
+
+    builder.appendText("\n  ");
+    expect(builder.getLongTextCaptureState()).toEqual({
+      pending: true,
+      activeBlockId: undefined,
+      hasContent: false,
+    });
+    builder.appendText("# Release notes\n\nFirst paragraph.");
+    builder.appendText("\n\nSecond paragraph.");
+    builder.finalizeLongTextCapture();
+
+    expect(builder.getBlocks().map((block) => block.type)).toEqual([
+      "text",
+      "tool_group",
+      "reasoning",
+      "text",
+    ]);
+    expect(builder.getBlocks().at(-1)).toEqual({
+      id: "block-4",
+      type: "text",
+      content: "\n  # Release notes\n\nFirst paragraph.\n\nSecond paragraph.",
+      presentation: {
+        kind: "long_text",
+        title: "Release notes",
+        format: "markdown",
+        document: {
+          fileName: "Release notes.md",
+          mimeType: "text/markdown",
+        },
+      },
+    });
+  });
+
+  it("enforces one long text block and resumes an interrupted block in place", () => {
+    const initialBlocks: MessageOutputBlock[] = [
+      {
+        id: "document-1",
+        type: "text",
+        content: "Partial",
+        presentation: {
+          kind: "long_text",
+          title: "Draft",
+          format: "plain_text",
+          document: {
+            fileName: "Draft.txt",
+            mimeType: "text/plain",
+          },
+        },
+      },
+    ];
+    const builder = createMessageOutputBlockBuilder({ initialBlocks });
+
+    expect(
+      builder.startLongTextCapture({ title: "Second", format: "markdown" }),
+    ).toMatchObject({
+      ok: false,
+      error: { code: "LONG_TEXT_OUTPUT_ALREADY_STARTED" },
+    });
+    expect(builder.resumeLongTextCapture("document-1")).toBe(true);
+    builder.appendReasoning("Continuation reasoning");
+    builder.appendText(" continuation");
+    builder.finalizeLongTextCapture();
+
+    expect(builder.getBlocks()).toEqual([
+      expect.objectContaining({
+        type: "reasoning",
+        content: "Continuation reasoning",
+      }),
+      expect.objectContaining({
+        id: "document-1",
+        content: "Partial continuation",
+        presentation: expect.objectContaining({ kind: "long_text" }),
+      }),
+    ]);
+  });
+
   it("adds and removes image generation status blocks", () => {
     const builder = createMessageOutputBlockBuilder({
       createId: (() => {

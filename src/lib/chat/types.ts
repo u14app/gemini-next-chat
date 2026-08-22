@@ -118,11 +118,27 @@ export interface ToolConfirmationController {
   ) => void;
 }
 
+export type LongTextFormat = "markdown" | "plain_text";
+
+export interface LongTextPresentation {
+  kind: "long_text";
+  title: string;
+  format: LongTextFormat;
+  document: {
+    fileName: string;
+    mimeType: "text/markdown" | "text/plain";
+    url?: string;
+    localFileMissing?: boolean;
+    localFileError?: string;
+  };
+}
+
 export type MessageOutputBlock =
   | {
       id: string;
       type: "text";
       content: string;
+      presentation?: LongTextPresentation;
     }
   | {
       id: string;
