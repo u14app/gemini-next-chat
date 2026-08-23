@@ -87,6 +87,15 @@ describe("skills domain", () => {
     expect("content" in normalized.skills[0]).toBe(false);
   });
 
+  it("preserves an explicit empty Tool restriction", () => {
+    const normalized = normalizeSkillCatalog({
+      ...catalog,
+      skills: [{ ...catalog.skills[0], allowedTools: [] }],
+    });
+
+    expect(normalized.skills[0].allowedTools).toEqual([]);
+  });
+
   it("rejects skills that require scripts, external tools, or network access", () => {
     const unsafe = {
       ...catalog,

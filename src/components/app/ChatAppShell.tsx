@@ -805,6 +805,7 @@ const ChatAppShell = ({
                     onContinue={(messageId) =>
                       void handleContinueGeneration(messageId)
                     }
+                    onStopGeneration={handleStopGeneration}
                     onReply={selectReplyTarget}
                     onNavigateToMessage={focusMessage}
                     onVersionChange={handleTimelineVersionChange}
@@ -847,7 +848,7 @@ const ChatAppShell = ({
                 ) : null}
                 {(welcomeState === "visible" || welcomeState === "exiting") && (
                   <div
-                    className={`mb-3 md:mb-5 flex items-center gap-3 text-center motion-safe:transition-[opacity,transform] motion-safe:duration-300 ${
+                    className={`mb-8 md:mb-8 flex items-center gap-3 text-center motion-safe:transition-[opacity,transform] motion-safe:duration-300 ${
                       welcomeState === "exiting"
                         ? "pointer-events-none opacity-0 scale-95"
                         : "opacity-100 scale-100"

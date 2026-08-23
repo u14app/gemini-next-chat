@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildMcpToolFunctionName,
+  createMcpToolDescriptorV2,
   normalizeMcpRegistryServers,
   normalizeMcpToolFunctions,
 } from "../lib/mcp/registry";
@@ -153,6 +154,13 @@ describe("MCP registry normalization", () => {
           properties: { libraryName: { type: "string" } },
           required: ["libraryName"],
         },
+        mcpPolicyHint: {
+          version: 2,
+          effects: ["external_destructive"],
+          idempotency: "unknown",
+          sensitivity: "unknown",
+          origin: "mcp",
+        },
         risk: "external",
       },
       {
@@ -162,9 +170,105 @@ describe("MCP registry normalization", () => {
         mcpToolName: "resolve library id",
         description: "Call the MCP tool resolve library id.",
         parameters: { type: "object" },
+        mcpPolicyHint: {
+          version: 2,
+          effects: ["external_destructive"],
+          idempotency: "unknown",
+          sensitivity: "unknown",
+          origin: "mcp",
+        },
         risk: "external",
       },
     ]);
+  });
+
+  it("preserves bounded MCP tool metadata as untrusted policy hints", () => {
+    const [tool] = normalizeMcpToolFunctions("calendar", [
+      {
+        name: "list-events",
+        title: "List events",
+        description: "List calendar events.",
+        inputSchema: { type: "object" },
+        outputSchema: {
+          type: "object",
+          properties: { events: { type: "array" } },
+        },
+        icons: [
+          {
+            src: "https://example.com/calendar.svg",
+            mimeType: "image/svg+xml",
+            sizes: ["any"],
+            theme: "light",
+          },
+        ],
+        annotations: {
+          title: "Calendar listing",
+          readOnlyHint: true,
+          destructiveHint: false,
+          idempotentHint: true,
+          openWorldHint: false,
+        },
+      },
+    ]);
+
+    expect(tool).toMatchObject({
+      title: "List events",
+      icons: [
+        {
+          src: "https://example.com/calendar.svg",
+          mimeType: "image/svg+xml",
+          sizes: ["any"],
+          theme: "light",
+        },
+      ],
+      annotations: {
+        title: "Calendar listing",
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+      outputSchema: {
+        type: "object",
+        properties: { events: { type: "array" } },
+      },
+      mcpPolicyHint: {
+        version: 2,
+        effects: ["network_read"],
+        idempotency: "idempotent",
+        sensitivity: "unknown",
+        origin: "mcp",
+        openWorld: false,
+      },
+      risk: "external",
+    });
+  });
+
+  it("defaults absent or incomplete MCP hints to destructive", () => {
+    expect(createMcpToolDescriptorV2()).toMatchObject({
+      effects: ["external_destructive"],
+      idempotency: "unknown",
+      origin: "mcp",
+    });
+    expect(
+      createMcpToolDescriptorV2({
+        destructiveHint: false,
+        openWorldHint: false,
+      }),
+    ).toMatchObject({
+      effects: ["external_destructive"],
+      openWorld: false,
+    });
+    expect(
+      createMcpToolDescriptorV2({
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+      }),
+    ).toMatchObject({
+      effects: ["external_write"],
+      idempotency: "non_idempotent",
+    });
   });
 
   it("caps MCP tools to the plugin function limit", () => {

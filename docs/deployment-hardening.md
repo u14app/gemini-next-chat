@@ -196,10 +196,10 @@ own provider keys in local browser settings.
 Hosted mode also disables legacy plugin execution payloads where the browser
 submits a complete plugin manifest and function definition to the server. Plugin
 calls must resolve through server-registered plugin ids and function names.
-Tool calls execute automatically by default. When destructive-tool
-confirmation is enabled in System settings, only destructive calls pause for a
-one-time allow or deny decision; destructive approval is never persisted for
-the chat. See
+Tool calls follow the selected effect-aware approval Profile. Irreversible
+operations, credential exfiltration, permission changes, and unknown MCP Tools
+always pause for a one-time allow or deny decision; destructive approval is
+never persisted for the chat. See
 [Reliability and Safety Model](reliability-and-safety.md) for tool execution
 boundaries, context budgeting, and recovery behavior.
 

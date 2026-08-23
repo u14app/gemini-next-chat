@@ -34,8 +34,9 @@ It is designed for people who want the power of modern AI workspaces without giv
   explicit model selection when regenerating a sibling branch.
 - Added per-chat composer drafts, token and context usage summaries, guarded
   message-tree mutations during generation, and clearer offline behavior.
-- Added per-chat Agent mode for tool-call-capable models, with five localized,
-  read-only built-ins orchestrated by the browser and auto-approved at runtime.
+- Added a foreground-only trusted Agent runtime with persisted runs, effect-aware
+  approvals, idempotency records, revisioned workspaces, immutable Artifacts,
+  dynamic Tool/Skill discovery, scoped Memory, and MCP resources/prompts.
 - Added parameterized Skills and ordered bundles of up to four Skills, with
   validated slot values and reproducible invocation metadata.
 - Added collection-level chunking controls, Markdown heading-aware previews,
@@ -97,8 +98,9 @@ See [CHANGELOG.md](CHANGELOG.md) for the complete release notes.
   chunks.
 - Assistant presets from the LobeHub agent registry plus local custom assistants.
 - Per-chat Agent mode for tool-call-capable models, with browser-orchestrated
-  web search, knowledge search, text-only skill loading, sandboxed JavaScript,
-  and task-plan updates.
+  research, scoped Memory, revisioned workspace and Artifact operations,
+  declarative Skills, MCP resources/prompts, sandboxed JavaScript, structured
+  user input, and persistent run/approval state.
 - Parameterized text Skills with localized public catalogs, install/uninstall
   flows, local edits, custom skills, auto-selection, workspace presets, and
   ordered non-nested bundles of up to four Skills.
@@ -466,13 +468,23 @@ The app keeps durable user data in browser storage whenever possible. API routes
 
 Skills are text-only prompt-context modules. The app loads localized metadata catalogs from `public/data/skills`, fetches full skill definitions only when needed, and stores installed, edited, and custom skills locally. Active skills can be selected manually, inherited from workspace presets, or auto-selected for a message.
 
-Agent mode is an opt-in, per-chat client-side orchestration mode for models that
-support tool calls. Its five built-ins (`web_search`, `search_knowledge`,
-`load_skill`, `run_javascript`, and `update_task_plan`) are read-only and
-auto-approved. JavaScript runs synchronously in a bounded browser sandbox
-without network or DOM access, and loaded Skills remain text-only. Agent web
-search requires an external search provider; native Google Search and OpenAI
-Web Search are not combined with Agent function calling.
+Agent mode is an opt-in, foreground-only browser orchestration mode for models
+that support tool calls. It persists an `AgentRun`, execution records, usage,
+structured stop reasons, and event checkpoints, but it does not promise work
+after the page closes. The initial Tool set stays compact; `search_tools` /
+`load_tools` and `search_skills` / `inspect_skill` discover additional enabled
+capabilities without dumping every schema into every model request. JavaScript
+remains synchronous in a bounded sandbox without network or DOM access, and
+Skills remain declarative text rather than executable scripts.
+
+Tool policy is based on effects, idempotency, sensitivity, origin, target, and
+definition fingerprint. Local and network reads execute automatically;
+recoverable local writes and trusted non-destructive external writes follow the
+selected permissive, balanced, or strict Profile policy. Permanent deletion,
+payments, publishing, permission changes, credential exfiltration, and unknown
+MCP Tools always require one-time approval. Published Artifacts are immutable
+content-addressed snapshots, while mutable workspace files use revision checks
+and recoverable trash. See [Trusted Agent Runtime](docs/agent-runtime.md).
 
 Plugins are executable tools installed from OpenAPI manifests, built-in
 definitions, or remote MCP servers discovered from the official MCP Registry.
@@ -536,7 +548,10 @@ Neo Chat is self-hosting friendly, not a turnkey public SaaS security boundary.
 - Server-default provider credentials are locally encrypted, provider-bound,
   and rejected when the deployment default is unavailable or has changed type.
 - API schemas reject unknown high-risk fields and oversized payloads.
-- Plugin execution remains server-proxied and validated. Tool calls run automatically by default; an optional System setting pauses only destructive calls for one-time approval or denial. Destructive approval is never persisted for the chat.
+- Plugin execution remains server-proxied and schema-validated. Approval is
+  effect-aware: irreversible operations, credential exfiltration, permission
+  changes, and unknown MCP Tools always require one-time approval. Destructive
+  approval is never persisted for the chat.
 - `ACCESS_PASSWORD` accepts comma-separated passwords (surrounding whitespace
   and empty entries are ignored), but it remains a deployment gate rather than
   an account system. Commas cannot be part of a password, and changing the list

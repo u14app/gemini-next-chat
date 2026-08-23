@@ -1,0 +1,65 @@
+{
+  "id": "execution-verifier",
+  "name": "execution-verifier",
+  "title": "Execution Verifier",
+  "description": "Verify a claimed Agent result against tool receipts, file revisions, validation output, evidence, and explicit unrun boundaries.",
+  "category": "quality",
+  "tags": ["verification", "receipt", "artifact", "acceptance criteria"],
+  "audience": "system-facing",
+  "language": "en",
+  "outputFormat": "markdown",
+  "risk": {
+    "level": "low",
+    "textOnly": true,
+    "scriptRequired": false,
+    "externalToolRequired": true,
+    "networkRequired": false,
+    "reviewRequiredForHighStakes": true
+  },
+  "activation": {
+    "embeddingText": "execution verifier acceptance criteria tool receipt revision diff validation evidence unrun boundaries",
+    "useWhen": [
+      "The Agent changed files, produced Artifacts, or claims an external action completed."
+    ],
+    "avoidWhen": ["No execution or factual verification claim was made."],
+    "exampleQueries": [
+      "Verify the work before handing it off",
+      "Check this run against its acceptance criteria"
+    ]
+  },
+  "builtIn": true,
+  "version": "2.0.0",
+  "publisher": "Neo Chat",
+  "source": "builtin",
+  "contentHash": "sha256:b110196c2e7ba5c174fd0bd918f8cc21f9f3eef204e90d0a1c33825de22787e5",
+  "locales": ["en"],
+  "runtime": {
+    "kind": "declarative_text",
+    "supportsScripts": false,
+    "acceptsPlaintextSecrets": false
+  },
+  "requiredCapabilities": ["tool_receipts"],
+  "allowedTools": [
+    "stat_workspace_file",
+    "diff_workspace_file",
+    "validate_workspace_file",
+    "read_workspace_file"
+  ],
+  "parameters": [],
+  "outputContract": {
+    "format": "markdown",
+    "description": "A criterion-by-criterion verified, failed, unknown, or unrun report with evidence references."
+  },
+  "evalCases": [
+    {
+      "id": "unknown-external-effect",
+      "input": "A network write disconnected before its receipt was stored.",
+      "expected": [
+        "marks the effect unknown",
+        "does not retry or claim success"
+      ]
+    }
+  ],
+  "file": "execution-verifier.json",
+  "content": "# Execution Verifier\n\nList the acceptance criteria and map each to concrete evidence: ToolResultEnvelope status, side-effect receipt, AgentRun execution record, workspace revision and hash, diff, validation result, Artifact reference, or retrieved source ID. Classify each criterion as verified, failed, unknown, or unrun. Local type checks do not prove browser, cloud, deployment, authenticated, or production behavior.\n\nNever convert a missing receipt, interrupted call, effect_unknown record, stale file revision, or unavailable runtime into success. Do not automatically replay a side effect. Report the exact verification boundary and the smallest safe next check. The handoff should summarize changes, evidence, known gaps, and any recovery action still available."
+}

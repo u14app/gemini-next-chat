@@ -1275,7 +1275,8 @@ describe("plugin execute route", () => {
 
     expect(response.status).toBe(400);
     expect(await response.json()).toMatchObject({
-      error: "Agnes video result lookup requires video_id or task_id",
+      code: "TOOL_ARGUMENT_SCHEMA_INVALID",
+      error: expect.stringMatching(/video_id|task_id|schema/i),
     });
     expect(safeFetchTextMock).not.toHaveBeenCalled();
   });

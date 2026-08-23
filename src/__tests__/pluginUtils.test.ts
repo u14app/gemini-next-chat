@@ -66,8 +66,83 @@ describe("plugin execution utility", () => {
       vi.fn(async () => new Response("<html>Bad Gateway</html>")),
     );
 
-    await expect(executePluginFunction("lookup", {})).resolves.toEqual({
-      error: "Error: Plugin execution failed",
+    await expect(executePluginFunction("lookup", {})).resolves.toMatchObject({
+      ok: false,
+      error: {
+        code: "PLUGIN_EXECUTION_FAILED",
+        message: "Error: Plugin execution failed",
+      },
+    });
+  });
+
+  it("marks a failed mutating dispatch as an unknown external effect", async () => {
+    mockStore.state = {
+      installedPlugins: [
+        {
+          ...plugin,
+          functions: [{ ...plugin.functions[0], method: "POST" }],
+        },
+      ],
+      pluginConfigs: {},
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new TypeError("connection reset");
+      }),
+    );
+
+    await expect(executePluginFunction("lookup", {})).resolves.toMatchObject({
+      ok: false,
+      error: {
+        code: "PLUGIN_EXECUTION_FAILED",
+        effectUnknown: true,
+        recoverable: false,
+      },
+    });
+  });
+
+  it("maps MCP isError results to the explicit failure contract", async () => {
+    mockStore.state = {
+      installedPlugins: [
+        {
+          ...plugin,
+          source: "mcp",
+          functions: [
+            {
+              ...plugin.functions[0],
+              method: undefined,
+              mcpToolName: "lookup",
+            },
+          ],
+          mcp: {
+            transport: "streamable-http",
+            serverUrl: "https://mcp.example.com/mcp",
+            serverName: "Example MCP",
+          },
+        },
+      ],
+      pluginConfigs: {},
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              result: {
+                isError: true,
+                error: "No access",
+                content: [{ type: "text", text: "No access" }],
+              },
+            }),
+          ),
+      ),
+    );
+
+    await expect(executePluginFunction("lookup", {})).resolves.toMatchObject({
+      ok: false,
+      error: { code: "MCP_TOOL_ERROR", message: "No access" },
     });
   });
 
@@ -77,8 +152,14 @@ describe("plugin execution utility", () => {
     const circular: Record<string, unknown> = {};
     circular.self = circular;
 
-    await expect(executePluginFunction("lookup", circular)).resolves.toEqual({
-      error: "Plugin arguments must not contain circular references.",
+    await expect(
+      executePluginFunction("lookup", circular),
+    ).resolves.toMatchObject({
+      ok: false,
+      error: {
+        code: "PLUGIN_ARGUMENTS_INVALID",
+        message: "Plugin arguments must not contain circular references.",
+      },
     });
     expect(fetchMock).not.toHaveBeenCalled();
   });
@@ -101,9 +182,13 @@ describe("plugin execution utility", () => {
         plugin.id,
         duplicatePlugin.id,
       ]),
-    ).resolves.toEqual({
-      error:
-        "Function lookup is provided by multiple active plugins: test-plugin, duplicate-plugin.",
+    ).resolves.toMatchObject({
+      ok: false,
+      error: {
+        code: "PLUGIN_FUNCTION_AMBIGUOUS",
+        message:
+          "Function lookup is provided by multiple active plugins: test-plugin, duplicate-plugin.",
+      },
     });
     expect(fetchMock).not.toHaveBeenCalled();
   });
@@ -133,9 +218,12 @@ describe("plugin execution utility", () => {
         risk: getPluginFunctionRisk(confirmedFunction),
       }),
     ).resolves.toMatchObject({
-      error:
-        "Plugin function definition changed before execution. Review the updated tool before trying again.",
-      code: "TOOL_DEFINITION_CHANGED",
+      ok: false,
+      error: {
+        message:
+          "Plugin function definition changed before execution. Review the updated tool before trying again.",
+        code: "TOOL_DEFINITION_CHANGED",
+      },
     });
     expect(fetchMock).not.toHaveBeenCalled();
   });
@@ -163,9 +251,12 @@ describe("plugin execution utility", () => {
         functionFingerprint,
         risk: getPluginFunctionRisk(confirmedFunction),
       }),
-    ).resolves.toEqual({
-      error: "Plugin is not registered on the server.",
-      code: "PLUGIN_NOT_REGISTERED",
+    ).resolves.toMatchObject({
+      ok: false,
+      error: {
+        message: "Plugin is not registered on the server.",
+        code: "PLUGIN_NOT_REGISTERED",
+      },
     });
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(JSON.parse(fetchMock.mock.calls[0][1]?.body as string)).toEqual(

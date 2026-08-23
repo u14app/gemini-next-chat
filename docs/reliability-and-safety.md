@@ -34,52 +34,47 @@ active skills are injected directly. Skills must stay text-only and are
 normalized to reject script, external-tool, network, or file-system
 requirements.
 
-## Agent Mode Built-ins
+## Trusted Agent Runtime
 
-Agent mode is opt-in per chat and is enabled only for models whose metadata
-declares tool-call support. Its orchestration runs in the browser and registers
-five application-owned built-ins: `web_search`, `search_knowledge`,
-`load_skill`, `run_javascript`, and `update_task_plan`. They are classified as
-read-only and are auto-approved, so they do not enter the plugin confirmation
-flow described below.
+Agent mode is opt-in per chat, foreground-only, and available only to models
+whose metadata declares Tool-call support. A persisted `AgentRun` is the source
+of truth for status, activities, aggregate usage, budgets, stop reason, and Tool
+execution records. Event checkpoints occur around model and side-effect
+boundaries. A tab owner lease prevents two tabs from executing the same run.
+Interrupted uncertain external effects become `effect_unknown` and are never
+replayed automatically.
 
-`load_skill` returns text-only instructions; it does not make a Skill
-executable. `run_javascript` accepts synchronous computation only and runs in a
-bounded browser sandbox without DOM or network access. Output and execution
-limits remain enforced before the result returns to the model.
+The runtime starts with application-owned Tools for structured input, planning,
+research, scoped Memory, declarative Skills, document extraction, sandboxed
+JavaScript, revisioned workspace operations, immutable Artifact publishing, and
+MCP resources/prompts. Plugin and MCP function schemas remain discoverable via
+`search_tools` and are loaded only when selected, forced by an explicit composer
+reference, or explicitly allowlisted by the Agent Profile. The capability panel
+uses the same catalog contract as runtime registration.
 
-Agent `web_search` is registered only when effective search configuration uses
-an external provider. Native Google Search and OpenAI Web Search are model
-features and are not combined with Agent function calling. The composer keeps
-the Search control operable but exposes this incompatibility in its tooltip and
-accessible label instead of silently implying that `web_search` is available.
+`run_javascript` accepts synchronous computation only and has no DOM or network
+access. Skills remain text-only and may narrow an already-authorized Tool set;
+they cannot grant Tools, run scripts, or receive plaintext secrets. Web,
+attachment, Plugin, and MCP content is marked `external_untrusted` and cannot
+become a system instruction or widen permission. See
+[Trusted Agent Runtime](agent-runtime.md) for the complete model.
 
 ## Plugin Tool Safety
 
-Plugin functions carry risk metadata:
+Tool descriptors classify one or more effects (`local_read`, `local_write`,
+`local_destructive`, `network_read`, `external_write`, or
+`external_destructive`) together with idempotency, sensitivity, origin, target,
+and a stable definition fingerprint. The invocation policy can become stricter
+after canonical arguments are known. MCP annotations are display hints only;
+unknown or unverifiable MCP functions fail closed as external destructive.
 
-- `read`: reads remote or local context.
-- `write`: may create or update external data.
-- `destructive`: may delete or overwrite external data.
-- `external`: may trigger an external service or workflow.
-
-The HTTP/MCP transport establishes a minimum risk even when a remote manifest
-declares a lower value: `GET` is at least `read`, `DELETE` is always
-`destructive`, other HTTP mutations are at least `write`, and MCP functions
-without an HTTP method are at least `external`.
-
-Tool calls execute automatically by default. If destructive-tool confirmation
-is enabled in System settings, only `destructive` calls pause for allow-once or
-deny decisions; `read`, `write`, and `external` calls continue automatically.
-Destructive approval is never persisted for the chat. Session-scoped approval
-records are limited to `write` and `external` risks and are bound to the plugin
-ID, function name, risk, and stable function fingerprint. Refresh, cancellation,
-and lost confirmation controllers fail closed for a pending destructive call. A
-definition fingerprint is checked in the browser and again by the server
-immediately before every dispatch, including automatic execution, so a plugin
-update cannot reuse a stale execution contract. Plugin execution still goes
-through the server route, request validation, BYOK secret handling, outbound URL
-policy, response limits, and the tool-call round ceiling.
+Permissive mode automatically runs reads, recoverable local changes, and trusted
+non-destructive external writes. Permanent deletion, payment, publication,
+permission changes, credential exfiltration, and unknown MCP functions always
+pause for allow-once or deny. Destructive approval is never persisted. Any
+session approval is bound to effect, target scope, provider/server, Tool name,
+and definition fingerprint. The server validates arguments and the expected
+fingerprint again before dispatch.
 
 MCP-backed functions add a side-effect boundary: the MCP server owns the tool
 implementation and may perform external actions. The application transport is

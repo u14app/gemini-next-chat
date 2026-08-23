@@ -36,6 +36,22 @@ type PluginExecutionResponse = {
   result?: any;
 };
 
+function pluginFailure(
+  message: string,
+  code = "PLUGIN_EXECUTION_FAILED",
+  effectUnknown = false,
+) {
+  return {
+    ok: false as const,
+    error: {
+      code,
+      message,
+      recoverable: !effectUnknown,
+      ...(effectUnknown ? { effectUnknown: true } : {}),
+    },
+  };
+}
+
 async function postPluginExecution(
   buildPayload: () => Promise<
     PluginExecutionPayload | PluginExecutionRequestPayload
@@ -136,7 +152,23 @@ async function executeBackendPluginFunction(
   );
 
   if (data.error) {
-    return { error: data.error, ...(data.code ? { code: data.code } : {}) };
+    return pluginFailure(data.error, data.code);
+  }
+
+  if (
+    functionDef.mcpToolName &&
+    data.result &&
+    typeof data.result === "object" &&
+    !Array.isArray(data.result) &&
+    (data.result as Record<string, unknown>).isError === true
+  ) {
+    const result = data.result as Record<string, unknown>;
+    return pluginFailure(
+      typeof result.error === "string" && result.error.trim()
+        ? result.error
+        : "MCP Tool execution failed.",
+      "MCP_TOOL_ERROR",
+    );
   }
 
   return data.result;
@@ -156,12 +188,12 @@ export const executePluginFunction = async (
 ): Promise<any> => {
   const functionNameError = getPluginExecutionFunctionNameError(functionName);
   if (functionNameError) {
-    return { error: functionNameError };
+    return pluginFailure(functionNameError, "PLUGIN_FUNCTION_INVALID");
   }
 
   const argsError = getPluginExecutionArgsError(args);
   if (argsError) {
-    return { error: argsError };
+    return pluginFailure(argsError, "PLUGIN_ARGUMENTS_INVALID");
   }
   const executionArgs = args as Record<string, unknown>;
 
@@ -172,9 +204,10 @@ export const executePluginFunction = async (
     pluginConfigs,
   ).find((item) => item.name === functionName);
   if (collision) {
-    return {
-      error: `Function ${functionName} is provided by multiple active plugins: ${collision.pluginIds.join(", ")}.`,
-    };
+    return pluginFailure(
+      `Function ${functionName} is provided by multiple active plugins: ${collision.pluginIds.join(", ")}.`,
+      "PLUGIN_FUNCTION_AMBIGUOUS",
+    );
   }
 
   const resolved = resolvePluginFunction(
@@ -184,7 +217,10 @@ export const executePluginFunction = async (
   );
 
   if (!resolved) {
-    return { error: `Function ${functionName} not found.` };
+    return pluginFailure(
+      `Function ${functionName} not found.`,
+      "PLUGIN_FUNCTION_NOT_FOUND",
+    );
   }
 
   const { plugin: foundPlugin, functionDef: foundFn } = resolved;
@@ -198,11 +234,10 @@ export const executePluginFunction = async (
       currentFingerprint !== expectedContract.functionFingerprint ||
       getPluginFunctionRisk(foundFn) !== expectedContract.risk
     ) {
-      return {
-        error:
-          "Plugin function definition changed before execution. Review the updated tool before trying again.",
-        code: "TOOL_DEFINITION_CHANGED",
-      };
+      return pluginFailure(
+        "Plugin function definition changed before execution. Review the updated tool before trying again.",
+        "TOOL_DEFINITION_CHANGED",
+      );
     }
   }
   const config = pluginConfigs[foundPlugin.id];
@@ -259,10 +294,7 @@ export const executePluginFunction = async (
         );
 
         if (data.error) {
-          return {
-            error: data.error,
-            ...(data.code ? { code: data.code } : {}),
-          };
+          return pluginFailure(data.error, data.code);
         }
 
         const json = data.result;
@@ -279,7 +311,11 @@ export const executePluginFunction = async (
         return json;
       } catch (e) {
         if (isAbortError(e, signal)) throw e;
-        return { error: String(e) };
+        return pluginFailure(
+          String(e),
+          "PLUGIN_EXECUTION_FAILED",
+          getPluginFunctionRisk(foundFn) !== "read",
+        );
       }
     }
   }
@@ -303,6 +339,10 @@ export const executePluginFunction = async (
     );
   } catch (e) {
     if (isAbortError(e, signal)) throw e;
-    return { error: String(e) };
+    return pluginFailure(
+      String(e),
+      "PLUGIN_EXECUTION_FAILED",
+      getPluginFunctionRisk(foundFn) !== "read",
+    );
   }
 };

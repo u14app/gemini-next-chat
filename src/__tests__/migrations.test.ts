@@ -112,7 +112,8 @@ describe("storage migrations", () => {
     ]);
   });
 
-  it("round-trips workspace file blocks and drops ones pointing outside the workspace", () => {
+  it("round-trips scratch and published Artifact blocks while dropping unsafe references", () => {
+    const artifactHash = "a".repeat(64);
     const normalized = normalizeMessage({
       id: "message",
       role: "model",
@@ -130,6 +131,30 @@ describe("storage migrations", () => {
             url: "opfs://chat/workspace/session-1/out/report.md",
             revision: "revision-1",
             title: "Report",
+          },
+        },
+        {
+          id: "published",
+          type: "workspace_file",
+          file: {
+            path: "out/published.md",
+            fileName: "published.md",
+            mimeType: "text/markdown",
+            bytes: 9,
+            url: `opfs://chat/artifacts/session-1/${artifactHash}-__restore_tx_000001__published.md`,
+            revision: `sha256:${artifactHash}`,
+          },
+        },
+        {
+          id: "forged-artifact",
+          type: "workspace_file",
+          file: {
+            path: "out/forged.md",
+            fileName: "forged.md",
+            mimeType: "text/markdown",
+            bytes: 9,
+            url: `opfs://chat/artifacts/session-1/${artifactHash}-forged.md`,
+            revision: `sha256:${"b".repeat(64)}`,
           },
         },
         {
@@ -154,6 +179,14 @@ describe("storage migrations", () => {
           path: "out/report.md",
           url: "opfs://chat/workspace/session-1/out/report.md",
           revision: "revision-1",
+        }),
+      },
+      {
+        id: "published",
+        type: "workspace_file",
+        file: expect.objectContaining({
+          path: "out/published.md",
+          revision: `sha256:${artifactHash}`,
         }),
       },
     ]);

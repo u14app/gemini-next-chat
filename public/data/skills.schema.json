@@ -100,6 +100,39 @@
         }
       }
     },
+    "skillRuntimeV2": {
+      "type": "object",
+      "required": ["kind", "supportsScripts", "acceptsPlaintextSecrets"],
+      "properties": {
+        "kind": { "const": "declarative_text" },
+        "supportsScripts": { "const": false },
+        "acceptsPlaintextSecrets": { "const": false }
+      },
+      "additionalProperties": false
+    },
+    "outputContractV2": {
+      "type": "object",
+      "required": ["format"],
+      "properties": {
+        "format": { "type": "string" },
+        "description": { "type": "string" },
+        "schema": { "type": "object" }
+      },
+      "additionalProperties": false
+    },
+    "evalCaseV2": {
+      "type": "object",
+      "required": ["id", "input"],
+      "properties": {
+        "id": { "type": "string" },
+        "input": { "type": "string" },
+        "expected": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      },
+      "additionalProperties": false
+    },
     "skillBase": {
       "type": "object",
       "required": [
@@ -159,6 +192,32 @@
         },
         "builtIn": {
           "type": "boolean"
+        },
+        "version": { "type": "string" },
+        "publisher": { "type": "string" },
+        "source": { "type": "string" },
+        "contentHash": { "type": "string" },
+        "locales": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "runtime": { "$ref": "#/$defs/skillRuntimeV2" },
+        "requiredCapabilities": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "allowedTools": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "parameters": {
+          "type": "array",
+          "items": { "type": "object" }
+        },
+        "outputContract": { "$ref": "#/$defs/outputContractV2" },
+        "evalCases": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/evalCaseV2" }
         }
       }
     },
@@ -215,13 +274,13 @@
       ],
       "properties": {
         "schemaVersion": {
-          "const": "skills-v1"
+          "enum": ["skills-v1", "skills-v2"]
         },
         "generatedAt": {
           "type": "string"
         },
         "locale": {
-          "enum": ["en", "zh-CN"]
+          "enum": ["en", "zh-CN", "ja"]
         },
         "datasetName": {
           "type": "string"

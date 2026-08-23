@@ -37,6 +37,11 @@ import {
 import { deleteFromOPFS } from "@/utils/opfs";
 import { logDevError } from "@/lib/utils/devLogger";
 import { deleteSessionArchives } from "@/services/workspace/sessionArchive";
+import {
+  deleteSessionArtifacts,
+  duplicateSessionArtifacts,
+} from "@/services/workspace/sessionArtifact";
+import { useAgentRunStore } from "@/store/core/agentRunStore";
 import { deleteSessionWorkspace } from "@/services/workspace/sessionWorkspace";
 import { reportAppRestoreHydration } from "@/lib/data/appRestoreJournal";
 import {
@@ -69,6 +74,47 @@ import {
 let selectSessionRequestId = 0;
 
 const createEmptyMessageTree = () => normalizeSessionMessageTree([]);
+
+const getWorkspaceArtifactUrls = (
+  messageTree: SessionMessageTree,
+): string[] => {
+  const urls = new Set<string>();
+  for (const message of getAllMessagesFromTree(messageTree)) {
+    for (const block of message.outputBlocks ?? []) {
+      if (block.type === "workspace_file") urls.add(block.file.url);
+    }
+  }
+  return Array.from(urls);
+};
+
+const remapWorkspaceArtifactUrls = (
+  messageTree: SessionMessageTree,
+  urls: ReadonlyMap<string, string>,
+): SessionMessageTree => {
+  if (urls.size === 0) return messageTree;
+
+  return {
+    ...messageTree,
+    nodesById: Object.fromEntries(
+      Object.entries(messageTree.nodesById).map(([id, node]) => {
+        const outputBlocks = node.message.outputBlocks?.map((block) => {
+          if (block.type !== "workspace_file") return block;
+          const url = urls.get(block.file.url);
+          return url ? { ...block, file: { ...block.file, url } } : block;
+        });
+        return [
+          id,
+          {
+            ...node,
+            message: outputBlocks
+              ? { ...node.message, outputBlocks }
+              : node.message,
+          },
+        ];
+      }),
+    ),
+  };
+};
 
 const normalizeStoredMessageTree = (
   stored: Message[] | SessionMessageTree | null | undefined,
@@ -659,14 +705,22 @@ export const useChatStore = create<ChatState>()(
           throw error;
         }
 
-        // The agent workspace is scoped to this session, so nothing else can
-        // reference it once the session is gone.
-        try {
-          await deleteSessionWorkspace(id);
-          await deleteSessionArchives(id);
-        } catch (error) {
-          logDevError("Failed to delete the session agent workspace", error);
-        }
+        // Scratch data and published copies are session-scoped. Duplicates copy
+        // published artifacts to their own root before they are persisted.
+        const cleanupResults = await Promise.allSettled([
+          deleteSessionWorkspace(id),
+          deleteSessionArchives(id),
+          deleteSessionArtifacts(id),
+          useAgentRunStore.getState().clearSessionRuns(id),
+        ]);
+        cleanupResults.forEach((result) => {
+          if (result.status === "rejected") {
+            logDevError(
+              "Failed to delete session workspace data",
+              result.reason,
+            );
+          }
+        });
 
         const removedFileUrls = deletedMessages
           ? Array.from(getMessageAttachmentUrls(deletedMessages))
@@ -810,10 +864,33 @@ export const useChatStore = create<ChatState>()(
           return;
         }
 
-        const newMessageTree = cloneMessageTreeWithNewIds(
+        let newMessageTree = cloneMessageTreeWithNewIds(
           originalMessageTree,
           uuidv7,
         );
+
+        try {
+          const artifactUrls = getWorkspaceArtifactUrls(originalMessageTree);
+          if (artifactUrls.length > 0) {
+            const copiedArtifacts = await duplicateSessionArtifacts(
+              id,
+              newId,
+              artifactUrls,
+            );
+            newMessageTree = remapWorkspaceArtifactUrls(
+              newMessageTree,
+              copiedArtifacts,
+            );
+          }
+        } catch (error) {
+          await deleteSessionArtifacts(newId).catch((cleanupError) => {
+            logDevError(
+              "Failed to clean up an incomplete duplicated session artifact store",
+              cleanupError,
+            );
+          });
+          throw error;
+        }
         const newMessages = getActiveMessagePath(newMessageTree);
 
         const newSession = normalizeSession({
@@ -827,9 +904,19 @@ export const useChatStore = create<ChatState>()(
         });
 
         // Save new messages
-        await enqueueSessionMessageWrite(newId, async () => {
-          await appDb.setItem(`session_messages_${newId}`, newMessageTree);
-        });
+        try {
+          await enqueueSessionMessageWrite(newId, async () => {
+            await appDb.setItem(`session_messages_${newId}`, newMessageTree);
+          });
+        } catch (error) {
+          await deleteSessionArtifacts(newId).catch((cleanupError) => {
+            logDevError(
+              "Failed to clean up an incomplete duplicated session artifact store",
+              cleanupError,
+            );
+          });
+          throw error;
+        }
 
         const shouldActivateDuplicate = requestId === selectSessionRequestId;
 

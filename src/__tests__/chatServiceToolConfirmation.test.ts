@@ -793,12 +793,15 @@ describe("chat service tool execution", () => {
           id: "call_memory",
           status: "success",
           result: expect.objectContaining({
-            memories: [
-              expect.objectContaining({
-                id: "mem_1",
-                content: "Keep Mineru as the default document parser.",
-              }),
-            ],
+            ok: true,
+            data: {
+              memories: [
+                expect.objectContaining({
+                  id: "mem_1",
+                  content: "Keep Mineru as the default document parser.",
+                }),
+              ],
+            },
           }),
         }),
       ]),
@@ -876,7 +879,17 @@ describe("chat service tool execution", () => {
         expect.objectContaining({
           id: "call_write",
           status: "success",
-          result: { id: "record-1" },
+          result: expect.objectContaining({
+            ok: true,
+            data: { id: "record-1" },
+            receipt: {
+              committedAt: expect.any(Number),
+              effectId: "call_write",
+              targetHash: expect.stringMatching(/^sha256:/),
+              resultHash: expect.stringMatching(/^sha256:/),
+              reversible: false,
+            },
+          }),
           confirmation: expect.objectContaining({
             required: false,
             decision: "automatic",
@@ -892,7 +905,7 @@ describe("chat service tool execution", () => {
     expect(confirmationController.requestConfirmation).not.toHaveBeenCalled();
   });
 
-  it("auto-executes destructive tools when confirmation is disabled", async () => {
+  it("requires one-time confirmation for destructive tools in permissive mode", async () => {
     mocks.settingsState = {
       ...mocks.settingsState,
       installedPlugins: [destructivePlugin],
@@ -944,7 +957,7 @@ describe("chat service tool execution", () => {
     );
 
     expect(mocks.executePluginFunction).toHaveBeenCalledTimes(1);
-    expect(confirmationController.requestConfirmation).not.toHaveBeenCalled();
+    expect(confirmationController.requestConfirmation).toHaveBeenCalledTimes(1);
     expect(updates.flat()).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -952,8 +965,8 @@ describe("chat service tool execution", () => {
           risk: "destructive",
           status: "success",
           confirmation: expect.objectContaining({
-            required: false,
-            decision: "automatic",
+            required: true,
+            decision: "allow_once",
           }),
         }),
       ]),
@@ -1020,7 +1033,7 @@ describe("chat service tool execution", () => {
     expect(mocks.executePluginFunction).toHaveBeenCalledTimes(1);
   });
 
-  it("auto-executes external MCP tools when destructive confirmation is enabled", async () => {
+  it("requires one-time confirmation for unknown external MCP tools", async () => {
     mocks.settingsState = {
       ...mocks.settingsState,
       system: { enableDestructiveToolConfirmation: true },
@@ -1073,7 +1086,7 @@ describe("chat service tool execution", () => {
       ),
     ).resolves.toBe("Remote result.");
 
-    expect(confirmationController.requestConfirmation).not.toHaveBeenCalled();
+    expect(confirmationController.requestConfirmation).toHaveBeenCalledTimes(1);
     expect(mocks.executePluginFunction).toHaveBeenCalledWith(
       "query_remote_tool",
       { query: "status" },
@@ -1082,7 +1095,7 @@ describe("chat service tool execution", () => {
       undefined,
       expect.objectContaining({
         pluginId: "mcp-tools",
-        risk: "external",
+        risk: "destructive",
         functionFingerprint: expect.any(String),
       }),
     );
@@ -1291,6 +1304,77 @@ describe("chat service tool execution", () => {
           risk: "destructive",
           status: "success",
           confirmation: expect.objectContaining({
+            decision: "allow_once",
+          }),
+        }),
+      ]),
+    );
+  });
+
+  it("never persists approval for credential-bearing external writes", async () => {
+    mocks.executePluginFunction.mockResolvedValueOnce({ created: true });
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        sseResponse([
+          {
+            type: "tool_call",
+            toolCall: {
+              id: "call_secret_write",
+              name: "create_record",
+              args: { title: "Draft", apiToken: "private-token" },
+              status: "pending",
+            },
+          },
+          { type: "done" },
+        ]),
+      )
+      .mockResolvedValueOnce(
+        sseResponse([
+          { type: "content", content: "Created." },
+          { type: "done" },
+        ]),
+      );
+    const updates: ToolCall[][] = [];
+    const grantSessionApproval = vi.fn();
+    const requestConfirmation = vi.fn(
+      async (): Promise<ToolConfirmationDecision> => "allow_session",
+    );
+
+    const { streamChatResponse } = await import("../services/api/chatService");
+    await streamChatResponse(
+      "session-1",
+      "openai:gpt-4",
+      [],
+      "Create a record",
+      [],
+      {},
+      () => undefined,
+      undefined,
+      undefined,
+      (toolCalls) => updates.push(toolCalls),
+      undefined,
+      undefined,
+      undefined,
+      ["writer"],
+      undefined,
+      undefined,
+      { requestConfirmation, grantSessionApproval },
+    );
+
+    expect(requestConfirmation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        args: { title: "Draft", apiToken: "[REDACTED]" },
+      }),
+      undefined,
+    );
+    expect(grantSessionApproval).not.toHaveBeenCalled();
+    expect(updates.flat()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "call_secret_write",
+          status: "success",
+          confirmation: expect.objectContaining({
+            canPersist: false,
             decision: "allow_once",
           }),
         }),
@@ -1517,7 +1601,13 @@ describe("chat service tool execution", () => {
       expect.arrayContaining([
         expect.objectContaining({
           status: "skipped",
-          result: expect.stringMatching(/total tool-call budget/i),
+          result: expect.objectContaining({
+            ok: false,
+            error: expect.objectContaining({
+              code: "AGENT_TOOL_CALL_BUDGET_EXHAUSTED",
+              message: expect.stringMatching(/total Tool-call budget/i),
+            }),
+          }),
         }),
       ]),
     );
@@ -1633,12 +1723,18 @@ describe("chat service tool execution", () => {
     expect(followUpBody.newMessage).toContain("attached image outputs");
     const toolResult = followUpBody.history?.[1]?.toolCalls?.[0]
       ?.result as Record<string, unknown>;
-    expect(toolResult).toEqual({
-      imageUrl: null,
-      imageBase64: "[image omitted]",
-      imageCount: 1,
-      revisedPrompt: null,
-    });
+    expect(toolResult).toEqual(
+      expect.objectContaining({
+        ok: true,
+        trust: "external_untrusted",
+        data: {
+          imageUrl: null,
+          imageBase64: "[image omitted]",
+          imageCount: 1,
+          revisedPrompt: null,
+        },
+      }),
+    );
     expect(JSON.stringify(followUpBody.history)).not.toContain("aW1hZ2U=");
     expect(toolResult).not.toHaveProperty("raw");
   });
@@ -2171,17 +2267,29 @@ describe("chat service tool execution", () => {
         expect(body.enableOpenAIWebSearch).toBe(false);
         expect(body.tools.map((tool: any) => tool.function.name)).toEqual([
           "start_long_text_output",
+          "request_user_input",
           "update_task_plan",
           "web_search",
+          "search_web",
           "run_javascript",
           "fetch_url",
+          "fetch_urls",
+          "inspect_attachment",
+          "extract_document",
           "list_workspace_files",
+          "stat_workspace_file",
+          "diff_workspace_file",
           "search_workspace_files",
           "read_workspace_file",
           "write_workspace_file",
           "edit_workspace_file",
+          "apply_workspace_patch",
           "move_workspace_file",
+          "trash_workspace_file",
+          "restore_workspace_file",
           "delete_workspace_file",
+          "validate_workspace_file",
+          "publish_artifact",
           "share_workspace_file",
           "create_archive",
         ]);
@@ -2210,6 +2318,47 @@ describe("chat service tool execution", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(createSearchProvider).not.toHaveBeenCalled();
     expect(searchStatuses).toEqual([]);
+  });
+
+  it("restricts registered schemas to the Agent Profile Tool allowlist", async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementationOnce(async (_url, init) => {
+        const body = JSON.parse(String(init?.body));
+        expect(body.tools.map((tool: any) => tool.function.name)).toEqual([
+          "request_user_input",
+          "fetch_url",
+        ]);
+        return sseResponse([
+          { type: "content", content: "Restricted." },
+          { type: "done" },
+        ]);
+      });
+
+    const { streamChatResponse } = await import("../services/api/chatService");
+    await expect(
+      streamChatResponse(
+        "session-1",
+        "openai:gpt-4",
+        [],
+        "Use only approved tools.",
+        [],
+        { useAgentMode: true },
+        () => undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        { allowedToolIds: ["request_user_input", "fetch_url"] },
+      ),
+    ).resolves.toBe("Restricted.");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("clamps Agent mode when the selected model cannot call tools", async () => {
@@ -2315,7 +2464,7 @@ describe("chat service tool execution", () => {
             expect.objectContaining({
               name: "update_task_plan",
               status: "success",
-              risk: "read",
+              risk: "write",
             }),
           ],
         }),
@@ -2904,6 +3053,7 @@ describe("chat service tool execution", () => {
 
   it("uses the centralized high tool-round limit before stopping recursive calls", async () => {
     expect(PLUGIN_EXECUTION_LIMITS.maxToolRounds).toBe(20);
+    const runId = "run-tool-round-budget";
     mocks.executePluginFunction.mockResolvedValue({ ok: true });
     vi.spyOn(globalThis, "fetch").mockImplementation(async () =>
       sseResponse([
@@ -2927,7 +3077,7 @@ describe("chat service tool execution", () => {
       [],
       "Keep calling",
       [],
-      {},
+      { useAgentMode: true },
       () => undefined,
       undefined,
       undefined,
@@ -2939,12 +3089,303 @@ describe("chat service tool execution", () => {
       undefined,
       undefined,
       createAllowOnceController(),
+      { agentRun: { id: runId }, forcedPluginIds: ["writer"] },
     );
 
     expect(globalThis.fetch).toHaveBeenCalledTimes(
       PLUGIN_EXECUTION_LIMITS.maxToolRounds + 1,
     );
-    expect(result).toContain("20 tool-call rounds");
+    expect(result).toBe("");
+    const { useAgentRunStore } = await import("../store/core/agentRunStore");
+    expect(useAgentRunStore.getState().runsById[runId]).toMatchObject({
+      status: "failed",
+      stop: {
+        reason: "budget_exhausted",
+        budgetDimension: "tool_rounds",
+      },
+      usage: { toolRounds: PLUGIN_EXECUTION_LIMITS.maxToolRounds + 1 },
+    });
+  });
+
+  it("aggregates Agent token usage across every model round", async () => {
+    const runId = "run-aggregate-usage";
+    mocks.executePluginFunction.mockResolvedValue({ ok: true });
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        sseResponse([
+          {
+            type: "tool_call",
+            toolCall: {
+              id: "call-usage",
+              name: "create_record",
+              args: { title: "Usage" },
+              status: "pending",
+            },
+          },
+          {
+            type: "usage",
+            usage: {
+              prompt_tokens: 10,
+              completion_tokens: 2,
+              total_tokens: 12,
+            },
+          },
+          { type: "done" },
+        ]),
+      )
+      .mockResolvedValueOnce(
+        sseResponse([
+          { type: "content", content: "Done." },
+          {
+            type: "usage",
+            usage: {
+              prompt_tokens: 20,
+              completion_tokens: 5,
+              total_tokens: 25,
+            },
+          },
+          { type: "done" },
+        ]),
+      );
+
+    const { streamChatResponse } = await import("../services/api/chatService");
+    await streamChatResponse(
+      "session-1",
+      "openai:gpt-4",
+      [],
+      "Create the record.",
+      [],
+      { useAgentMode: true },
+      () => undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      ["writer"],
+      undefined,
+      undefined,
+      createAllowOnceController(),
+      { agentRun: { id: runId }, forcedPluginIds: ["writer"] },
+    );
+
+    const { useAgentRunStore } = await import("../store/core/agentRunStore");
+    expect(useAgentRunStore.getState().runsById[runId]).toMatchObject({
+      status: "completed",
+      usage: {
+        modelRounds: 2,
+        toolRounds: 1,
+        toolCalls: 1,
+        promptTokens: 30,
+        completionTokens: 7,
+        totalTokens: 37,
+      },
+    });
+  });
+
+  it("stops an AgentRun when an external write result has an unknown effect", async () => {
+    const runId = "run-effect-unknown";
+    mocks.executePluginFunction.mockResolvedValueOnce({
+      ok: false,
+      error: {
+        code: "PLUGIN_EXECUTION_FAILED",
+        message: "Connection closed before the write receipt arrived.",
+        recoverable: false,
+        effectUnknown: true,
+      },
+    });
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      sseResponse([
+        {
+          type: "tool_call",
+          toolCall: {
+            id: "call-unknown",
+            name: "create_record",
+            args: { title: "Uncertain" },
+            status: "pending",
+          },
+        },
+        { type: "done" },
+      ]),
+    );
+
+    const { streamChatResponse } = await import("../services/api/chatService");
+    await expect(
+      streamChatResponse(
+        "session-1",
+        "openai:gpt-4",
+        [],
+        "Create the record.",
+        [],
+        { useAgentMode: true },
+        () => undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        ["writer"],
+        undefined,
+        undefined,
+        createAllowOnceController(),
+        { agentRun: { id: runId }, forcedPluginIds: ["writer"] },
+      ),
+    ).rejects.toThrow("could not be confirmed");
+
+    const { useAgentRunStore } = await import("../store/core/agentRunStore");
+    expect(useAgentRunStore.getState().runsById[runId]).toMatchObject({
+      status: "failed",
+      stop: { reason: "effect_unknown" },
+      toolExecutions: [
+        expect.objectContaining({
+          callId: "call-unknown",
+          status: "effect_unknown",
+        }),
+      ],
+    });
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("resumes an interrupted run without replaying a committed side effect", async () => {
+    const runId = "run-resume-committed";
+    const args = { title: "Existing" };
+    const {
+      commitToolExecution,
+      createAgentRun,
+      hashToolArguments,
+      markToolExecutionRunning,
+      prepareToolExecution,
+      transitionAgentRunStatus,
+    } = await import("../lib/agent");
+    const { createPluginFunctionFingerprint } =
+      await import("../lib/plugin/confirmation");
+    const fingerprint = await createPluginFunctionFingerprint(
+      writePlugin,
+      writePlugin.functions[0],
+    );
+    let run = prepareToolExecution(
+      createAgentRun({ id: runId, sessionId: "session-1", now: 100 }),
+      {
+        id: "execution-old",
+        callId: "call-old",
+        toolName: "create_record",
+        pluginId: "writer",
+        definitionFingerprint: fingerprint,
+        argumentsHash: await hashToolArguments(args),
+        targetSummary: "*",
+        policy: {
+          effects: ["external_write"],
+          idempotency: "non_idempotent",
+          sensitivity: "user_data",
+          origin: "plugin",
+        },
+        at: 110,
+      },
+    );
+    run = markToolExecutionRunning(run, "execution-old", 120);
+    run = commitToolExecution(run, "execution-old", {
+      at: 130,
+      resultRefs: [{ kind: "tool_cache", id: "call-old" }],
+      receipt: { committedAt: 130, effectId: "call-old", reversible: false },
+    });
+    run = transitionAgentRunStatus(run, "interrupted", {
+      at: 140,
+      stop: { reason: "page_interrupted" },
+    });
+    const { useAgentRunStore } = await import("../store/core/agentRunStore");
+    await useAgentRunStore.getState().upsertRun(run);
+
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        sseResponse([
+          {
+            type: "tool_call",
+            toolCall: {
+              id: "call-resumed",
+              name: "create_record",
+              args,
+              status: "pending",
+            },
+          },
+          { type: "done" },
+        ]),
+      )
+      .mockResolvedValueOnce(
+        sseResponse([
+          { type: "content", content: "Reused the committed result." },
+          { type: "done" },
+        ]),
+      );
+    const cachedResult = {
+      ok: true,
+      trust: "external_untrusted",
+      provenance: {
+        origin: "plugin",
+        toolName: "create_record",
+        retrievedAt: 130,
+      },
+      data: { id: "record-existing" },
+      receipt: { committedAt: 130, effectId: "call-old", reversible: false },
+    };
+
+    const { streamChatResponse } = await import("../services/api/chatService");
+    await expect(
+      streamChatResponse(
+        "session-1",
+        "openai:gpt-4",
+        [
+          {
+            id: "user-old",
+            role: "user",
+            content: "Create it",
+            timestamp: 100,
+          },
+          {
+            id: "model-old",
+            role: "model",
+            content: "",
+            timestamp: 130,
+            toolCalls: [
+              {
+                id: "call-old",
+                name: "create_record",
+                args,
+                status: "success",
+                result: cachedResult,
+              },
+            ],
+          },
+        ],
+        "Continue safely.",
+        [],
+        { useAgentMode: true },
+        () => undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        ["writer"],
+        undefined,
+        undefined,
+        createAllowOnceController(),
+        {
+          agentRun: { id: runId },
+          forcedPluginIds: ["writer"],
+          resumeAgentRun: true,
+        },
+      ),
+    ).resolves.toBe("Reused the committed result.");
+
+    expect(mocks.executePluginFunction).not.toHaveBeenCalled();
+    expect(useAgentRunStore.getState().runsById[runId]).toMatchObject({
+      status: "completed",
+      usage: { toolCalls: 1 },
+      toolExecutions: [{ id: "execution-old", status: "committed" }],
+    });
   });
 
   describe("stream termination contract", () => {

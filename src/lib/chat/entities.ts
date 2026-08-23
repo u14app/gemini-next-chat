@@ -3,6 +3,7 @@ import type {
   Session,
   SessionConfig,
   ToolSessionApproval,
+  ToolApprovalIdentityV2,
   Workspace,
 } from "@/types";
 import { ATTACHMENT_LIMITS, CHAT_ENTITY_LIMITS } from "@/config/limits";
@@ -10,6 +11,15 @@ import { normalizePluginIdRefs } from "../plugin/config";
 import { normalizeSkillIdRefs } from "../skills";
 import { normalizeCompressedContentWithMemoryIds } from "../utils/contextCompression";
 import { isReasoningEnabled, normalizeReasoningMode } from "./reasoning";
+import {
+  normalizeAgentProfile,
+  normalizeAgentSkillPolicies,
+} from "../assistant/profile";
+import {
+  createToolApprovalIdentity,
+  getToolApprovalIdentityKey,
+} from "../plugin/confirmation";
+import type { ToolEffect, ToolOrigin } from "../plugin/types";
 
 const WORKSPACE_COLORS = new Set([
   "blue",
@@ -26,6 +36,49 @@ function trimString(value: unknown, maxChars: number, fallback = ""): string {
   if (typeof value !== "string") return fallback;
   const trimmed = value.trim().slice(0, maxChars);
   return trimmed || fallback;
+}
+
+const TOOL_EFFECTS = new Set<ToolEffect>([
+  "local_read",
+  "local_write",
+  "local_destructive",
+  "network_read",
+  "external_write",
+  "external_destructive",
+]);
+
+function normalizeToolApprovalIdentity(
+  value: unknown,
+): ToolApprovalIdentityV2 | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+  const raw = value as Record<string, unknown>;
+  if (
+    raw.version !== 2 ||
+    (raw.origin !== "builtin" &&
+      raw.origin !== "plugin" &&
+      raw.origin !== "mcp") ||
+    !Array.isArray(raw.effects)
+  ) {
+    return undefined;
+  }
+  const effects = raw.effects.filter(
+    (effect): effect is ToolEffect =>
+      typeof effect === "string" && TOOL_EFFECTS.has(effect as ToolEffect),
+  );
+  try {
+    return createToolApprovalIdentity({
+      origin: raw.origin as ToolOrigin,
+      providerId: trimString(raw.providerId, 240),
+      toolName: trimString(raw.toolName, 240),
+      toolFingerprint: trimString(raw.toolFingerprint, 65_536),
+      effects,
+      targetScope: trimString(raw.targetScope, 2_048, "*"),
+    });
+  } catch {
+    return undefined;
+  }
 }
 
 function stripWrappingQuotes(value: string): string {
@@ -255,6 +308,7 @@ function normalizeToolApprovals(value: unknown): ToolSessionApproval[] {
       65_536,
     );
     const approvedAt = Number(approval.approvedAt);
+    const identity = normalizeToolApprovalIdentity(approval.identity);
     if (
       !pluginId ||
       !functionName ||
@@ -265,7 +319,7 @@ function normalizeToolApprovals(value: unknown): ToolSessionApproval[] {
       continue;
     }
 
-    const key = `${pluginId}\u0000${functionName}\u0000${approval.risk}\u0000${functionFingerprint}`;
+    const key = `${pluginId}\u0000${functionName}\u0000${approval.risk}\u0000${functionFingerprint}\u0000${identity ? getToolApprovalIdentityKey(identity) : "legacy"}`;
     if (seen.has(key)) continue;
     seen.add(key);
     approvals.push({
@@ -274,6 +328,7 @@ function normalizeToolApprovals(value: unknown): ToolSessionApproval[] {
       risk: approval.risk,
       functionFingerprint,
       approvedAt: Math.floor(approvedAt),
+      ...(identity ? { identity } : {}),
     });
     if (approvals.length >= 100) break;
   }
@@ -292,6 +347,11 @@ export function normalizeSessionConfig(
     useReasoning: rawUseReasoning,
     useAgentMode: rawUseAgentMode,
     toolApprovals: rawToolApprovals,
+    agentProfileId: rawAgentProfileId,
+    agentProfile: rawAgentProfile,
+    approvalMode: rawApprovalMode,
+    agentBudget: rawAgentBudget,
+    skillPolicies: rawSkillPolicies,
     ...rest
   } = config;
   const activePlugins = normalizePluginIdRefs(rawActivePlugins);
@@ -302,6 +362,17 @@ export function normalizeSessionConfig(
   const reasoningMode = hasReasoningConfig
     ? normalizeReasoningMode(rawReasoningMode, rawUseReasoning)
     : undefined;
+  const agentProfile = normalizeAgentProfile(rawAgentProfile);
+  const normalizedBudget = normalizeAgentProfile({
+    schemaVersion: 2,
+    runtime: {
+      agentEnabled: false,
+      approvalMode: "permissive",
+      budget: rawAgentBudget,
+    },
+    capabilities: {},
+  })?.runtime.budget;
+  const skillPolicies = normalizeAgentSkillPolicies(rawSkillPolicies);
 
   return {
     ...rest,
@@ -314,9 +385,22 @@ export function normalizeSessionConfig(
           reasoningMode,
         }
       : {}),
-    ...(activePlugins.length > 0 ? { activePlugins } : {}),
-    ...(activeSkills.length > 0 ? { activeSkills } : {}),
+    ...(Array.isArray(rawActivePlugins) ? { activePlugins } : {}),
+    ...(Array.isArray(rawActiveSkills) ? { activeSkills } : {}),
     ...(toolApprovals.length > 0 ? { toolApprovals } : {}),
+    ...(typeof rawAgentProfileId === "string" && rawAgentProfileId.trim()
+      ? { agentProfileId: rawAgentProfileId.trim().slice(0, 160) }
+      : {}),
+    ...(agentProfile ? { agentProfile } : {}),
+    ...(rawApprovalMode === "permissive" ||
+    rawApprovalMode === "balanced" ||
+    rawApprovalMode === "strict"
+      ? { approvalMode: rawApprovalMode }
+      : {}),
+    ...(normalizedBudget ? { agentBudget: normalizedBudget } : {}),
+    ...(Array.isArray(rawSkillPolicies)
+      ? { skillPolicies: skillPolicies || [] }
+      : {}),
   };
 }
 
@@ -371,6 +455,7 @@ export function normalizeWorkspace(workspace: Workspace): Workspace {
     enableReasoning: workspace.enableReasoning === true,
     activePlugins: normalizePluginIdRefs(workspace.activePlugins),
     activeSkills: normalizeSkillIdRefs(workspace.activeSkills, []),
+    agentProfile: normalizeAgentProfile(workspace.agentProfile),
     createdAt: Number.isFinite(Number(workspace.createdAt))
       ? Number(workspace.createdAt)
       : Date.now(),

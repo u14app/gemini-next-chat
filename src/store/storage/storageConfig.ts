@@ -376,4 +376,5 @@ export const STORAGE_KEYS = {
   CHAT: "neo-chat-storage",
   KNOWLEDGE: "knowledge-storage",
   MEMORY: "neo-chat-memory",
+  AGENT_PROFILE_REVISIONS: "neo-chat-agent-profile-revisions",
 } as const;

@@ -15,10 +15,13 @@ import SkillParameterDialog, {
   type SkillParameterRequest,
   type SkillParameterSubmission,
 } from "@/components/skill/SkillParameterDialog";
+import AgentUserInputDialog from "@/components/agent/AgentUserInputDialog";
 import type { ModelInfo } from "@/services/api/chatService";
 import { getAgentDetail } from "@/services/api/agentService";
+import type { AgentProfileV2, SessionConfig } from "@/types";
 import { Message, LobeAgent, SessionMessageTree, ToolCall } from "@/types";
 import { useChatStore } from "@/store/core/chatStore";
+import { useAgentRunStore } from "@/store/core/agentRunStore";
 import { appDb } from "@/store/storage/storageConfig";
 import { formatModelName } from "@/store/core/settingsStore";
 import { buildAvailableModels } from "@/lib/utils/models";
@@ -38,6 +41,7 @@ import {
   useResponseBranchFlow,
   useSendMessageFlow,
   useToolConfirmationController,
+  useAgentUserInputController,
   useWelcomeChatState,
   useWorkspaceAttachmentHydration,
 } from "@/features/chat";
@@ -82,6 +86,37 @@ const getCompressionInputSignature = (messages: Message[]) =>
       memoryContext: message.memoryContext,
     })),
   );
+
+function createProfileSessionConfig(
+  identifier: string,
+  profile: AgentProfileV2 | undefined,
+): SessionConfig | undefined {
+  if (!profile) return undefined;
+  const reasoningMode = profile.runtime.reasoningMode;
+  const skillPolicies = profile.capabilities.skillPolicies || [];
+
+  return {
+    agentProfileId: identifier,
+    agentProfile: profile,
+    useAgentMode: profile.runtime.agentEnabled,
+    approvalMode: profile.runtime.approvalMode,
+    ...(profile.runtime.budget ? { agentBudget: profile.runtime.budget } : {}),
+    ...(typeof profile.runtime.searchEnabled === "boolean"
+      ? { useSearch: profile.runtime.searchEnabled }
+      : {}),
+    ...(reasoningMode
+      ? {
+          reasoningMode,
+          useReasoning: reasoningMode !== "off",
+        }
+      : {}),
+    activePlugins: profile.capabilities.pluginIds || [],
+    skillPolicies,
+    activeSkills: skillPolicies
+      .filter((policy) => policy.mode !== "disabled")
+      .map((policy) => policy.skillId),
+  };
+}
 
 const ChatApp = () => {
   // --- Global Store ---
@@ -154,10 +189,15 @@ const ChatApp = () => {
   const t = useTranslations("ChatApp");
   const tInput = useTranslations("MessageInput");
   const locale = useLocale();
+  const loadSessionRuns = useAgentRunStore((state) => state.loadSessionRuns);
 
   // --- Local UI State ---
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionNotice, setActionNotice] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (currentSessionId) void loadSessionRuns(currentSessionId);
+  }, [currentSessionId, loadSessionRuns]);
   const [generationRecoveryTick, setGenerationRecoveryTick] = useState(0);
   const [skillParameterDialog, setSkillParameterDialog] = useState<{
     requests: SkillParameterRequest[];
@@ -377,6 +417,11 @@ const ChatApp = () => {
     approvals: currentSessionConfig?.toolApprovals ?? [],
     onApprovalsChange: handleToolApprovalsChange,
   });
+  const {
+    controller: agentUserInputController,
+    pendingRequests: pendingAgentUserInputRequests,
+    respond: respondToAgentUserInput,
+  } = useAgentUserInputController();
   const revokeToolSessionApproval = useCallback(
     (toolCall: ToolCall) => {
       if (!currentSessionId || !toolCall.pluginId) return;
@@ -755,6 +800,7 @@ const ChatApp = () => {
     activeStreamCheckpointRef,
     persistLongTextFilesForMessage,
     toolConfirmationController,
+    agentUserInputController,
     messageInputRef,
     getEffectiveContextForSession,
     prepareComposerSkillParameters,
@@ -787,12 +833,14 @@ const ChatApp = () => {
     }
 
     let instruction = agent.meta.systemRole;
+    let profile = agent.profile;
 
     if (!instruction && !agent.isCustom) {
       try {
         const detail = await getAgentDetail(agent.identifier, locale);
         if (requestId !== assistantSelectRequestRef.current) return;
         instruction = detail.config?.systemRole;
+        profile = detail.profile || profile;
       } catch (e) {
         if (requestId !== assistantSelectRequestRef.current) return;
         logChatAppError("Failed to fetch agent details for instruction", e);
@@ -805,6 +853,30 @@ const ChatApp = () => {
       instruction = `You are ${agent.meta.title}. ${agent.meta.description}`;
     }
 
+    const profileConfig = createProfileSessionConfig(agent.identifier, profile);
+    if (
+      profile?.runtime.preferredModel &&
+      availableModels.some(
+        (candidate) => candidate.name === profile.runtime.preferredModel,
+      )
+    ) {
+      setModel(profile.runtime.preferredModel);
+    }
+    if (profileConfig) {
+      setChatConfig({
+        useAgentMode: profileConfig.useAgentMode,
+        ...(profileConfig.useSearch !== undefined
+          ? { useSearch: profileConfig.useSearch }
+          : {}),
+        ...(profileConfig.reasoningMode
+          ? {
+              reasoningMode: profileConfig.reasoningMode,
+              useReasoning: profileConfig.useReasoning,
+            }
+          : {}),
+      });
+    }
+
     if (currentSessionId) {
       const session = getCurrentSession();
       if (
@@ -814,12 +886,15 @@ const ChatApp = () => {
       ) {
         updateSessionInstruction(currentSessionId, instruction);
         updateSessionTitle(currentSessionId, agent.meta.title);
+        if (profileConfig) {
+          updateSessionConfig(currentSessionId, profileConfig);
+        }
         return;
       }
     }
 
     abortBackgroundPostProcessing();
-    createSession(instruction, agent.meta.title);
+    createSession(instruction, agent.meta.title, undefined, [], profileConfig);
   };
 
   const {
@@ -1079,6 +1154,10 @@ const ChatApp = () => {
         initialValues={skillParameterDialog?.initialValues}
         onCancel={() => closeSkillParameterDialog(null)}
         onSubmit={closeSkillParameterDialog}
+      />
+      <AgentUserInputDialog
+        request={pendingAgentUserInputRequests[0]}
+        onRespond={respondToAgentUserInput}
       />
     </>
   );

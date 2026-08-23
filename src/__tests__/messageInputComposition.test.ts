@@ -109,7 +109,8 @@ describe("MessageInput composition", () => {
     expect(messageInput).toContain("handlePolishInput");
     expect(messageInput).toContain("reasoningOptions");
     expect(messageInput).toContain("reasoningMode");
-    expect(messageInput).toContain("Bot");
+    expect(messageInput).toContain("AgentCapabilityMenu");
+    expect(messageInput).toContain("AgentArtifactDrawer");
     expect(messageInput).toContain("agentModeEnabled");
     expect(messageInput).toContain("handleAgentModeToggle");
     expect(messageInput).toContain("!modelCapabilities.toolCall");

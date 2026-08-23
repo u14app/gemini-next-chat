@@ -25,6 +25,8 @@ import {
   Globe,
   Share2,
   ShieldAlert,
+  MessageCircleQuestionMark,
+  PackageOpen,
 } from "lucide-react";
 import { Blocks } from "lucide-react";
 import {
@@ -32,6 +34,7 @@ import {
   formatToolDisplayValue,
 } from "@/lib/utils/toolDisplay";
 import { redactSensitiveToolArgs } from "@/lib/plugin/confirmation";
+import { isToolResultEnvelope } from "@/lib/agent/toolResult";
 import { useAttachmentDisplayUrl } from "@/lib/utils/useAttachmentDisplayUrl";
 import { useUIStore } from "@/store/core/uiStore";
 import SafeImage from "../ui/SafeImage";
@@ -50,11 +53,39 @@ const EMPTY_TOOL_CALLS: ToolCall[] = [];
 
 const BUILTIN_TOOL_PRESENTATIONS = {
   web_search: { labelKey: "toolWebSearch", icon: Search },
+  search_web: { labelKey: "toolSearchWebV2", icon: Search },
   search_knowledge: { labelKey: "toolKnowledgeSearch", icon: BookOpen },
+  memory_list: { labelKey: "toolMemoryList", icon: BookOpen },
+  remember: { labelKey: "toolRemember", icon: FilePlus2 },
+  memory_update: { labelKey: "toolMemoryUpdate", icon: FilePen },
+  forget: { labelKey: "toolForget", icon: FileX2 },
+  memory_restore: { labelKey: "toolMemoryRestore", icon: FolderInput },
   load_skill: { labelKey: "toolLoadSkill", icon: Sparkles },
+  search_skills: { labelKey: "toolSearchSkills", icon: Search },
+  inspect_skill: { labelKey: "toolInspectSkill", icon: BookOpen },
   run_javascript: { labelKey: "toolRunJavaScript", icon: SquareCode },
   fetch_url: { labelKey: "toolFetchUrl", icon: Globe },
+  fetch_urls: { labelKey: "toolFetchUrls", icon: Globe },
+  inspect_attachment: {
+    labelKey: "toolInspectAttachment",
+    icon: FolderSearch,
+  },
+  extract_document: { labelKey: "toolExtractDocument", icon: FileText },
   update_task_plan: { labelKey: "toolUpdateTaskPlan", icon: ListChecks },
+  request_user_input: {
+    labelKey: "toolRequestUserInput",
+    icon: MessageCircleQuestionMark,
+  },
+  search_tools: { labelKey: "toolSearchTools", icon: Search },
+  load_tools: { labelKey: "toolLoadTools", icon: PackageOpen },
+  inspect_mcp_server: { labelKey: "toolInspectMcpServer", icon: Wrench },
+  list_mcp_resources: {
+    labelKey: "toolListMcpResources",
+    icon: FolderSearch,
+  },
+  read_mcp_resource: { labelKey: "toolReadMcpResource", icon: FileText },
+  list_mcp_prompts: { labelKey: "toolListMcpPrompts", icon: BookOpen },
+  get_mcp_prompt: { labelKey: "toolGetMcpPrompt", icon: BookOpen },
   start_long_text_output: {
     labelKey: "toolStartLongTextOutput",
     icon: FileText,
@@ -64,9 +95,22 @@ const BUILTIN_TOOL_PRESENTATIONS = {
     icon: FolderOpen,
   },
   read_workspace_file: { labelKey: "toolReadWorkspaceFile", icon: FileText },
+  stat_workspace_file: { labelKey: "toolStatWorkspaceFile", icon: FileText },
+  diff_workspace_file: { labelKey: "toolDiffWorkspaceFile", icon: FilePen },
   write_workspace_file: { labelKey: "toolWriteWorkspaceFile", icon: FilePlus2 },
   edit_workspace_file: { labelKey: "toolEditWorkspaceFile", icon: FilePen },
+  apply_workspace_patch: { labelKey: "toolApplyWorkspacePatch", icon: FilePen },
+  trash_workspace_file: { labelKey: "toolTrashWorkspaceFile", icon: FileX2 },
+  restore_workspace_file: {
+    labelKey: "toolRestoreWorkspaceFile",
+    icon: FolderInput,
+  },
   delete_workspace_file: { labelKey: "toolDeleteWorkspaceFile", icon: FileX2 },
+  validate_workspace_file: {
+    labelKey: "toolValidateWorkspaceFile",
+    icon: CheckCircle2,
+  },
+  publish_artifact: { labelKey: "toolPublishArtifact", icon: Share2 },
   share_workspace_file: { labelKey: "toolShareWorkspaceFile", icon: Share2 },
   search_workspace_files: {
     labelKey: "toolSearchWorkspaceFiles",
@@ -82,6 +126,31 @@ const getBuiltinToolPresentation = (
   name: string,
 ): (typeof BUILTIN_TOOL_PRESENTATIONS)[BuiltinToolName] | undefined =>
   BUILTIN_TOOL_PRESENTATIONS[name as BuiltinToolName];
+
+function getToolTargetSummary(args: unknown): string | null {
+  const redacted = redactSensitiveToolArgs(args);
+  if (!redacted || typeof redacted !== "object" || Array.isArray(redacted)) {
+    return null;
+  }
+  const input = redacted as Record<string, unknown>;
+  for (const key of [
+    "url",
+    "uri",
+    "path",
+    "from",
+    "to",
+    "target",
+    "recipient",
+    "channel",
+    "id",
+  ]) {
+    const value = input[key];
+    if (typeof value === "string" && value && value !== "[REDACTED]") {
+      return value.slice(0, 240);
+    }
+  }
+  return null;
+}
 
 const ToolNameIcon: React.FC<{ name: string }> = ({ name }) => {
   const Icon = getBuiltinToolPresentation(name)?.icon ?? Wrench;
@@ -141,6 +210,11 @@ const ToolCallBlock: React.FC<ToolCallBlockProps> = ({
     () =>
       safeToolCalls.map((toolCall) => {
         const builtinPresentation = getBuiltinToolPresentation(toolCall.name);
+        const resultValue = isToolResultEnvelope(toolCall.result)
+          ? toolCall.result.ok
+            ? toolCall.result.data
+            : toolCall.result.error
+          : toolCall.result;
         return {
           ...toolCall,
           displayName: builtinPresentation
@@ -150,9 +224,10 @@ const ToolCallBlock: React.FC<ToolCallBlockProps> = ({
             redactSensitiveToolArgs(toolCall.args),
           ),
           resultDisplay:
-            toolCall.result !== undefined
-              ? formatToolDisplayValue(toolCall.result)
+            resultValue !== undefined
+              ? formatToolDisplayValue(resultValue)
               : null,
+          targetSummary: getToolTargetSummary(toolCall.args),
         };
       }),
     [safeToolCalls, t],
@@ -177,13 +252,16 @@ const ToolCallBlock: React.FC<ToolCallBlockProps> = ({
   const activeDisplayTool = displayToolCalls.find(
     (tc) => tc.id === activeTool?.id,
   );
+  const summaryDisplayTool =
+    activeDisplayTool || displayToolCalls[displayToolCalls.length - 1];
   const isLoading = !!activeTool && !awaitingConfirmation;
   const isError = safeToolCalls.some(
     (tc) =>
       tc.status === "error" ||
       tc.status === "skipped" ||
       tc.status === "denied" ||
-      tc.isError,
+      tc.isError ||
+      (isToolResultEnvelope(tc.result) && !tc.result.ok),
   );
 
   const displayTitle =
@@ -208,6 +286,10 @@ const ToolCallBlock: React.FC<ToolCallBlockProps> = ({
     }
   };
 
+  const getEffectLabel = (
+    effect: NonNullable<ToolCall["invocationPolicy"]>["effects"][number],
+  ) => t(`effect_${effect}`);
+
   const TruncatedBadge = () => (
     <span className="ml-2 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-950/50 dark:text-amber-200">
       {t("truncated")}
@@ -223,7 +305,7 @@ const ToolCallBlock: React.FC<ToolCallBlockProps> = ({
         aria-controls={panelId}
         aria-busy={isLoading || undefined}
         onClick={() => setIsExpanded(!isExpanded)}
-        className="w-full flex items-center gap-2 px-3 py-2 text-xs font-medium text-gray-600 dark:text-muted-foreground hover:bg-gray-100/50 dark:hover:bg-accent/30 transition-colors cursor-pointer select-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/50"
+        className="flex min-h-11 w-full cursor-pointer select-none items-center gap-2 px-3 py-2 text-xs font-medium text-gray-600 transition-colors hover:bg-gray-100/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/50 motion-reduce:transition-none dark:text-muted-foreground dark:hover:bg-accent/30"
       >
         <div
           className={`p-1 rounded ${awaitingConfirmation ? "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300" : isLoading ? "bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400" : isError ? "bg-red-100 text-red-600" : "bg-green-100 text-green-600 dark:bg-green-900/30 dark:text-green-400"}`}
@@ -241,7 +323,14 @@ const ToolCallBlock: React.FC<ToolCallBlockProps> = ({
           )}
         </div>
 
-        <span className="flex-1 text-left truncate">{displayTitle}</span>
+        <span className="min-w-0 flex-1 text-left">
+          <span className="block truncate">{displayTitle}</span>
+          {summaryDisplayTool?.targetSummary ? (
+            <span className="block truncate text-[10px] font-normal text-muted-foreground">
+              {t("toolTarget")}: {summaryDisplayTool.targetSummary}
+            </span>
+          ) : null}
+        </span>
 
         <ChevronDown
           size={14}
@@ -254,17 +343,26 @@ const ToolCallBlock: React.FC<ToolCallBlockProps> = ({
         id={panelId}
         role="region"
         aria-label={t("toolCallDetails")}
-        className={`grid transition-[grid-template-rows,opacity] duration-300 ease-in-out ${isExpanded ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"}`}
+        hidden={!isExpanded}
+        className="border-t border-gray-200/50 dark:border-border"
       >
         <div className="overflow-hidden">
-          <div className="px-3 py-2 border-t border-gray-200/50 dark:border-border bg-white/40 dark:bg-card/40 space-y-3">
+          <div className="space-y-3 bg-white/40 px-3 py-2 dark:bg-card/40">
             {displayToolCalls.map((tc) => (
               <div key={tc.id} className="text-xs">
                 <div className="flex items-center justify-between mb-1.5 font-medium text-gray-700 dark:text-foreground/85">
                   <div className="flex min-w-0 items-center gap-1.5">
                     <ToolNameIcon name={tc.name} />
                     <span className="truncate">{tc.displayName}</span>
-                    {tc.risk ? (
+                    {tc.invocationPolicy?.effects.map((effect) => (
+                      <span
+                        key={effect}
+                        className="shrink-0 rounded bg-gray-200 px-1.5 py-0.5 text-[10px] font-medium text-gray-600 dark:bg-muted dark:text-muted-foreground"
+                      >
+                        {getEffectLabel(effect)}
+                      </span>
+                    ))}
+                    {!tc.invocationPolicy?.effects.length && tc.risk ? (
                       <span className="shrink-0 rounded bg-gray-200 px-1.5 py-0.5 text-[10px] font-medium text-gray-600 dark:bg-muted dark:text-muted-foreground">
                         {getRiskLabel(tc.risk)}
                       </span>
@@ -280,6 +378,13 @@ const ToolCallBlock: React.FC<ToolCallBlockProps> = ({
                     ) : null}
                   </div>
                   <div className="flex items-center gap-1">
+                    {typeof tc.durationMs === "number" ? (
+                      <span className="mr-1 tabular-nums text-[10px] text-muted-foreground">
+                        {tc.durationMs < 1_000
+                          ? `${tc.durationMs}ms`
+                          : `${(tc.durationMs / 1_000).toFixed(1)}s`}
+                      </span>
+                    ) : null}
                     {tc.status === "awaiting_confirmation" ? (
                       <span
                         role="status"
@@ -358,18 +463,18 @@ const ToolCallBlock: React.FC<ToolCallBlockProps> = ({
                         onClick={() =>
                           onConfirmationDecision(tc.id, "allow_once")
                         }
-                        className="rounded bg-amber-600 px-2.5 py-1 font-medium text-white hover:bg-amber-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
+                        className="min-h-11 rounded bg-amber-600 px-3 py-2 font-medium text-white hover:bg-amber-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
                       >
                         {t("allowOnce")}
                       </Button>
-                      {tc.risk === "write" || tc.risk === "external" ? (
+                      {tc.confirmation?.canPersist ? (
                         <Button
                           variant="bare"
                           type="button"
                           onClick={() =>
                             onConfirmationDecision(tc.id, "allow_session")
                           }
-                          className="rounded border border-amber-400 bg-white px-2.5 py-1 font-medium text-amber-900 hover:bg-amber-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 dark:bg-transparent dark:text-amber-100 dark:hover:bg-amber-950/60"
+                          className="min-h-11 rounded border border-amber-400 bg-white px-3 py-2 font-medium text-amber-900 hover:bg-amber-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 dark:bg-transparent dark:text-amber-100 dark:hover:bg-amber-950/60"
                         >
                           {t("allowSession")}
                         </Button>
@@ -378,7 +483,7 @@ const ToolCallBlock: React.FC<ToolCallBlockProps> = ({
                         variant="bare"
                         type="button"
                         onClick={() => onConfirmationDecision(tc.id, "deny")}
-                        className="rounded border border-gray-300 bg-white px-2.5 py-1 font-medium text-gray-700 hover:bg-gray-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-500 dark:border-border dark:bg-card dark:text-foreground dark:hover:bg-accent"
+                        className="min-h-11 rounded border border-gray-300 bg-white px-3 py-2 font-medium text-gray-700 hover:bg-gray-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-500 dark:border-border dark:bg-card dark:text-foreground dark:hover:bg-accent"
                       >
                         {t("denyTool")}
                       </Button>
@@ -392,7 +497,7 @@ const ToolCallBlock: React.FC<ToolCallBlockProps> = ({
                     variant="bare"
                     type="button"
                     onClick={() => onRevokeSessionApproval(tc)}
-                    className="mb-2 rounded border border-gray-300 bg-white px-2.5 py-1 text-xs font-medium text-gray-700 hover:bg-gray-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-500 dark:border-border dark:bg-card dark:text-foreground dark:hover:bg-accent"
+                    className="mb-2 min-h-11 rounded border border-gray-300 bg-white px-3 py-2 text-xs font-medium text-gray-700 hover:bg-gray-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-500 dark:border-border dark:bg-card dark:text-foreground dark:hover:bg-accent"
                   >
                     {t("revokeSessionApproval")}
                   </Button>

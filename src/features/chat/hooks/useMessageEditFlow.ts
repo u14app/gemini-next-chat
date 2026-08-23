@@ -61,6 +61,7 @@ export function useMessageEditFlow(deps: ChatFlowDeps) {
     activeStreamCheckpointRef,
     persistLongTextFilesForMessage,
     toolConfirmationController,
+    agentUserInputController,
     messageInputRef,
     prepareComposerSkillParameters,
     processPromptForModel,
@@ -174,7 +175,9 @@ export function useMessageEditFlow(deps: ChatFlowDeps) {
         selectedModel,
         locale,
         installedSkills,
-        activeSkillIds: effectiveContext.activeSkillIds,
+        activeSkillIds: effectiveContext.agentModeEnabled
+          ? []
+          : effectiveContext.activeSkillIds,
         skillBundles,
         activeSkillBundleIds,
         skillParameterValues: editSkillParameters.skillParameterValues,
@@ -209,6 +212,10 @@ export function useMessageEditFlow(deps: ChatFlowDeps) {
         attempt: 0,
         checkpointAt: modelPlaceholder.timestamp,
       };
+      if (effectiveContext.agentModeEnabled) {
+        modelPlaceholder.generation.agentRunId =
+          modelPlaceholder.generation.requestId;
+      }
       startTime = modelPlaceholder.timestamp;
 
       const branchIds = createEditedUserMessageBranch(
@@ -396,12 +403,26 @@ export function useMessageEditFlow(deps: ChatFlowDeps) {
             },
             toolConfirmationController,
             {
+              userInputController: agentUserInputController,
               ...createAgentToolStreamOptions({
                 sessionId,
                 modelMessageId: modelMessageId!,
                 knowledgeScope,
                 isActive: () =>
                   isGenerationRunActive(generation) && Boolean(modelMessageId),
+                allowedSkillIds: effectiveContext.agentSkillIds,
+                allowedToolIds: effectiveContext.agentToolIds,
+                approvalMode: effectiveContext.approvalMode,
+                agentBudget: effectiveContext.agentBudget,
+                memoryScopes: effectiveContext.memoryScopes,
+                memoryScopeIds: effectiveContext.memoryScopeIds,
+                agentRun: modelPlaceholder.generation?.agentRunId
+                  ? {
+                      id: modelPlaceholder.generation.agentRunId,
+                      userMessageId: editedUserMessageId || undefined,
+                      modelMessageId: modelMessageId!,
+                    }
+                  : undefined,
               }),
               forcedPluginIds: sourceMessage.forcedPluginIds,
             },

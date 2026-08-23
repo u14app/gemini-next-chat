@@ -10,6 +10,7 @@ import type { useChatGenerationController } from "./useChatGenerationController"
 import type { useChatRequestPreparation } from "./useChatRequestPreparation";
 import type { useChatShellState } from "./useChatShellState";
 import type { useToolConfirmationController } from "./useToolConfirmationController";
+import type { useAgentUserInputController } from "./useAgentUserInputController";
 
 type ShellState = ReturnType<typeof useChatShellState>;
 type ChatSlice = ShellState["chat"];
@@ -100,6 +101,9 @@ export interface ChatFlowDeps {
   ) => Promise<void>;
   toolConfirmationController: ReturnType<
     typeof useToolConfirmationController
+  >["controller"];
+  agentUserInputController: ReturnType<
+    typeof useAgentUserInputController
   >["controller"];
   messageInputRef: React.RefObject<MessageInputRef | null>;
 

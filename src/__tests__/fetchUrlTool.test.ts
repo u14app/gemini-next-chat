@@ -24,7 +24,10 @@ vi.mock("../utils/opfs", () => ({
 }));
 vi.mock("../lib/api/client", () => ({ signedApiFetch: mocks.signedApiFetch }));
 
-import { createFetchUrlBinding } from "../services/api/chat/builtinTools/fetchUrl";
+import {
+  createFetchUrlBinding,
+  createFetchUrlsBinding,
+} from "../services/api/chat/builtinTools/fetchUrl";
 
 const SESSION = "0192f0a1-1111-7000-8000-abcdefabcdef";
 const ROOT = `chat/workspace/${SESSION}`;
@@ -114,5 +117,70 @@ describe("fetch_url saveToPath", () => {
     )) as { error: { code: string } };
 
     expect(result.error.code).toBe("WORKSPACE_WRITE_FAILED");
+  });
+});
+
+describe("fetch_urls evidence batch", () => {
+  beforeEach(() => {
+    Object.values(mocks).forEach((mock) => mock.mockReset());
+    mocks.listOPFSDirectory.mockResolvedValue([]);
+    mocks.statOPFSFileSize.mockResolvedValue(null);
+    mocks.writeToOPFS.mockResolvedValue(undefined);
+  });
+
+  it("returns per-source Evidence and keeps partial failures bounded", async () => {
+    mocks.signedApiFetch.mockImplementation(
+      async (_url: string, init?: RequestInit) => {
+        const requested = JSON.parse(String(init?.body)).url as string;
+        if (requested.endsWith("/missing")) {
+          return { ok: false, status: 404, json: async () => ({}) };
+        }
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            url: requested,
+            title: requested,
+            content: `Contents of ${requested}`,
+            truncated: false,
+            contentType: "text/html",
+          }),
+        };
+      },
+    );
+    const emitSearch = vi.fn();
+
+    const result = (await createFetchUrlsBinding().execute(
+      {
+        urls: [
+          "https://example.com/one",
+          "https://example.com/missing",
+          "https://example.com/two",
+        ],
+      },
+      { sessionId: SESSION, emit: { search: emitSearch } },
+    )) as {
+      sourceCount: number;
+      failedCount: number;
+      results: Array<Record<string, unknown>>;
+    };
+
+    expect(mocks.signedApiFetch).toHaveBeenCalledTimes(3);
+    expect(result).toMatchObject({ sourceCount: 2, failedCount: 1 });
+    expect(result.results.filter((item) => item.ok)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          sourceId: expect.stringMatching(/^source-/),
+          retrievedAt: expect.any(Number),
+          contentHash: expect.stringMatching(/^(?:sha256|fnv1a):/),
+        }),
+      ]),
+    );
+    expect(emitSearch).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        phase: "complete",
+        sources: expect.any(Array),
+      }),
+    );
   });
 });

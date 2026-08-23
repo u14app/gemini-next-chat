@@ -1,5 +1,11 @@
-import type { PluginFunctionRisk } from "@/lib/plugin/types";
 import type {
+  PluginFunctionRisk,
+  ToolDescriptorV2,
+  ToolInvocationPolicy,
+  ToolInvocationPolicyResolver,
+} from "@/lib/plugin/types";
+import type {
+  AgentUserInputController,
   Attachment,
   Collection,
   ImageSource,
@@ -55,6 +61,7 @@ export interface BuiltinToolEmitters {
   search?: (event: BuiltinSearchEvent) => void;
   knowledgeSources?: (sources: Source[], ragError?: RagQueryError) => void;
   skillInvocation?: (invocation: AppliedSkillInvocation) => void;
+  skillToolRestriction?: (allowedTools: readonly string[]) => void;
   taskPlan?: (plan: TaskPlanSnapshot) => void;
   workspaceFile?: (file: WorkspaceFileShare) => void;
   archiveFile?: (archive: ArchiveFileShare) => void;
@@ -69,18 +76,39 @@ export interface BuiltinToolEmitters {
 export interface BuiltinToolContext {
   signal?: AbortSignal;
   sessionId: string;
+  toolCallId?: string;
+  userInputController?: AgentUserInputController;
   knowledgeScope?: BuiltinKnowledgeScope;
   emit: BuiltinToolEmitters;
 }
 
 export interface BuiltinToolBinding {
   definition: ChatToolDefinition;
+  /** Compatibility label for existing message/UI contracts; V2 policy is authoritative. */
   risk: BuiltinToolRisk;
+  descriptor: ToolDescriptorV2;
+  resolveInvocationPolicy?: ToolInvocationPolicyResolver;
   displayKey: string;
   agentOnly?: boolean;
   /** Built-ins in the same group execute in provider tool-call order. */
-  executionGroup?: "workspace";
+  executionGroup?: "workspace" | "interaction";
   execute: (args: unknown, context: BuiltinToolContext) => Promise<unknown>;
+}
+
+export function resolveBuiltinToolInvocationPolicy(
+  binding: BuiltinToolBinding,
+  args: unknown,
+): ToolInvocationPolicy {
+  const descriptor = binding.descriptor;
+  if (binding.resolveInvocationPolicy) {
+    return binding.resolveInvocationPolicy(args, descriptor);
+  }
+  return {
+    effects: descriptor.effects,
+    idempotency: descriptor.idempotency,
+    sensitivity: descriptor.sensitivity,
+    origin: descriptor.origin,
+  };
 }
 
 export interface CollectedBuiltinTools {

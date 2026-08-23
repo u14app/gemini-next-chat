@@ -19,7 +19,7 @@ export function isBrowserMemoryStorePendingHydration(
   return typeof window !== "undefined" && !hasHydrated;
 }
 
-function isMemorySearchEnabled(): boolean {
+export function isMemorySearchEnabled(): boolean {
   const { _hasHydrated, settings } = useMemoryStore.getState();
   return Boolean(
     !isBrowserMemoryStorePendingHydration(_hasHydrated) &&
@@ -64,6 +64,13 @@ export function collectMemorySearchBinding(
   return {
     definition: coerceToolDefinition(MEMORY_SEARCH_TOOL),
     risk: "read",
+    descriptor: {
+      version: 2,
+      effects: ["local_read"],
+      idempotency: "idempotent",
+      sensitivity: "user_data",
+      origin: "builtin",
+    },
     displayKey: "memorySearch",
     execute: async (args, { signal }) => {
       signal?.throwIfAborted();

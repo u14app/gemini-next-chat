@@ -27,9 +27,15 @@ import type {
 } from "@/types";
 import { useChatStore } from "@/store/core/chatStore";
 import { useMemoryStore } from "@/store/core/memoryStore";
-import { resolveEffectiveChatContext } from "@/lib/chat/effectiveChatContext";
+import {
+  resolveEffectiveChatContext,
+  type EffectiveChatContext,
+} from "@/lib/chat/effectiveChatContext";
 import { processMessageForSending } from "@/lib/chat/messageProcessor";
-import { buildDirectMemoryPromptContext } from "@/lib/memory/entities";
+import {
+  buildDirectMemoryPromptContext,
+  isMemoryVisibleInScopes,
+} from "@/lib/memory/entities";
 import { getSuppressedMemoryIds } from "@/lib/memory/compression";
 import { appendContextToChatInput } from "@/lib/utils/chatInput";
 import { buildReplyPromptContext } from "@/lib/chat/streamResilience";
@@ -174,7 +180,7 @@ export function useChatRequestPreparation({
       installedSkills.map((skill) => [skill.id, skill]),
     );
     const activeManualSkills =
-      skillAutoSelect && !effectiveContext.agentModeEnabled
+      skillAutoSelect || effectiveContext.agentModeEnabled
         ? []
         : effectiveContext.activeSkillIds
             .map((id) => skillsById.get(id))
@@ -330,7 +336,13 @@ export function useChatRequestPreparation({
           memoryState.settings.enabled &&
           memoryState.settings.searchEnabled
         ? buildDirectMemoryPromptContext({
-            memories: memoryState.memories,
+            memories: memoryState.memories.filter((memory) =>
+              isMemoryVisibleInScopes(
+                memory,
+                effectiveContext.memoryScopes,
+                effectiveContext.memoryScopeIds,
+              ),
+            ),
             query: text,
             alreadyInjectedMemoryIds: getSuppressedMemoryIds(
               session,
@@ -377,12 +389,33 @@ export function useChatRequestPreparation({
     modelMessageId,
     knowledgeScope,
     isActive,
+    allowedSkillIds,
+    allowedToolIds,
+    approvalMode,
+    agentBudget,
+    agentRun,
+    memoryScopes,
+    memoryScopeIds,
   }: {
     sessionId: string;
     modelMessageId: string;
     knowledgeScope: Attachment[];
     isActive: () => boolean;
+    allowedSkillIds?: string[];
+    allowedToolIds?: string[];
+    approvalMode?: EffectiveChatContext["approvalMode"];
+    agentBudget?: EffectiveChatContext["agentBudget"];
+    agentRun?: StreamChatResponseOptions["agentRun"];
+    memoryScopes?: StreamChatResponseOptions["memoryScopes"];
+    memoryScopeIds?: StreamChatResponseOptions["memoryScopeIds"];
   }): StreamChatResponseOptions => ({
+    allowedSkillIds,
+    allowedToolIds,
+    approvalMode,
+    agentBudget,
+    agentRun,
+    memoryScopes,
+    memoryScopeIds,
     knowledgeScope: {
       attachments: knowledgeScope.map((attachment) => ({ ...attachment })),
       collections: knowledgeCollections,

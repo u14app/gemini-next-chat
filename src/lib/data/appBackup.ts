@@ -38,6 +38,7 @@ import {
   writeBlobToOPFS,
 } from "@/utils/opfs";
 import {
+  getSessionArtifactRoot,
   getSessionArchiveRoot,
   getSessionWorkspaceRoot,
   normalizeWorkspacePath,
@@ -902,6 +903,17 @@ function restoredOpfsUrl(
     // Retention sorts physical archive names as UUIDv7 creation order. Restore
     // into that same namespace so later cleanup remains chronological.
     return `opfs://${archiveRoot}/${uuidv7()}.zip`;
+  }
+
+  if (root === "chat" && segments[1] === "artifacts") {
+    const artifactRoot = getSessionArtifactRoot(segments[2] ?? "");
+    const storedName = segments[3] ?? "";
+    const match = /^([a-f0-9]{8}|[a-f0-9]{64})-(.+)$/i.exec(storedName);
+    if (!artifactRoot || segments.length !== 4 || !match) {
+      throw new Error("Backup contains an invalid Artifact reference.");
+    }
+    const [, contentHash, fileName] = match;
+    return `opfs://${artifactRoot}/${contentHash.toLowerCase()}-__restore_${transactionId}_${String(index).padStart(6, "0")}__${fileName}`;
   }
 
   const originalName = safePath.split("/").pop() || "";

@@ -254,12 +254,14 @@ export function Dialog({
   title,
   children,
   className,
+  placement = "center",
 }: {
   open: boolean;
   onClose: () => void;
   title: React.ReactNode;
   children: React.ReactNode;
   className?: string;
+  placement?: "center" | "responsive-sheet";
 }) {
   const dialogRef = useRef<HTMLDivElement>(null);
   const restoreFocusRef = useRef<HTMLElement | null>(null);
@@ -315,7 +317,14 @@ export function Dialog({
   };
 
   return createPortal(
-    <div className="fixed inset-0 z-9999 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm">
+    <div
+      className={cx(
+        "fixed inset-0 z-9999 flex justify-center bg-black/40 backdrop-blur-sm",
+        placement === "responsive-sheet"
+          ? "items-end p-0 sm:items-center sm:p-4"
+          : "items-center p-4",
+      )}
+    >
       <div
         ref={dialogRef}
         role="dialog"
@@ -325,6 +334,8 @@ export function Dialog({
         onKeyDown={handleKeyDown}
         className={cx(
           "max-h-[min(720px,90vh)] w-full max-w-xl overflow-hidden overscroll-contain rounded-lg border border-gray-200 bg-white shadow-2xl dark:border-border dark:bg-background",
+          placement === "responsive-sheet" &&
+            "max-h-[92dvh] rounded-b-none border-b-0 sm:max-h-[min(760px,90dvh)] sm:rounded-lg sm:border-b",
           focusRing,
           className,
         )}

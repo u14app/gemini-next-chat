@@ -16,10 +16,11 @@ export interface SearchOptions {
   query: string;
   scope?: string;
   maxResults?: number;
+  timeRange?: import("@/types").SearchTimeRange;
 }
 
 export async function createSearchProvider(
-  { query, scope, maxResults }: SearchOptions,
+  { query, scope, maxResults, timeRange }: SearchOptions,
   signal?: AbortSignal,
 ) {
   const { search } = useSettingsStore.getState();
@@ -50,7 +51,7 @@ export async function createSearchProvider(
           provider,
           query,
           scope,
-          timeRange: search.timeRange,
+          timeRange: timeRange || search.timeRange,
           config: await buildSearchRuntimeConfig(provider, config, signal),
           maxResult,
         }),

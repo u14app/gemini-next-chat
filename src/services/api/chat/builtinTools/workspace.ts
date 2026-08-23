@@ -1,13 +1,13 @@
 import { AGENT_WORKSPACE_LIMITS } from "@/config/limits";
-import { v7 as uuidv7 } from "uuid";
 import {
   WORKSPACE_UPLOADS_DIRECTORY,
   type WorkspaceResult,
 } from "@/lib/agent/workspace";
 import {
   deleteWorkspaceFile,
-  editWorkspaceFile,
+  applyWorkspacePatches,
   getWorkspaceFileEntry,
+  editWorkspaceFile,
   listWorkspace,
   moveWorkspaceFile,
   readWorkspaceText,
@@ -15,17 +15,33 @@ import {
   writeWorkspaceText,
   type WorkspaceWriteMode,
 } from "@/services/workspace/sessionWorkspace";
+import { publishWorkspaceArtifact } from "@/services/workspace/sessionArtifact";
+import {
+  diffWorkspaceFile,
+  validateWorkspaceFile,
+} from "@/services/workspace/workspaceInspection";
+import {
+  restoreWorkspaceFile,
+  trashWorkspaceFile,
+} from "@/services/workspace/workspaceTrash";
 
-import type { BuiltinToolBinding } from "./types";
+import type { BuiltinToolBinding, BuiltinToolContext } from "./types";
 
 export const WORKSPACE_TOOL_NAMES = [
   "list_workspace_files",
   "search_workspace_files",
   "read_workspace_file",
+  "stat_workspace_file",
+  "diff_workspace_file",
   "write_workspace_file",
   "edit_workspace_file",
+  "apply_workspace_patch",
   "move_workspace_file",
+  "trash_workspace_file",
+  "restore_workspace_file",
   "delete_workspace_file",
+  "validate_workspace_file",
+  "publish_artifact",
   "share_workspace_file",
 ] as const;
 
@@ -34,6 +50,14 @@ const PATH_PARAMETER = {
   minLength: 1,
   maxLength: AGENT_WORKSPACE_LIMITS.maxPathChars,
   description: `Path relative to the workspace root, e.g. "notes.md" or "${WORKSPACE_UPLOADS_DIRECTORY}/data.csv".`,
+} as const;
+
+const EXPECTED_REVISION_PARAMETER = {
+  type: "string",
+  minLength: 1,
+  maxLength: 256,
+  description:
+    "Optional revision returned by a prior list or read. The operation fails instead of overwriting newer content when it no longer matches.",
 } as const;
 
 const asRecord = (args: unknown): Record<string, unknown> =>
@@ -45,10 +69,51 @@ const asRecord = (args: unknown): Record<string, unknown> =>
 const toToolResult = <T>(result: WorkspaceResult<T>): unknown =>
   result.ok
     ? { ok: true, ...result.value }
-    : { error: { ...result.error, recoverable: true } };
+    : { ok: false, error: { ...result.error, recoverable: true } };
 
 const readNumber = (value: unknown): number | undefined =>
   typeof value === "number" && Number.isFinite(value) ? value : undefined;
+
+async function publishAndEmitArtifact(
+  input: Record<string, unknown>,
+  context: BuiltinToolContext,
+) {
+  if (!context.emit.workspaceFile) {
+    return {
+      ok: false,
+      error: {
+        code: "WORKSPACE_SHARE_UNAVAILABLE",
+        message: "Artifact publishing is unavailable for this request.",
+        recoverable: true,
+      },
+    };
+  }
+  const result = await publishWorkspaceArtifact(context.sessionId, input.path);
+  if (!result.ok) return toToolResult(result);
+  const title =
+    typeof input.title === "string" && input.title.trim()
+      ? input.title.trim().slice(0, 180)
+      : undefined;
+  context.emit.workspaceFile({
+    path: result.value.sourcePath,
+    url: result.value.url,
+    fileName: result.value.fileName,
+    mimeType: result.value.mimeType,
+    bytes: result.value.bytes,
+    revision: result.value.revision,
+    title,
+  });
+  context.signal?.throwIfAborted();
+  return {
+    ok: true,
+    path: result.value.sourcePath,
+    url: result.value.url,
+    contentHash: result.value.contentHash,
+    revision: result.value.revision,
+    published: true,
+    shared: true,
+  };
+}
 
 export function createWorkspaceBindings(): BuiltinToolBinding[] {
   return [
@@ -74,6 +139,13 @@ export function createWorkspaceBindings(): BuiltinToolBinding[] {
         },
       },
       risk: "read",
+      descriptor: {
+        version: 2,
+        effects: ["local_read"],
+        idempotency: "idempotent",
+        sensitivity: "user_data",
+        origin: "builtin",
+      },
       displayKey: "listWorkspaceFiles",
       agentOnly: true,
       executionGroup: "workspace",
@@ -84,6 +156,86 @@ export function createWorkspaceBindings(): BuiltinToolBinding[] {
           context.sessionId,
           typeof input.path === "string" ? input.path : undefined,
         );
+        context.signal?.throwIfAborted();
+        return toToolResult(result);
+      },
+    },
+    {
+      definition: {
+        type: "function",
+        function: {
+          name: "stat_workspace_file",
+          description:
+            "Read workspace file metadata without loading its content, including MIME type, size, content hash, revision, source, and update time.",
+          parameters: {
+            type: "object",
+            additionalProperties: false,
+            properties: { path: PATH_PARAMETER },
+            required: ["path"],
+          },
+        },
+      },
+      risk: "read",
+      descriptor: {
+        version: 2,
+        effects: ["local_read"],
+        idempotency: "idempotent",
+        sensitivity: "user_data",
+        origin: "builtin",
+      },
+      displayKey: "statWorkspaceFile",
+      agentOnly: true,
+      executionGroup: "workspace",
+      async execute(args, context) {
+        context.signal?.throwIfAborted();
+        const result = await getWorkspaceFileEntry(
+          context.sessionId,
+          asRecord(args).path,
+        );
+        context.signal?.throwIfAborted();
+        return toToolResult(result);
+      },
+    },
+    {
+      definition: {
+        type: "function",
+        function: {
+          name: "diff_workspace_file",
+          description:
+            "Compare a workspace text file with another workspace file or proposed full content. Returns a bounded diff and both revisions.",
+          parameters: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              path: PATH_PARAMETER,
+              comparePath: PATH_PARAMETER,
+              proposedContent: { type: "string" },
+            },
+            required: ["path"],
+          },
+        },
+      },
+      risk: "read",
+      descriptor: {
+        version: 2,
+        effects: ["local_read"],
+        idempotency: "idempotent",
+        sensitivity: "user_data",
+        origin: "builtin",
+      },
+      displayKey: "diffWorkspaceFile",
+      agentOnly: true,
+      executionGroup: "workspace",
+      async execute(args, context) {
+        context.signal?.throwIfAborted();
+        const input = asRecord(args);
+        const result = await diffWorkspaceFile(context.sessionId, input.path, {
+          comparePath: input.comparePath,
+          proposedContent:
+            typeof input.proposedContent === "string"
+              ? input.proposedContent
+              : undefined,
+        });
         context.signal?.throwIfAborted();
         return toToolResult(result);
       },
@@ -124,6 +276,13 @@ export function createWorkspaceBindings(): BuiltinToolBinding[] {
         },
       },
       risk: "read",
+      descriptor: {
+        version: 2,
+        effects: ["local_read"],
+        idempotency: "idempotent",
+        sensitivity: "user_data",
+        origin: "builtin",
+      },
       displayKey: "searchWorkspaceFiles",
       agentOnly: true,
       executionGroup: "workspace",
@@ -171,6 +330,13 @@ export function createWorkspaceBindings(): BuiltinToolBinding[] {
         },
       },
       risk: "read",
+      descriptor: {
+        version: 2,
+        effects: ["local_read"],
+        idempotency: "idempotent",
+        sensitivity: "user_data",
+        origin: "builtin",
+      },
       displayKey: "readWorkspaceFile",
       agentOnly: true,
       executionGroup: "workspace",
@@ -208,12 +374,34 @@ export function createWorkspaceBindings(): BuiltinToolBinding[] {
                 description:
                   '"create" fails if the file already exists; "append" adds to the end.',
               },
+              expectedRevision: EXPECTED_REVISION_PARAMETER,
             },
             required: ["path", "content"],
           },
         },
       },
       risk: "read",
+      descriptor: {
+        version: 2,
+        effects: ["local_write"],
+        idempotency: "idempotent",
+        sensitivity: "user_data",
+        origin: "builtin",
+      },
+      resolveInvocationPolicy(args, descriptor) {
+        const input = asRecord(args);
+        const mode =
+          input.mode === "create" || input.mode === "append"
+            ? input.mode
+            : "overwrite";
+        return {
+          effects: descriptor.effects,
+          idempotency:
+            mode === "append" ? "non_idempotent" : descriptor.idempotency,
+          sensitivity: descriptor.sensitivity,
+          origin: descriptor.origin,
+        };
+      },
       displayKey: "writeWorkspaceFile",
       agentOnly: true,
       executionGroup: "workspace",
@@ -222,6 +410,7 @@ export function createWorkspaceBindings(): BuiltinToolBinding[] {
         const input = asRecord(args);
         if (typeof input.content !== "string") {
           return {
+            ok: false,
             error: {
               code: "WORKSPACE_WRITE_FAILED",
               message: "content must be a string.",
@@ -233,11 +422,38 @@ export function createWorkspaceBindings(): BuiltinToolBinding[] {
           input.mode === "create" || input.mode === "append"
             ? (input.mode as WorkspaceWriteMode)
             : "overwrite";
+        const expectedRevision =
+          typeof input.expectedRevision === "string"
+            ? input.expectedRevision
+            : undefined;
+        if (mode !== "create" && !expectedRevision) {
+          const current = await getWorkspaceFileEntry(
+            context.sessionId,
+            input.path,
+          );
+          if (current.ok) {
+            return {
+              ok: false,
+              error: {
+                code: "WORKSPACE_REVISION_REQUIRED",
+                message: `"${current.value.path}" already exists. Retry with expectedRevision ${current.value.revision}.`,
+                recoverable: true,
+                latestRevision: current.value.revision,
+              },
+            };
+          }
+          if (current.error.code !== "WORKSPACE_FILE_NOT_FOUND") {
+            return toToolResult(current);
+          }
+        }
         const result = await writeWorkspaceText(
           context.sessionId,
           input.path,
           input.content,
           mode,
+          {
+            expectedRevision,
+          },
         );
         context.signal?.throwIfAborted();
         return toToolResult(result);
@@ -265,12 +481,20 @@ export function createWorkspaceBindings(): BuiltinToolBinding[] {
                 description: "The replacement text.",
               },
               replaceAll: { type: "boolean", default: false },
+              expectedRevision: EXPECTED_REVISION_PARAMETER,
             },
             required: ["path", "oldString", "newString"],
           },
         },
       },
       risk: "read",
+      descriptor: {
+        version: 2,
+        effects: ["local_write"],
+        idempotency: "idempotent",
+        sensitivity: "user_data",
+        origin: "builtin",
+      },
       displayKey: "editWorkspaceFile",
       agentOnly: true,
       executionGroup: "workspace",
@@ -282,6 +506,7 @@ export function createWorkspaceBindings(): BuiltinToolBinding[] {
           typeof input.newString !== "string"
         ) {
           return {
+            ok: false,
             error: {
               code: "WORKSPACE_WRITE_FAILED",
               message: "oldString and newString must both be strings.",
@@ -295,6 +520,83 @@ export function createWorkspaceBindings(): BuiltinToolBinding[] {
           input.oldString,
           input.newString,
           input.replaceAll === true,
+          typeof input.expectedRevision === "string"
+            ? input.expectedRevision
+            : undefined,
+        );
+        context.signal?.throwIfAborted();
+        return toToolResult(result);
+      },
+    },
+    {
+      definition: {
+        type: "function",
+        function: {
+          name: "apply_workspace_patch",
+          description:
+            "Atomically apply 1-50 exact text replacements to one workspace file. expectedRevision is required so a stale patch never overwrites newer content.",
+          parameters: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              path: PATH_PARAMETER,
+              expectedRevision: EXPECTED_REVISION_PARAMETER,
+              patches: {
+                type: "array",
+                minItems: 1,
+                maxItems: 50,
+                items: {
+                  type: "object",
+                  additionalProperties: false,
+                  properties: {
+                    oldString: { type: "string", minLength: 1 },
+                    newString: { type: "string" },
+                    replaceAll: { type: "boolean", default: false },
+                  },
+                  required: ["oldString", "newString"],
+                },
+              },
+            },
+            required: ["path", "expectedRevision", "patches"],
+          },
+        },
+      },
+      risk: "read",
+      descriptor: {
+        version: 2,
+        effects: ["local_write"],
+        idempotency: "idempotent",
+        sensitivity: "user_data",
+        origin: "builtin",
+      },
+      displayKey: "applyWorkspacePatch",
+      agentOnly: true,
+      executionGroup: "workspace",
+      async execute(args, context) {
+        context.signal?.throwIfAborted();
+        const input = asRecord(args);
+        const patches = Array.isArray(input.patches)
+          ? input.patches.flatMap((value) => {
+              const patch = asRecord(value);
+              return typeof patch.oldString === "string" &&
+                typeof patch.newString === "string"
+                ? [
+                    {
+                      oldString: patch.oldString,
+                      newString: patch.newString,
+                      replaceAll: patch.replaceAll === true,
+                    },
+                  ]
+                : [];
+            })
+          : [];
+        const result = await applyWorkspacePatches(
+          context.sessionId,
+          input.path,
+          patches,
+          typeof input.expectedRevision === "string"
+            ? input.expectedRevision
+            : undefined,
         );
         context.signal?.throwIfAborted();
         return toToolResult(result);
@@ -319,12 +621,32 @@ export function createWorkspaceBindings(): BuiltinToolBinding[] {
                 description:
                   "Replace the destination if it already exists. Defaults to false.",
               },
+              expectedRevision: {
+                ...EXPECTED_REVISION_PARAMETER,
+                description:
+                  "Optional revision of the source file returned by a prior list or read.",
+              },
             },
             required: ["from", "to"],
           },
         },
       },
       risk: "read",
+      descriptor: {
+        version: 2,
+        effects: ["local_write"],
+        idempotency: "idempotent",
+        sensitivity: "user_data",
+        origin: "builtin",
+      },
+      resolveInvocationPolicy(args, descriptor) {
+        return {
+          effects: descriptor.effects,
+          idempotency: descriptor.idempotency,
+          sensitivity: descriptor.sensitivity,
+          origin: descriptor.origin,
+        };
+      },
       displayKey: "moveWorkspaceFile",
       agentOnly: true,
       executionGroup: "workspace",
@@ -336,6 +658,97 @@ export function createWorkspaceBindings(): BuiltinToolBinding[] {
           input.from,
           input.to,
           input.overwrite === true,
+          typeof input.expectedRevision === "string"
+            ? input.expectedRevision
+            : undefined,
+        );
+        context.signal?.throwIfAborted();
+        return toToolResult(result);
+      },
+    },
+    {
+      definition: {
+        type: "function",
+        function: {
+          name: "trash_workspace_file",
+          description:
+            "Move a workspace scratch file to the recoverable trash. Prefer this over permanent deletion.",
+          parameters: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              path: PATH_PARAMETER,
+              expectedRevision: EXPECTED_REVISION_PARAMETER,
+            },
+            required: ["path", "expectedRevision"],
+          },
+        },
+      },
+      risk: "read",
+      descriptor: {
+        version: 2,
+        effects: ["local_write"],
+        idempotency: "non_idempotent",
+        sensitivity: "user_data",
+        origin: "builtin",
+      },
+      displayKey: "trashWorkspaceFile",
+      agentOnly: true,
+      executionGroup: "workspace",
+      async execute(args, context) {
+        context.signal?.throwIfAborted();
+        const input = asRecord(args);
+        const result = await trashWorkspaceFile(
+          context.sessionId,
+          input.path,
+          typeof input.expectedRevision === "string"
+            ? input.expectedRevision
+            : undefined,
+        );
+        context.signal?.throwIfAborted();
+        return toToolResult(result);
+      },
+    },
+    {
+      definition: {
+        type: "function",
+        function: {
+          name: "restore_workspace_file",
+          description:
+            "Restore a file from workspace trash to an unoccupied destination path.",
+          parameters: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              trashPath: PATH_PARAMETER,
+              destinationPath: PATH_PARAMETER,
+              expectedRevision: EXPECTED_REVISION_PARAMETER,
+            },
+            required: ["trashPath", "destinationPath", "expectedRevision"],
+          },
+        },
+      },
+      risk: "read",
+      descriptor: {
+        version: 2,
+        effects: ["local_write"],
+        idempotency: "idempotent",
+        sensitivity: "user_data",
+        origin: "builtin",
+      },
+      displayKey: "restoreWorkspaceFile",
+      agentOnly: true,
+      executionGroup: "workspace",
+      async execute(args, context) {
+        context.signal?.throwIfAborted();
+        const input = asRecord(args);
+        const result = await restoreWorkspaceFile(
+          context.sessionId,
+          input.trashPath,
+          input.destinationPath,
+          typeof input.expectedRevision === "string"
+            ? input.expectedRevision
+            : undefined,
         );
         context.signal?.throwIfAborted();
         return toToolResult(result);
@@ -347,7 +760,50 @@ export function createWorkspaceBindings(): BuiltinToolBinding[] {
         function: {
           name: "delete_workspace_file",
           description:
-            "Delete a file from this conversation's workspace. Only affects workspace scratch files.",
+            "Permanently delete a workspace scratch or trash file. This is irreversible and always requires one-time confirmation; prefer trash_workspace_file.",
+          parameters: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              path: PATH_PARAMETER,
+              expectedRevision: EXPECTED_REVISION_PARAMETER,
+            },
+            required: ["path"],
+          },
+        },
+      },
+      risk: "read",
+      descriptor: {
+        version: 2,
+        effects: ["local_destructive"],
+        idempotency: "idempotent",
+        sensitivity: "user_data",
+        origin: "builtin",
+      },
+      displayKey: "deleteWorkspaceFile",
+      agentOnly: true,
+      executionGroup: "workspace",
+      async execute(args, context) {
+        context.signal?.throwIfAborted();
+        const input = asRecord(args);
+        const result = await deleteWorkspaceFile(
+          context.sessionId,
+          input.path,
+          typeof input.expectedRevision === "string"
+            ? input.expectedRevision
+            : undefined,
+        );
+        context.signal?.throwIfAborted();
+        return toToolResult(result);
+      },
+    },
+    {
+      definition: {
+        type: "function",
+        function: {
+          name: "validate_workspace_file",
+          description:
+            "Validate a workspace file against its format when supported (JSON, JSONL, CSV, common text, or binary metadata).",
           parameters: {
             type: "object",
             additionalProperties: false,
@@ -357,17 +813,58 @@ export function createWorkspaceBindings(): BuiltinToolBinding[] {
         },
       },
       risk: "read",
-      displayKey: "deleteWorkspaceFile",
+      descriptor: {
+        version: 2,
+        effects: ["local_read"],
+        idempotency: "idempotent",
+        sensitivity: "user_data",
+        origin: "builtin",
+      },
+      displayKey: "validateWorkspaceFile",
       agentOnly: true,
       executionGroup: "workspace",
       async execute(args, context) {
         context.signal?.throwIfAborted();
-        const result = await deleteWorkspaceFile(
+        const result = await validateWorkspaceFile(
           context.sessionId,
           asRecord(args).path,
         );
         context.signal?.throwIfAborted();
         return toToolResult(result);
+      },
+    },
+    {
+      definition: {
+        type: "function",
+        function: {
+          name: "publish_artifact",
+          description:
+            "Publish the current workspace file revision as a content-addressed immutable Artifact and show it to the user.",
+          parameters: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              path: PATH_PARAMETER,
+              title: { type: "string", maxLength: 180 },
+            },
+            required: ["path"],
+          },
+        },
+      },
+      risk: "read",
+      descriptor: {
+        version: 2,
+        effects: ["local_write"],
+        idempotency: "idempotent",
+        sensitivity: "user_data",
+        origin: "builtin",
+      },
+      displayKey: "publishArtifact",
+      agentOnly: true,
+      executionGroup: "workspace",
+      async execute(args, context) {
+        context.signal?.throwIfAborted();
+        return publishAndEmitArtifact(asRecord(args), context);
       },
     },
     {
@@ -394,39 +891,19 @@ export function createWorkspaceBindings(): BuiltinToolBinding[] {
         },
       },
       risk: "read",
+      descriptor: {
+        version: 2,
+        effects: ["local_write"],
+        idempotency: "non_idempotent",
+        sensitivity: "user_data",
+        origin: "builtin",
+      },
       displayKey: "shareWorkspaceFile",
       agentOnly: true,
       executionGroup: "workspace",
       async execute(args, context) {
         context.signal?.throwIfAborted();
-        const input = asRecord(args);
-        const result = await getWorkspaceFileEntry(
-          context.sessionId,
-          input.path,
-        );
-        if (!result.ok) return toToolResult(result);
-
-        if (!context.emit.workspaceFile) {
-          return {
-            error: {
-              code: "WORKSPACE_SHARE_UNAVAILABLE",
-              message: "File sharing is unavailable for this request.",
-              recoverable: true,
-            },
-          };
-        }
-
-        const title =
-          typeof input.title === "string" && input.title.trim()
-            ? input.title.trim().slice(0, 180)
-            : undefined;
-        context.emit.workspaceFile({
-          ...result.value,
-          revision: uuidv7(),
-          title,
-        });
-        context.signal?.throwIfAborted();
-        return { ok: true, path: result.value.path, shared: true };
+        return publishAndEmitArtifact(asRecord(args), context);
       },
     },
   ];

@@ -78,6 +78,46 @@ describe("plugin confirmation policy", () => {
     expect(changed).not.toBe(first);
   });
 
+  it("includes MCP output and policy contracts in the fingerprint", async () => {
+    const mcpPlugin: Plugin = {
+      ...plugin,
+      id: "mcp-writer",
+      source: "mcp",
+      functions: [],
+      mcp: {
+        transport: "streamable-http",
+        serverUrl: "https://example.com/mcp",
+        serverName: "Writer MCP",
+      },
+    };
+    const mcpFunction = {
+      name: "mcp_writer__create_record",
+      mcpToolName: "create_record",
+      description: "Create a record",
+      parameters: { type: "object", properties: {} },
+      outputSchema: { type: "object", properties: {} },
+      mcpPolicyHint: {
+        version: 2 as const,
+        effects: ["external_write"] as const,
+        idempotency: "non_idempotent" as const,
+        sensitivity: "unknown" as const,
+        origin: "mcp" as const,
+      },
+      risk: "external" as const,
+    };
+
+    const first = await createPluginFunctionFingerprint(mcpPlugin, mcpFunction);
+    const changed = await createPluginFunctionFingerprint(mcpPlugin, {
+      ...mcpFunction,
+      mcpPolicyHint: {
+        ...mcpFunction.mcpPolicyHint,
+        effects: ["external_destructive"] as const,
+      },
+    });
+
+    expect(changed).not.toBe(first);
+  });
+
   it("redacts sensitive fields without changing ordinary arguments", () => {
     expect(
       redactSensitiveToolArgs({

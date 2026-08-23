@@ -18,6 +18,7 @@ import { createWorkspaceBindings } from "../services/api/chat/builtinTools/works
 
 const SESSION = "0192f0a1-1111-7000-8000-abcdefabcdef";
 const ROOT = `chat/workspace/${SESSION}`;
+const MANIFEST_URL = `opfs://${ROOT}/.workspace-manifest.v1.json`;
 
 const bindings = () =>
   Object.fromEntries(
@@ -34,6 +35,7 @@ const createContext = (
 
 /** Seeds the mocked OPFS layer with a fixed set of workspace files. */
 const seedFiles = (files: Record<string, string>) => {
+  let manifest: string | null = null;
   mocks.listOPFSDirectory.mockResolvedValue(
     Object.keys(files).map((path) => `${ROOT}/${path}`),
   );
@@ -43,12 +45,16 @@ const seedFiles = (files: Record<string, string>) => {
   };
   mocks.statOPFSFileSize.mockImplementation(async (url: string) => sizeOf(url));
   mocks.readTextFromOPFS.mockImplementation(async (url: string) => {
+    if (url === MANIFEST_URL) return manifest;
     const path = url.replace(`opfs://${ROOT}/`, "");
     return path in files ? files[path] : null;
   });
   mocks.resolveOPFSBlob.mockImplementation(async (url: string) => {
     const path = url.replace(`opfs://${ROOT}/`, "");
     return path in files ? new Blob([files[path]]) : null;
+  });
+  mocks.writeToOPFS.mockImplementation(async (url: string, content: string) => {
+    if (url === MANIFEST_URL) manifest = content;
   });
 };
 
@@ -87,8 +93,24 @@ describe("workspace built-in tools", () => {
     expect(result).toMatchObject({
       ok: true,
       files: [
-        { path: "notes.md", bytes: 5, mimeType: "text/markdown" },
-        { path: "uploads/data.csv", bytes: 3, mimeType: "text/csv" },
+        {
+          path: "notes.md",
+          bytes: 5,
+          mimeType: "text/markdown",
+          contentHash: expect.stringMatching(/^(?:sha256|fnv1a):/),
+          revision: expect.any(String),
+          updatedAt: expect.any(Number),
+          source: "legacy",
+        },
+        {
+          path: "uploads/data.csv",
+          bytes: 3,
+          mimeType: "text/csv",
+          contentHash: expect.stringMatching(/^(?:sha256|fnv1a):/),
+          revision: expect.any(String),
+          updatedAt: expect.any(Number),
+          source: "legacy",
+        },
       ],
       usage: { fileCount: 2, totalBytes: 8 },
     });
@@ -103,6 +125,24 @@ describe("workspace built-in tools", () => {
     )) as { files: Array<{ path: string }> };
 
     expect(result.files.map((file) => file.path)).toEqual(["uploads/data.csv"]);
+  });
+
+  it("persists a stable revision when reconciling legacy files", async () => {
+    seedFiles({ "notes.md": "hello" });
+
+    const first = (await bindings().list_workspace_files.execute(
+      {},
+      createContext(),
+    )) as { files: Array<{ revision: string }> };
+    const second = (await bindings().list_workspace_files.execute(
+      {},
+      createContext(),
+    )) as { files: Array<{ revision: string }> };
+
+    expect(second.files[0].revision).toBe(first.files[0].revision);
+    expect(
+      mocks.writeToOPFS.mock.calls.filter(([url]) => url === MANIFEST_URL),
+    ).toHaveLength(1);
   });
 
   it("reads a line window from a text file", async () => {
@@ -128,6 +168,7 @@ describe("workspace built-in tools", () => {
     );
 
     expect(result).toEqual({
+      ok: false,
       error: {
         code: "WORKSPACE_FILE_NOT_FOUND",
         message: expect.stringContaining("absent.md"),
@@ -168,20 +209,50 @@ describe("workspace built-in tools", () => {
     )) as { error: { code: string } };
 
     expect(result.error.code).toBe("WORKSPACE_FILE_EXISTS");
-    expect(mocks.writeToOPFS).not.toHaveBeenCalled();
+    expect(mocks.writeToOPFS).not.toHaveBeenCalledWith(
+      `opfs://${ROOT}/notes.md`,
+      expect.any(String),
+    );
   });
 
   it("appends to an existing file", async () => {
     seedFiles({ "log.txt": "first\n" });
+    const stat = (await bindings().stat_workspace_file.execute(
+      { path: "log.txt" },
+      createContext(),
+    )) as { revision: string };
 
     await bindings().write_workspace_file.execute(
-      { path: "log.txt", content: "second", mode: "append" },
+      {
+        path: "log.txt",
+        content: "second",
+        mode: "append",
+        expectedRevision: stat.revision,
+      },
       createContext(),
     );
 
     expect(mocks.writeToOPFS).toHaveBeenCalledWith(
       `opfs://${ROOT}/log.txt`,
       "first\nsecond",
+    );
+  });
+
+  it("returns the latest revision instead of overwriting an existing path", async () => {
+    seedFiles({ "notes.md": "before" });
+
+    const result = (await bindings().write_workspace_file.execute(
+      { path: "notes.md", content: "after", mode: "overwrite" },
+      createContext(),
+    )) as { error: { code: string; latestRevision: string } };
+
+    expect(result.error).toMatchObject({
+      code: "WORKSPACE_REVISION_REQUIRED",
+      latestRevision: expect.any(String),
+    });
+    expect(mocks.writeToOPFS).not.toHaveBeenCalledWith(
+      `opfs://${ROOT}/notes.md`,
+      "after",
     );
   });
 
@@ -240,7 +311,10 @@ describe("workspace built-in tools", () => {
     )) as { error: { code: string } };
 
     expect(result.error.code).toBe("WORKSPACE_EDIT_AMBIGUOUS");
-    expect(mocks.writeToOPFS).not.toHaveBeenCalled();
+    expect(mocks.writeToOPFS).not.toHaveBeenCalledWith(
+      `opfs://${ROOT}/notes.md`,
+      expect.any(String),
+    );
   });
 
   it("deletes an existing file", async () => {
@@ -268,17 +342,19 @@ describe("workspace built-in tools", () => {
 
     expect(workspaceFile).toHaveBeenCalledWith({
       path: "out/report.md",
-      url: `opfs://${ROOT}/out/report.md`,
+      url: expect.stringMatching(
+        new RegExp(`^opfs://chat/artifacts/${SESSION}/.+-report\\.md$`),
+      ),
       fileName: "report.md",
       mimeType: "text/markdown",
       bytes: 8,
-      revision: expect.any(String),
+      revision: expect.stringMatching(/^(?:sha256|fnv1a):/),
       title: "Quarterly report",
     });
     expect(result).toMatchObject({ ok: true, shared: true });
   });
 
-  it("emits a fresh revision whenever the same workspace URL is shared", async () => {
+  it("reuses the immutable revision when unchanged content is shared again", async () => {
     seedFiles({ "out/report.md": "# Report" });
     const workspaceFile = vi.fn();
 
@@ -294,9 +370,197 @@ describe("workspace built-in tools", () => {
     expect(workspaceFile.mock.calls[0][0].url).toBe(
       workspaceFile.mock.calls[1][0].url,
     );
-    expect(workspaceFile.mock.calls[0][0].revision).not.toBe(
+    expect(workspaceFile.mock.calls[0][0].revision).toBe(
       workspaceFile.mock.calls[1][0].revision,
     );
+  });
+
+  it("rejects stale expected revisions before overwriting", async () => {
+    seedFiles({ "notes.md": "hello" });
+    const listed = (await bindings().list_workspace_files.execute(
+      {},
+      createContext(),
+    )) as { files: Array<{ revision: string }> };
+
+    const result = (await bindings().write_workspace_file.execute(
+      {
+        path: "notes.md",
+        content: "new",
+        expectedRevision: `${listed.files[0].revision}-stale`,
+      },
+      createContext(),
+    )) as { error: { code: string } };
+
+    expect(result.error.code).toBe("WORKSPACE_REVISION_CONFLICT");
+    expect(mocks.writeToOPFS).not.toHaveBeenCalledWith(
+      `opfs://${ROOT}/notes.md`,
+      "new",
+    );
+  });
+
+  it("accepts the current revision for an edit", async () => {
+    seedFiles({ "notes.md": "hello world" });
+    const listed = (await bindings().list_workspace_files.execute(
+      {},
+      createContext(),
+    )) as { files: Array<{ revision: string }> };
+
+    const result = await bindings().edit_workspace_file.execute(
+      {
+        path: "notes.md",
+        oldString: "world",
+        newString: "there",
+        expectedRevision: listed.files[0].revision,
+      },
+      createContext(),
+    );
+
+    expect(result).toMatchObject({ ok: true, replacements: 1 });
+  });
+
+  it("stats and diffs files with revision provenance", async () => {
+    seedFiles({ "notes.md": "one\ntwo" });
+
+    const stat = await bindings().stat_workspace_file.execute(
+      { path: "notes.md" },
+      createContext(),
+    );
+    const diff = await bindings().diff_workspace_file.execute(
+      { path: "notes.md", proposedContent: "one\nthree" },
+      createContext(),
+    );
+
+    expect(stat).toMatchObject({
+      path: "notes.md",
+      revision: expect.any(String),
+      contentHash: expect.stringMatching(/^(?:sha256|fnv1a):/),
+    });
+    expect(diff).toMatchObject({
+      path: "notes.md",
+      additions: 1,
+      deletions: 1,
+      unchanged: false,
+      diff: expect.stringContaining("-two"),
+    });
+  });
+
+  it("applies an atomic patch only at the expected revision", async () => {
+    seedFiles({ "notes.md": "alpha beta" });
+    const stat = (await bindings().stat_workspace_file.execute(
+      { path: "notes.md" },
+      createContext(),
+    )) as { revision: string };
+
+    const applied = await bindings().apply_workspace_patch.execute(
+      {
+        path: "notes.md",
+        expectedRevision: stat.revision,
+        patches: [
+          { oldString: "alpha", newString: "one" },
+          { oldString: "beta", newString: "two" },
+        ],
+      },
+      createContext(),
+    );
+    const stale = (await bindings().apply_workspace_patch.execute(
+      {
+        path: "notes.md",
+        expectedRevision: "stale",
+        patches: [{ oldString: "alpha", newString: "one" }],
+      },
+      createContext(),
+    )) as { error: { code: string } };
+
+    expect(applied).toMatchObject({ ok: true, replacements: 2 });
+    expect(mocks.writeToOPFS).toHaveBeenCalledWith(
+      `opfs://${ROOT}/notes.md`,
+      "one two",
+    );
+    expect(stale.error.code).toBe("WORKSPACE_REVISION_CONFLICT");
+  });
+
+  it("validates structured text formats", async () => {
+    seedFiles({ "broken.json": '{"ok":' });
+
+    await expect(
+      bindings().validate_workspace_file.execute(
+        { path: "broken.json" },
+        createContext(),
+      ),
+    ).resolves.toMatchObject({
+      valid: false,
+      format: "json",
+      errors: [expect.any(String)],
+    });
+  });
+
+  it("moves scratch files to recoverable trash and restores trash files", async () => {
+    seedFiles({ "notes.md": "hello" });
+    const stat = (await bindings().stat_workspace_file.execute(
+      { path: "notes.md" },
+      createContext(),
+    )) as { revision: string };
+
+    const trashed = (await bindings().trash_workspace_file.execute(
+      { path: "notes.md", expectedRevision: stat.revision },
+      createContext(),
+    )) as { trashPath: string };
+    expect(trashed.trashPath).toMatch(/^trash\/.+-notes\.md$/);
+    expect(mocks.deleteFromOPFS).toHaveBeenCalledWith(
+      `opfs://${ROOT}/notes.md`,
+    );
+
+    mocks.deleteFromOPFS.mockClear();
+    seedFiles({ "trash/revision-notes.md": "hello" });
+    const trashStat = (await bindings().stat_workspace_file.execute(
+      { path: "trash/revision-notes.md" },
+      createContext(),
+    )) as { revision: string };
+    const restored = await bindings().restore_workspace_file.execute(
+      {
+        trashPath: "trash/revision-notes.md",
+        destinationPath: "notes.md",
+        expectedRevision: trashStat.revision,
+      },
+      createContext(),
+    );
+    expect(restored).toMatchObject({ ok: true, entry: { path: "notes.md" } });
+    expect(mocks.deleteFromOPFS).toHaveBeenCalledWith(
+      `opfs://${ROOT}/trash/revision-notes.md`,
+    );
+  });
+
+  it("rejects stale revisions for edit, move, and delete", async () => {
+    seedFiles({ "notes.md": "hello world" });
+
+    const edit = (await bindings().edit_workspace_file.execute(
+      {
+        path: "notes.md",
+        oldString: "world",
+        newString: "there",
+        expectedRevision: "stale",
+      },
+      createContext(),
+    )) as { error: { code: string } };
+    const move = (await bindings().move_workspace_file.execute(
+      {
+        from: "notes.md",
+        to: "moved.md",
+        expectedRevision: "stale",
+      },
+      createContext(),
+    )) as { error: { code: string } };
+    const deleted = (await bindings().delete_workspace_file.execute(
+      { path: "notes.md", expectedRevision: "stale" },
+      createContext(),
+    )) as { error: { code: string } };
+
+    expect([edit.error.code, move.error.code, deleted.error.code]).toEqual([
+      "WORKSPACE_REVISION_CONFLICT",
+      "WORKSPACE_REVISION_CONFLICT",
+      "WORKSPACE_REVISION_CONFLICT",
+    ]);
+    expect(mocks.deleteFromOPFS).not.toHaveBeenCalled();
   });
 
   it("reports an unshareable file rather than pretending it was shared", async () => {

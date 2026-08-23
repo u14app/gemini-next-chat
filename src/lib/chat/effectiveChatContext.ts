@@ -10,6 +10,9 @@ import type {
   Session,
   SystemPersonality,
   Workspace,
+  AgentApprovalMode,
+  AgentRunBudget,
+  AgentMemoryScope,
 } from "@/types";
 import type { SkillCatalogEntry } from "../skills/types";
 import {
@@ -33,6 +36,7 @@ import {
   supportsModality,
   supportsToolCalls,
 } from "../utils/model";
+import { resolveAgentProfile } from "../assistant/profile";
 
 export type CapabilityStatusCode =
   | "ok"
@@ -64,6 +68,17 @@ export interface EffectiveChatContext {
   workspaceKnowledgeCollectionIds: string[];
   activePluginIds: string[];
   activeSkillIds: string[];
+  agentSkillIds: string[];
+  agentToolIds: string[];
+  approvalMode: AgentApprovalMode;
+  agentBudget?: AgentRunBudget;
+  agentProfileId?: string;
+  memoryScopes: AgentMemoryScope[];
+  memoryScopeIds: {
+    workspace?: string;
+    agent?: string;
+    session?: string;
+  };
   modelCapabilities: ModelCapabilities;
   agentModeEnabled: boolean;
   searchCompatibility: SearchCompatibilityResult;
@@ -258,14 +273,58 @@ export function resolveEffectiveChatContext(
     customModelMetadata,
   });
   const requestedPluginIds = activePlugins;
+  const resolvedAgentProfile = resolveAgentProfile(
+    workspace?.agentProfile,
+    session?.config?.agentProfile,
+    {
+      runtime: {
+        ...(session?.config?.approvalMode
+          ? { approvalMode: session.config.approvalMode }
+          : {}),
+        ...(session?.config?.agentBudget
+          ? { budget: session.config.agentBudget }
+          : {}),
+      },
+      capabilities: {
+        ...(session?.config?.skillPolicies
+          ? { skillPolicies: session.config.skillPolicies }
+          : {}),
+      },
+    },
+  );
+  const profilePluginIds = resolvedAgentProfile.capabilities.pluginIds || [];
+  const hasAgentProfileLayer = Boolean(
+    session?.config?.agentProfile || workspace?.agentProfile,
+  );
+  const hasAgentSkillPolicyLayer =
+    hasAgentProfileLayer || session?.config?.skillPolicies !== undefined;
+  const requestedPluginIdsWithProfile =
+    session?.config?.activePlugins !== undefined
+      ? session.config.activePlugins
+      : hasAgentProfileLayer
+        ? profilePluginIds
+        : requestedPluginIds;
   const activePluginIds = normalizeActivePluginIds(
-    requestedPluginIds,
+    requestedPluginIdsWithProfile,
     installedPlugins,
     pluginConfigs,
     { unauthenticatedAllowedPluginIds: ["unsplash"] },
   );
   const activeSkillIds = normalizeSkillIdRefs(
-    session?.config?.activeSkills || workspace?.activeSkills || [],
+    session?.config?.activeSkills ||
+      workspace?.activeSkills ||
+      (resolvedAgentProfile.capabilities.skillPolicies || [])
+        .filter((policy) => policy.mode !== "disabled")
+        .map((policy) => policy.skillId),
+    installedSkills,
+  );
+  const configuredAgentSkillIds = (
+    resolvedAgentProfile.capabilities.skillPolicies || []
+  )
+    .filter((policy) => policy.mode === "auto")
+    .map((policy) => policy.skillId);
+  const agentSkillIds = normalizeSkillIdRefs(
+    hasAgentSkillPolicyLayer ? configuredAgentSkillIds : activeSkillIds,
     installedSkills,
   );
   const statuses: CapabilityStatus[] = [];
@@ -288,7 +347,7 @@ export function resolveEffectiveChatContext(
     });
   }
 
-  for (const pluginId of requestedPluginIds) {
+  for (const pluginId of requestedPluginIdsWithProfile) {
     const plugin = installedPlugins.find((item) => item.id === pluginId);
     if (!plugin || !isPluginAuthRequired(plugin) || pluginId === "unsplash") {
       continue;
@@ -322,9 +381,25 @@ export function resolveEffectiveChatContext(
       now,
     }),
     workspaceFiles: workspace?.files || [],
-    workspaceKnowledgeCollectionIds: workspace?.knowledgeCollectionIds || [],
+    workspaceKnowledgeCollectionIds: resolvedAgentProfile.capabilities
+      .knowledgeCollectionIds?.length
+      ? resolvedAgentProfile.capabilities.knowledgeCollectionIds
+      : workspace?.knowledgeCollectionIds || [],
     activePluginIds,
     activeSkillIds,
+    agentSkillIds,
+    agentToolIds: resolvedAgentProfile.capabilities.toolIds || [],
+    approvalMode: resolvedAgentProfile.runtime.approvalMode,
+    agentBudget: resolvedAgentProfile.runtime.budget,
+    agentProfileId: session?.config?.agentProfileId,
+    memoryScopes: resolvedAgentProfile.capabilities.memoryScopes || ["global"],
+    memoryScopeIds: {
+      ...(session?.workspaceId ? { workspace: session.workspaceId } : {}),
+      ...(session?.config?.agentProfileId
+        ? { agent: session.config.agentProfileId }
+        : {}),
+      ...(session?.id ? { session: session.id } : {}),
+    },
     modelCapabilities,
     agentModeEnabled:
       chatConfig.useAgentMode === true && modelCapabilities.toolCall,

@@ -34,6 +34,24 @@ export interface SkillParameterDefinition {
   maxLength: number;
 }
 
+export interface SkillRuntimeV2 {
+  kind: "declarative_text";
+  supportsScripts: false;
+  acceptsPlaintextSecrets: false;
+}
+
+export interface SkillOutputContractV2 {
+  format: string;
+  description?: string;
+  schema?: Record<string, unknown>;
+}
+
+export interface SkillEvalCaseV2 {
+  id: string;
+  input: string;
+  expected?: string[];
+}
+
 export interface SkillCatalogEntry {
   id: string;
   name: string;
@@ -52,6 +70,17 @@ export interface SkillCatalogEntry {
   isCustom?: boolean;
   createdAt?: string;
   updatedAt?: string;
+  version?: string;
+  publisher?: string;
+  source?: string;
+  contentHash?: string;
+  locales?: string[];
+  runtime?: SkillRuntimeV2;
+  requiredCapabilities?: string[];
+  /** A Skill may only narrow the caller's already-authorized Tool set. */
+  allowedTools?: string[];
+  outputContract?: SkillOutputContractV2;
+  evalCases?: SkillEvalCaseV2[];
 }
 
 export interface TextSkill extends SkillCatalogEntry {

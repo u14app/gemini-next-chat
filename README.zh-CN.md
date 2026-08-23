@@ -32,8 +32,9 @@ Neo Chat 是一个可自托管、本地优先的 AI 对话应用，基于 Next.j
   引用回复，以及重新生成兄弟分支时的显式模型选择。
 - 新增会话级输入草稿、Token 与上下文用量摘要、生成期间的消息树变更保护，
   并明确离线状态下的交互边界。
-- 新增面向支持工具调用模型的会话级 Agent 模式，由浏览器编排五个本地化、
-  只读且自动授权的内置工具。
+- 新增仅浏览器前台运行的可信 Agent Runtime：持久化运行、按副作用授权、幂等
+  执行账本、revision 工作区、不可变 Artifact、动态 Tool/Skill、分 Scope Memory
+  与 MCP Resources/Prompts。
 - 技能升级为参数化 schema，并支持最多四个普通技能组成的有序 bundle；参数在
   发送前校验，调用记录可复现。
 - 新增集合级分块策略、Markdown 标题感知预览、显式重建索引、关键词与向量混合
@@ -86,8 +87,9 @@ Neo Chat 是一个可自托管、本地优先的 AI 对话应用，基于 Next.j
 - 显式启用的 WebDAV 或 S3/MinIO 端到端加密同步，包含设备身份、恢复代码、
   可收敛 CRDT 文档和加密 OPFS 分块。
 - 支持 LobeHub Agent Registry 助理预设，也支持本地自定义助理。
-- 支持面向工具调用模型的会话级 Agent 模式，由浏览器编排网页搜索、知识库搜索、
-  纯文本技能加载、沙箱 JavaScript 和任务计划更新。
+- 支持面向工具调用模型的会话级 Agent 模式，由浏览器编排研究、分 Scope Memory、
+  revision 工作区与 Artifact、声明式 Skill、MCP Resources/Prompts、沙箱
+  JavaScript、结构化提问和持久化运行/授权状态。
 - 支持参数化文本技能：本地化公共目录、安装/卸载、编辑内置技能、本地自定义
   技能、自动选择、工作区预设，以及最多四个普通技能组成的有序非嵌套 bundle。
 - 支持 OpenAPI 风格插件工具，以及 remote Streamable HTTP 与 legacy SSE MCP
@@ -418,12 +420,18 @@ flowchart LR
 
 技能是纯文本的提示词上下文模块。应用会从 `public/data/skills` 加载本地化元数据目录，只在需要时获取完整技能定义，并把已安装、已编辑和自定义技能保存在本地。活跃技能可以手动选择，也可以来自工作区预设，或在发送消息时自动选择。
 
-Agent 模式是按会话显式启用、面向支持工具调用模型的客户端编排模式。它提供
-`web_search`、`search_knowledge`、`load_skill`、`run_javascript` 和
-`update_task_plan` 五个只读、自动授权的内置工具。JavaScript 只能在有边界的
-浏览器沙箱内同步运行，不能访问网络或 DOM；加载的技能仍是纯文本。Agent
-网页搜索要求使用外部搜索供应商，不能把 Google 原生搜索或 OpenAI Web Search
-与 Agent 函数调用组合使用。
+Agent 模式是按会话显式启用、仅在浏览器前台编排的运行模式。它会持久化
+`AgentRun`、执行记录、用量、结构化停止原因和事件 checkpoint，但页面关闭后
+不承诺继续执行。初始 Tool 集保持紧凑，通过 `search_tools` / `load_tools` 与
+`search_skills` / `inspect_skill` 按需发现已启用能力，避免把全部 schema 注入每轮
+请求。JavaScript 仍只能在有边界的同步沙箱内运行，不能访问网络或 DOM；Skill
+仍是声明式文本，不执行脚本。
+
+Tool 策略由副作用、幂等性、敏感度、来源、目标与定义指纹共同决定。本地/网络
+读取自动执行；可恢复本地写入与可信非破坏性外部写入遵循宽松、均衡或严格
+Profile。永久删除、支付、发布、权限修改、凭据外发及未知 MCP Tool 始终只允许
+单次确认。已发布 Artifact 是内容寻址的不可变快照；可变工作区文件使用 revision
+校验和可恢复回收站。详见[可信 Agent Runtime](docs/agent-runtime.md)。
 
 插件是可执行工具，可以来自 OpenAPI manifest、内置定义，或从官方 MCP Registry
 发现的远程 MCP 服务器。启用的函数会以 tool 形式暴露给兼容模型，再由服务端插件

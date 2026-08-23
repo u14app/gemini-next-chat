@@ -8,17 +8,22 @@ import {
   ToolConfirmationDecision,
   Source,
   AppliedSkillInvocation,
+  AgentUserInputController,
+  Plugin,
+  AgentMemoryScope,
 } from "@/types";
 import { useSettingsStore, getTaskModel } from "@/store/core/settingsStore";
 import { useCoreSettingsStore } from "@/store/core/coreSettingsStore";
 import { v7 as uuidv7 } from "uuid";
 import { executePluginFunction } from "@/utils/pluginUtils";
-import {
-  getEnabledPluginFunctions,
-  resolveEnabledPluginFunction,
-} from "@/lib/plugin/resolve";
-import { getPluginFunctionRisk } from "@/lib/plugin/risk";
-import type { PluginFunction } from "@/lib/plugin/types";
+import { getEnabledPluginFunctions } from "@/lib/plugin/resolve";
+import { getPluginFunctionInvocationPolicy } from "@/lib/plugin/risk";
+import type {
+  PluginFunction,
+  PluginFunctionRisk,
+  ToolApprovalProfile,
+  ToolInvocationPolicy,
+} from "@/lib/plugin/types";
 import {
   buildForcedToolDirective,
   ForcedPluginInvocationError,
@@ -26,9 +31,10 @@ import {
 } from "@/lib/chat/forcedInvocation";
 import {
   createPluginFunctionFingerprint,
+  createToolApprovalIdentity,
+  evaluateToolInvocationApproval,
   normalizeToolConfirmationDecision,
   redactSensitiveToolArgs,
-  requiresToolConfirmation,
 } from "@/lib/plugin/confirmation";
 import {
   parseModelString,
@@ -76,7 +82,13 @@ import { ATTACHMENT_LIMITS, PLUGIN_EXECUTION_LIMITS } from "@/config/limits";
 import {
   collectBuiltinTools,
   type BuiltinKnowledgeScope,
+  resolveBuiltinToolInvocationPolicy,
 } from "./chat/builtinTools";
+import {
+  createToolDiscoveryBindings,
+  type DiscoverableToolEntry,
+} from "./chat/builtinTools/toolDiscovery";
+import { createMcpCapabilityBindings } from "./chat/builtinTools/mcpCapabilities";
 import {
   runExternalSearchPreflight,
   type SearchStatusResults,
@@ -97,8 +109,44 @@ import {
   appendAgentSystemInstruction,
   buildAgentSystemInstruction,
 } from "@/lib/agent/systemPrompt";
+import {
+  validateToolArguments,
+  validateToolOutput,
+} from "@/lib/agent/toolSchema";
+import {
+  commitToolExecution,
+  collectAgentEvidenceRecords,
+  createAgentRun,
+  failToolExecution,
+  getExceededAgentRunBudget,
+  getToolReplayDecision,
+  hashToolArguments,
+  isAgentWorkspaceAvailable,
+  markToolExecutionEffectUnknown,
+  markToolExecutionRunning,
+  prepareToolExecution,
+  recordAgentEvidence,
+  recordAgentRoundCompleted,
+  recoverInterruptedToolExecutions,
+  transitionAgentRunStatus,
+  type AgentRun,
+  type ResolvedAgentRunBudget,
+} from "@/lib/agent";
+import {
+  isToolResultFailure,
+  normalizeToolResultEnvelope,
+  type ToolResultTrust,
+} from "@/lib/agent/toolResult";
+import { useAgentRunStore } from "@/store/core/agentRunStore";
+import {
+  acquireAgentRunLease,
+  checkpointAgentRunLease,
+  releaseAgentRunLease,
+  AgentRunLeaseConflictError,
+  type AgentRunLease,
+} from "@/services/agent/runLease";
 import type { RagQueryError } from "@/lib/knowledge/retrieveKnowledgeSources";
-import { buildSkillMetadataContext } from "@/lib/skills";
+import { writeWorkspaceText } from "@/services/workspace/sessionWorkspace";
 import {
   ChatStreamEventError,
   ChatStreamSizeLimitError,
@@ -136,6 +184,141 @@ import {
 type ChatUsagePayload = { usage?: unknown; usageMetadata?: unknown };
 const MAX_CHAT_TOOLS_PER_REQUEST = 64;
 
+interface NormalizedRoundUsage {
+  format: "openai" | "gemini";
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+}
+
+function finiteTokenCount(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value)
+    ? Math.max(0, Math.trunc(value))
+    : 0;
+}
+
+function normalizeRoundUsage(
+  payload: ChatUsagePayload,
+): NormalizedRoundUsage | null {
+  if (payload.usage && typeof payload.usage === "object") {
+    const usage = payload.usage as Record<string, unknown>;
+    const promptTokens = finiteTokenCount(usage.prompt_tokens);
+    const completionTokens = finiteTokenCount(usage.completion_tokens);
+    return {
+      format: "openai",
+      promptTokens,
+      completionTokens,
+      totalTokens: Math.max(
+        promptTokens + completionTokens,
+        finiteTokenCount(usage.total_tokens),
+      ),
+    };
+  }
+  if (payload.usageMetadata && typeof payload.usageMetadata === "object") {
+    const usage = payload.usageMetadata as Record<string, unknown>;
+    const promptTokens = finiteTokenCount(usage.promptTokenCount);
+    const completionTokens = finiteTokenCount(usage.candidatesTokenCount);
+    return {
+      format: "gemini",
+      promptTokens,
+      completionTokens,
+      totalTokens: Math.max(
+        promptTokens + completionTokens,
+        finiteTokenCount(usage.totalTokenCount),
+      ),
+    };
+  }
+  return null;
+}
+
+function toUsagePayload(usage: NormalizedRoundUsage): ChatUsagePayload {
+  return usage.format === "openai"
+    ? {
+        usage: {
+          prompt_tokens: usage.promptTokens,
+          completion_tokens: usage.completionTokens,
+          total_tokens: usage.totalTokens,
+        },
+      }
+    : {
+        usageMetadata: {
+          promptTokenCount: usage.promptTokens,
+          candidatesTokenCount: usage.completionTokens,
+          totalTokenCount: usage.totalTokens,
+        },
+      };
+}
+
+function toLegacyRisk(policy: ToolInvocationPolicy): PluginFunctionRisk {
+  if (
+    policy.effects.includes("local_destructive") ||
+    policy.effects.includes("external_destructive")
+  ) {
+    return "destructive";
+  }
+  if (policy.effects.includes("external_write")) return "write";
+  if (policy.origin === "mcp") return "external";
+  if (policy.effects.includes("local_write")) return "write";
+  return "read";
+}
+
+function getToolResultTrust(policy: ToolInvocationPolicy): ToolResultTrust {
+  return policy.origin === "builtin" &&
+    !policy.effects.some((effect) =>
+      ["network_read", "external_write", "external_destructive"].includes(
+        effect,
+      ),
+    )
+    ? "internal"
+    : "external_untrusted";
+}
+
+function createRuntimeToolFailure(
+  toolName: string,
+  error: { code: string; message: string; recoverable: boolean },
+) {
+  return normalizeToolResultEnvelope(
+    { ok: false, error },
+    {
+      trust: "internal",
+      provenance: {
+        origin: "runtime",
+        toolName,
+        retrievedAt: Date.now(),
+      },
+    },
+  );
+}
+
+function getToolTargetScope(args: unknown): string {
+  if (!args || typeof args !== "object" || Array.isArray(args)) return "*";
+  const input = args as Record<string, unknown>;
+  for (const key of ["url", "uri", "baseUrl"]) {
+    const value = input[key];
+    if (typeof value !== "string") continue;
+    try {
+      const url = new URL(value);
+      if (url.protocol === "http:" || url.protocol === "https:") {
+        url.hash = "";
+        const redacted = redactSensitiveToolArgs(url.toString());
+        return typeof redacted === "string" ? redacted : url.origin;
+      }
+    } catch {
+      // Continue to path/resource scopes.
+    }
+  }
+  for (const key of ["path", "from", "to"]) {
+    const value = input[key];
+    if (typeof value === "string" && value.trim()) {
+      return `workspace:${value.trim().slice(0, 512)}`;
+    }
+  }
+  const resourceId = input.id;
+  return typeof resourceId === "string" && resourceId.trim()
+    ? `resource:${resourceId.trim().slice(0, 512)}`
+    : "*";
+}
+
 export {
   ChatStreamEventError,
   ChatStreamSizeLimitError,
@@ -158,6 +341,7 @@ type ChatStreamRoundPayload = {
   content: string;
   reasoning: string;
   toolCalls: ToolCall[];
+  usage?: NormalizedRoundUsage;
 };
 
 type ChatStreamRoundResult =
@@ -186,6 +370,25 @@ export interface StreamChatResponseOptions {
   onSkillInvocation?: (invocation: AppliedSkillInvocation) => void;
   /** Plugins referenced with `@`; their tools are registered and required. */
   forcedPluginIds?: string[];
+  /** Skills the current session/Profile explicitly allows Agent mode to load. */
+  allowedSkillIds?: string[];
+  /** Optional Agent Profile allowlist. Empty means no additional restriction. */
+  allowedToolIds?: string[];
+  approvalMode?: ToolApprovalProfile;
+  agentBudget?: Partial<ResolvedAgentRunBudget>;
+  agentRun?: {
+    id: string;
+    userMessageId?: string;
+    modelMessageId?: string;
+  };
+  resumeAgentRun?: boolean;
+  userInputController?: AgentUserInputController;
+  memoryScopes?: AgentMemoryScope[];
+  memoryScopeIds?: {
+    workspace?: string;
+    agent?: string;
+    session?: string;
+  };
 }
 
 // Stream chat response from backend API
@@ -219,9 +422,6 @@ export const streamChatResponse = async (
   const imageCompressionConfig = getImageCompressionConfig(
     useSettingsStore.getState().system,
   );
-  const enableDestructiveToolConfirmation =
-    useSettingsStore.getState().system?.enableDestructiveToolConfirmation ===
-    true;
   const { providerId, modelName } = parseModelString(model);
 
   const { providers } = useCoreSettingsStore.getState();
@@ -233,6 +433,71 @@ export const streamChatResponse = async (
   const selectedModelMetadata = resolveModelMetadata(modelName, providerId);
   const toolCallsSupported = supportsToolCalls(selectedModelMetadata);
   const agentModeEnabled = config?.useAgentMode === true && toolCallsSupported;
+  let agentRun: AgentRun | null = null;
+  if (agentModeEnabled) {
+    if (options?.resumeAgentRun && options.agentRun?.id) {
+      await useAgentRunStore.getState().loadSessionRuns(sessionId);
+      const existing =
+        useAgentRunStore.getState().runsById[options.agentRun.id];
+      if (!existing || existing.sessionId !== sessionId) {
+        throw new Error("The interrupted Agent run is no longer available.");
+      }
+      if (existing.status !== "interrupted") {
+        throw new Error(
+          existing.stop?.reason === "effect_unknown"
+            ? "The Agent run has an unknown side effect and cannot be resumed automatically."
+            : `Agent run ${existing.id} cannot resume from ${existing.status}.`,
+        );
+      }
+      agentRun = {
+        ...transitionAgentRunStatus(existing, "running"),
+        model,
+        ...(options.agentRun.userMessageId
+          ? { userMessageId: options.agentRun.userMessageId }
+          : {}),
+        ...(options.agentRun.modelMessageId
+          ? { modelMessageId: options.agentRun.modelMessageId }
+          : {}),
+      };
+    } else {
+      agentRun = createAgentRun({
+        id: options?.agentRun?.id,
+        sessionId,
+        userMessageId: options?.agentRun?.userMessageId,
+        modelMessageId: options?.agentRun?.modelMessageId,
+        model,
+        budget: options?.agentBudget,
+      });
+    }
+  }
+  let agentRunLease: AgentRunLease | undefined;
+  let agentRunUpdateQueue: Promise<void> = Promise.resolve();
+  const updateAgentRun = async (
+    update: (current: AgentRun) => AgentRun,
+  ): Promise<void> => {
+    if (!agentRun) return;
+    agentRunUpdateQueue = agentRunUpdateQueue
+      .catch(() => undefined)
+      .then(async () => {
+        if (!agentRun) return;
+        agentRun = update(agentRun);
+        await useAgentRunStore.getState().upsertRun(agentRun);
+        if (
+          agentRunLease &&
+          agentRun.status !== "completed" &&
+          agentRun.status !== "failed" &&
+          agentRun.status !== "cancelled"
+        ) {
+          try {
+            agentRunLease = checkpointAgentRunLease(agentRunLease);
+          } catch (error) {
+            agentRunLease = undefined;
+            throw error;
+          }
+        }
+      });
+    await agentRunUpdateQueue;
+  };
   const requestedForcedPluginIds = mergeForcedPluginIds(
     [],
     options?.forcedPluginIds,
@@ -302,8 +567,15 @@ export const streamChatResponse = async (
   }
 
   // Get plugin tools if activePlugins is provided
-  const { installedPlugins, pluginConfigs, installedSkills } =
-    useSettingsStore.getState();
+  const {
+    installedPlugins,
+    pluginConfigs,
+    installedSkills = [],
+  } = useSettingsStore.getState();
+  const allowedSkillIds = new Set(options?.allowedSkillIds || []);
+  const agentSkills = installedSkills.filter((skill) =>
+    allowedSkillIds.has(skill.id),
+  );
   // Plugins referenced with `@` are registered and executable for this request
   // even when they are toggled off for the session. Explicit refs go first so
   // session plugins cannot consume the request tool budget ahead of them.
@@ -321,45 +593,197 @@ export const streamChatResponse = async (
     useSearch: config?.useSearch === true,
     searchMode: searchCompatibility.mode,
     knowledgeScope: options?.knowledgeScope,
-    installedSkills,
+    installedSkills: agentSkills,
+    memoryScopes: options?.memoryScopes,
+    memoryScopeIds: options?.memoryScopeIds,
+    workspaceAvailable: isAgentWorkspaceAvailable(),
   });
-  tools.push(...collectedBuiltinTools.definitions);
-  for (const name of collectedBuiltinTools.bindingsByName.keys()) {
+  const allowedToolIds = new Set(options?.allowedToolIds || []);
+  const restrictTools = allowedToolIds.size > 0;
+  const allowedBuiltinDefinitions = restrictTools
+    ? collectedBuiltinTools.definitions.filter((definition) =>
+        allowedToolIds.has(definition.function.name),
+      )
+    : collectedBuiltinTools.definitions;
+  const builtinBindingsByName = new Map(
+    [...collectedBuiltinTools.bindingsByName].filter(
+      ([name]) => !restrictTools || allowedToolIds.has(name),
+    ),
+  );
+  tools.push(...allowedBuiltinDefinitions);
+  for (const name of builtinBindingsByName.keys()) {
     toolNames.add(name);
   }
+
+  const offeredPluginFunctionsByName = new Map<
+    string,
+    { plugin: Plugin; functionDef: PluginFunction }
+  >();
+  const discoverableToolEntries: DiscoverableToolEntry[] = [];
 
   if (
     !options?.disableTools &&
     toolCallsSupported &&
     effectiveActivePlugins.length > 0
   ) {
-    effectiveActivePlugins.forEach((pluginId) => {
-      const plugin = installedPlugins.find((p) => p.id === pluginId);
-      const pluginConfig = pluginConfigs[pluginId];
-      const registeredFunctions: PluginFunction[] = [];
-
-      if (plugin) {
-        const functionsToAdd = getEnabledPluginFunctions(plugin, pluginConfig);
-
-        // Convert to OpenAI tool format
-        functionsToAdd.forEach((func) => {
-          if (tools.length >= MAX_CHAT_TOOLS_PER_REQUEST) return;
-          if (toolNames.has(func.name)) return;
-          toolNames.add(func.name);
-          registeredFunctions.push(func);
-
-          tools.push({
-            type: "function",
-            function: {
-              name: func.name,
-              description: func.description,
-              parameters: func.parameters,
-            },
-          });
-        });
+    if (agentModeEnabled) {
+      const activeMcpServers = effectiveActivePlugins.flatMap((pluginId) => {
+        const plugin = installedPlugins.find((item) => item.id === pluginId);
+        return plugin?.source === "mcp" ? [plugin] : [];
+      });
+      for (const binding of createMcpCapabilityBindings(activeMcpServers)) {
+        const name = binding.definition.function.name;
+        if (
+          tools.length >= MAX_CHAT_TOOLS_PER_REQUEST ||
+          toolNames.has(name) ||
+          (restrictTools && !allowedToolIds.has(name))
+        ) {
+          continue;
+        }
+        builtinBindingsByName.set(name, binding);
+        tools.push(binding.definition);
+        toolNames.add(name);
       }
-      registeredPluginFunctions.set(pluginId, registeredFunctions);
+    }
+    const candidates = effectiveActivePlugins.flatMap((pluginId) => {
+      const plugin = installedPlugins.find((item) => item.id === pluginId);
+      if (!plugin) return [];
+      return getEnabledPluginFunctions(plugin, pluginConfigs[pluginId]).map(
+        (functionDef) => ({ plugin, functionDef }),
+      );
     });
+    const nameCounts = candidates.reduce((counts, candidate) => {
+      counts.set(
+        candidate.functionDef.name,
+        (counts.get(candidate.functionDef.name) || 0) + 1,
+      );
+      return counts;
+    }, new Map<string, number>());
+    const claimedAliases = new Set(toolNames);
+    const createAlias = (pluginId: string, functionName: string) => {
+      const safeProvider =
+        pluginId.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 24) || "provider";
+      const safeFunction = functionName
+        .replace(/[^a-zA-Z0-9_-]/g, "_")
+        .slice(0, 36);
+      const base = `${safeProvider}__${safeFunction}`.slice(0, 64);
+      let alias = base;
+      let suffix = 2;
+      while (claimedAliases.has(alias)) {
+        const marker = `_${suffix}`;
+        alias = `${base.slice(0, 64 - marker.length)}${marker}`;
+        suffix += 1;
+      }
+      return alias;
+    };
+
+    for (const { plugin, functionDef } of candidates) {
+      const hasCollision =
+        (nameCounts.get(functionDef.name) || 0) > 1 ||
+        claimedAliases.has(functionDef.name);
+      const offeredName = hasCollision
+        ? createAlias(plugin.id, functionDef.name)
+        : functionDef.name;
+      claimedAliases.add(offeredName);
+      const definition: ChatToolDefinition = {
+        type: "function",
+        function: {
+          name: offeredName,
+          description: functionDef.description,
+          parameters: functionDef.parameters,
+        },
+      };
+      offeredPluginFunctionsByName.set(offeredName, { plugin, functionDef });
+      if (
+        restrictTools &&
+        !requestedForcedPluginIds.includes(plugin.id) &&
+        !allowedToolIds.has(offeredName) &&
+        !allowedToolIds.has(functionDef.name)
+      ) {
+        continue;
+      }
+      discoverableToolEntries.push({
+        name: offeredName,
+        originalName: functionDef.name,
+        providerId: plugin.id,
+        providerTitle: plugin.title,
+        description: functionDef.description,
+        definition,
+      });
+    }
+
+    const loadEntries = (names: string[]) => {
+      const loaded: string[] = [];
+      const alreadyLoaded: string[] = [];
+      const unavailable: string[] = [];
+      for (const name of names) {
+        if (toolNames.has(name)) {
+          alreadyLoaded.push(name);
+          continue;
+        }
+        const entry = discoverableToolEntries.find(
+          (candidate) => candidate.name === name,
+        );
+        if (!entry || tools.length >= MAX_CHAT_TOOLS_PER_REQUEST) {
+          unavailable.push(name);
+          continue;
+        }
+        tools.push(entry.definition);
+        toolNames.add(name);
+        loaded.push(name);
+      }
+      return {
+        loaded,
+        alreadyLoaded,
+        unavailable,
+        capacityRemaining: Math.max(
+          0,
+          MAX_CHAT_TOOLS_PER_REQUEST - tools.length,
+        ),
+      };
+    };
+
+    if (agentModeEnabled && discoverableToolEntries.length > 0) {
+      for (const binding of createToolDiscoveryBindings({
+        entries: discoverableToolEntries,
+        isLoaded: (name) => toolNames.has(name),
+        load: loadEntries,
+      })) {
+        const name = binding.definition.function.name;
+        if (
+          tools.length >= MAX_CHAT_TOOLS_PER_REQUEST ||
+          toolNames.has(name) ||
+          (restrictTools && !allowedToolIds.has(name))
+        ) {
+          continue;
+        }
+        builtinBindingsByName.set(name, binding);
+        tools.push(binding.definition);
+        toolNames.add(name);
+      }
+    }
+
+    for (const pluginId of effectiveActivePlugins) {
+      const entries = discoverableToolEntries.filter(
+        (entry) => entry.providerId === pluginId,
+      );
+      const mustLoad =
+        !agentModeEnabled ||
+        requestedForcedPluginIds.includes(pluginId) ||
+        (restrictTools && entries.length > 0);
+      const loadedNames = mustLoad
+        ? [...loadEntries(entries.map((entry) => entry.name)).loaded]
+        : [];
+      registeredPluginFunctions.set(
+        pluginId,
+        entries
+          .filter((entry) => loadedNames.includes(entry.name))
+          .map((entry) => ({
+            ...offeredPluginFunctionsByName.get(entry.name)!.functionDef,
+            name: entry.name,
+          })),
+      );
+    }
   }
 
   const forcedPluginRequirements = requestedForcedPluginIds.map((pluginId) => {
@@ -382,23 +806,15 @@ export const streamChatResponse = async (
     };
   });
 
-  const hasAgentBuiltin = [
-    ...collectedBuiltinTools.bindingsByName.values(),
-  ].some((binding) => binding.agentOnly);
+  const hasAgentBuiltin = [...builtinBindingsByName.values()].some(
+    (binding) => binding.agentOnly,
+  );
   const agentSystemInstruction =
     agentModeEnabled && hasAgentBuiltin
       ? appendAgentSystemInstruction(
           userSystemInstruction,
           buildAgentSystemInstruction({
             toolNames: tools.map((tool) => tool.function.name),
-            skillCatalogContext: collectedBuiltinTools.bindingsByName.has(
-              "load_skill",
-            )
-              ? buildSkillMetadataContext({
-                  skills: installedSkills,
-                  includeParameters: true,
-                })
-              : undefined,
           }),
         )
       : userSystemInstruction;
@@ -414,6 +830,26 @@ export const streamChatResponse = async (
   const effectiveSystemInstruction = forcedToolDirective
     ? appendAgentSystemInstruction(agentSystemInstruction, forcedToolDirective)
     : agentSystemInstruction;
+
+  if (agentRun) {
+    const lease = acquireAgentRunLease({ sessionId, runId: agentRun.id });
+    if (!lease.acquired) {
+      agentRun = transitionAgentRunStatus(agentRun, "failed", {
+        stop: {
+          reason: "runtime_error",
+          error: {
+            code: "AGENT_RUN_LEASE_CONFLICT",
+            message: "Another browser tab currently owns this Agent session.",
+            recoverable: true,
+          },
+        },
+      });
+      await useAgentRunStore.getState().upsertRun(agentRun);
+      throw new AgentRunLeaseConflictError(lease.holder);
+    }
+    agentRunLease = lease.lease;
+    await useAgentRunStore.getState().upsertRun(agentRun);
+  }
 
   try {
     const allToolCalls: ToolCall[] = [];
@@ -467,11 +903,70 @@ export const streamChatResponse = async (
       useAgentMode: agentModeEnabled,
     };
     let requestTools = tools;
-    const maxToolRounds = PLUGIN_EXECUTION_LIMITS.maxToolRounds;
+    const maxToolRounds =
+      agentRun?.budget.maxToolRounds ?? PLUGIN_EXECUTION_LIMITS.maxToolRounds;
+    const maxTotalToolCalls =
+      agentRun?.budget.maxToolCalls ??
+      PLUGIN_EXECUTION_LIMITS.maxTotalToolCalls;
     let executedToolCallCount = 0;
+    let cumulativeUsage: NormalizedRoundUsage | null = null;
     const functionFingerprintCache = new Map<string, Promise<string>>();
     const pendingSkillInvocations = new Map<string, AppliedSkillInvocation>();
     const emittedSkillIds = new Set<string>();
+    let skillAllowedToolNames: Set<string> | null = null;
+    const compactLargeToolResult = async (
+      toolCall: ToolCall,
+      value: unknown,
+    ): Promise<{
+      value: unknown;
+      resultRef?: { kind: "workspace_file"; id: string; contentHash: string };
+    }> => {
+      if (!agentModeEnabled) return { value };
+      let serialized: string;
+      try {
+        serialized = JSON.stringify(value, null, 2);
+      } catch {
+        return { value };
+      }
+      if (serialized.length <= 48_000) return { value };
+
+      const safeCallId =
+        toolCall.id.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 80) || uuidv7();
+      const path = `tool-results/${safeCallId}.json`;
+      const written = await writeWorkspaceText(
+        sessionId,
+        path,
+        serialized,
+        "create",
+      );
+      if (!written.ok) {
+        return {
+          value: {
+            truncated: true,
+            summary:
+              "The tool returned a large result that could not be persisted in the workspace.",
+            excerpt: serialized.slice(0, 8_000),
+            originalCharacters: serialized.length,
+          },
+        };
+      }
+      return {
+        value: {
+          truncated: true,
+          summary: `Large tool result stored in workspace file ${path}.`,
+          workspacePath: path,
+          revision: written.value.revision,
+          contentHash: written.value.contentHash,
+          originalCharacters: serialized.length,
+          excerpt: serialized.slice(0, 4_000),
+        },
+        resultRef: {
+          kind: "workspace_file",
+          id: path,
+          contentHash: written.value.contentHash,
+        },
+      };
+    };
 
     if (
       requestConfig.imageCount === undefined &&
@@ -547,6 +1042,13 @@ export const streamChatResponse = async (
           committedReasoning,
           outputBlockBuilder.getBlocks(),
         );
+        if (agentRun?.status === "running") {
+          await updateAgentRun((current) =>
+            transitionAgentRunStatus(current, "completed", {
+              stop: { reason: "completed" },
+            }),
+          );
+        }
         return committedContent;
       }
 
@@ -556,6 +1058,13 @@ export const streamChatResponse = async (
         committedReasoning,
         outputBlockBuilder.getBlocks(),
       );
+      if (agentRun?.status === "running") {
+        await updateAgentRun((current) =>
+          transitionAgentRunStatus(current, "completed", {
+            stop: { reason: "completed" },
+          }),
+        );
+      }
       return committedContent + message;
     }
 
@@ -591,7 +1100,11 @@ export const streamChatResponse = async (
           status: "error",
           isError: true,
           errorInfo: { code, message, recoverable: true },
-          result: { error: { code, message, recoverable: true } },
+          result: createRuntimeToolFailure(current.name, {
+            code,
+            message,
+            recoverable: true,
+          }),
         };
         outputBlockBuilder.updateToolCall(failed);
         upsertToolCall(failed);
@@ -632,11 +1145,13 @@ export const streamChatResponse = async (
       let fullContent = "";
       let fullReasoning = "";
       const roundToolCalls: ToolCall[] = [];
+      let roundUsage: NormalizedRoundUsage | null = null;
 
       const getRoundPayload = (): ChatStreamRoundPayload => ({
         content: fullContent,
         reasoning: fullReasoning,
         toolCalls: roundToolCalls,
+        ...(roundUsage ? { usage: roundUsage } : {}),
       });
 
       const handleMessage = async (parsed: any) => {
@@ -720,13 +1235,35 @@ export const streamChatResponse = async (
             return false;
 
           case "usage": {
-            const usageData = parsed.usage || parsed.usageMetadata;
-            if (usageData && onUsage) {
-              if (parsed.usage) {
-                onUsage({ usage: usageData });
-              } else if (parsed.usageMetadata) {
-                onUsage({ usageMetadata: usageData });
-              }
+            const nextUsage = normalizeRoundUsage({
+              ...(parsed.usage ? { usage: parsed.usage } : {}),
+              ...(parsed.usageMetadata
+                ? { usageMetadata: parsed.usageMetadata }
+                : {}),
+            });
+            if (nextUsage) {
+              const priorRound = roundUsage;
+              const priorCumulative =
+                cumulativeUsage?.format === nextUsage.format
+                  ? cumulativeUsage
+                  : null;
+              cumulativeUsage = {
+                format: nextUsage.format,
+                promptTokens:
+                  (priorCumulative?.promptTokens ?? 0) -
+                  (priorRound?.promptTokens ?? 0) +
+                  nextUsage.promptTokens,
+                completionTokens:
+                  (priorCumulative?.completionTokens ?? 0) -
+                  (priorRound?.completionTokens ?? 0) +
+                  nextUsage.completionTokens,
+                totalTokens:
+                  (priorCumulative?.totalTokens ?? 0) -
+                  (priorRound?.totalTokens ?? 0) +
+                  nextUsage.totalTokens,
+              };
+              roundUsage = nextUsage;
+              onUsage?.(toUsagePayload(cumulativeUsage));
             }
             return false;
           }
@@ -945,6 +1482,9 @@ export const streamChatResponse = async (
     };
 
     for (let round = 0; round <= maxToolRounds; round++) {
+      const offeredToolNamesForRound = new Set(
+        requestTools.map((tool) => tool.function.name),
+      );
       const result = await runRound();
       if (result.status !== "done") {
         const captureState = outputBlockBuilder.getLongTextCaptureState();
@@ -966,6 +1506,17 @@ export const streamChatResponse = async (
             toolCall.status === "running" ||
             toolCall.result === undefined),
       );
+      if (agentRun) {
+        const usage = result.usage;
+        await updateAgentRun((current) =>
+          recordAgentRoundCompleted(current, {
+            promptTokens: usage?.promptTokens,
+            completionTokens: usage?.completionTokens,
+            totalTokens: usage?.totalTokens,
+            hasToolCalls: pendingToolCalls.length > 0,
+          }),
+        );
+      }
 
       if (pendingToolCalls.length === 0) {
         const captureState = outputBlockBuilder.getLongTextCaptureState();
@@ -979,33 +1530,59 @@ export const streamChatResponse = async (
           emitOutputBlocks();
         }
         assertForcedPluginsCalled();
+        if (agentRun?.status === "running") {
+          await updateAgentRun((current) =>
+            transitionAgentRunStatus(current, "completed", {
+              stop: { reason: "completed" },
+            }),
+          );
+        }
         return committedContent + result.content;
       }
 
-      if (round === maxToolRounds) {
+      const exceededBudget = agentRun
+        ? getExceededAgentRunBudget(agentRun)
+        : round >= maxToolRounds
+          ? "tool_rounds"
+          : null;
+      if (exceededBudget) {
         pendingToolCalls.forEach((toolCall) => {
           const skippedToolCall: ToolCall = {
             ...toolCall,
             status: "skipped",
             isError: true,
-            result:
-              "Tool execution skipped because the maximum tool-call rounds were reached.",
+            result: createRuntimeToolFailure(toolCall.name, {
+              code: "AGENT_TOOL_ROUND_BUDGET_EXHAUSTED",
+              message:
+                "Tool execution was skipped because the maximum Tool-call rounds were reached.",
+              recoverable: true,
+            }),
           };
           outputBlockBuilder.updateToolCall(skippedToolCall);
           emitOutputBlocks();
           upsertToolCall(skippedToolCall);
         });
-        assertForcedPluginsCalled();
-        return (
-          committedContent +
-          result.content +
-          `\n\n[Tool Error] Tool execution stopped after reaching the ${maxToolRounds} tool-call rounds limit.`
-        );
+        if (agentRun?.status === "running") {
+          await updateAgentRun((current) =>
+            transitionAgentRunStatus(current, "failed", {
+              stop: {
+                reason: "budget_exhausted",
+                budgetDimension: exceededBudget,
+                error: {
+                  code: "AGENT_BUDGET_EXHAUSTED",
+                  message: `Agent execution reached its ${exceededBudget} budget.`,
+                  recoverable: true,
+                },
+              },
+            }),
+          );
+        }
+        return committedContent + result.content;
       }
 
       const remainingToolBudget = Math.max(
         0,
-        PLUGIN_EXECUTION_LIMITS.maxTotalToolCalls - executedToolCallCount,
+        maxTotalToolCalls - executedToolCallCount,
       );
       const toolCallsToExecute = pendingToolCalls.slice(0, remainingToolBudget);
       const budgetSkippedToolCalls = pendingToolCalls
@@ -1014,8 +1591,12 @@ export const streamChatResponse = async (
           ...toolCall,
           status: "skipped",
           isError: true,
-          result:
-            "Tool execution skipped because the per-generation total tool-call budget was reached.",
+          result: createRuntimeToolFailure(toolCall.name, {
+            code: "AGENT_TOOL_CALL_BUDGET_EXHAUSTED",
+            message:
+              "Tool execution was skipped because the total Tool-call budget was reached.",
+            recoverable: true,
+          }),
         }));
       budgetSkippedToolCalls.forEach((toolCall) => {
         outputBlockBuilder.updateToolCall(toolCall);
@@ -1028,7 +1609,7 @@ export const streamChatResponse = async (
       const nonExecutedToolCalls: ToolCall[] = [];
 
       for (const toolCall of toolCallsToExecute) {
-        if (!toolNames.has(toolCall.name)) {
+        if (!offeredToolNamesForRound.has(toolCall.name)) {
           const failed: ToolCall = {
             ...toolCall,
             status: "error",
@@ -1038,12 +1619,11 @@ export const streamChatResponse = async (
               message: `Function ${toolCall.name} was not offered for this request.`,
               recoverable: true,
             },
-            result: {
-              error: {
-                code: "TOOL_FUNCTION_NOT_FOUND",
-                message: `Function ${toolCall.name} was not offered for this request.`,
-              },
-            },
+            result: createRuntimeToolFailure(toolCall.name, {
+              code: "TOOL_FUNCTION_NOT_FOUND",
+              message: `Function ${toolCall.name} was not offered for this request.`,
+              recoverable: true,
+            }),
           };
           outputBlockBuilder.updateToolCall(failed);
           emitOutputBlocks();
@@ -1052,31 +1632,11 @@ export const streamChatResponse = async (
           continue;
         }
 
-        const builtinBinding = collectedBuiltinTools.bindingsByName.get(
-          toolCall.name,
-        );
-        if (builtinBinding?.risk === "read") {
-          const approvedToolCall: ToolCall = {
-            ...toolCall,
-            risk: builtinBinding.risk,
-            confirmation: {
-              required: false,
-              state: "approved",
-              decision: "automatic",
-              decidedAt: Date.now(),
-            },
-          };
-          approvedToolCalls.push(approvedToolCall);
-          continue;
-        }
-
-        const resolved = resolveEnabledPluginFunction(
-          installedPlugins,
-          toolCall.name,
-          effectiveActivePlugins,
-          pluginConfigs,
-        );
-        if (!resolved) {
+        const builtinBinding = builtinBindingsByName.get(toolCall.name);
+        const resolved = builtinBinding
+          ? null
+          : offeredPluginFunctionsByName.get(toolCall.name) || null;
+        if (!builtinBinding && !resolved) {
           const failed: ToolCall = {
             ...toolCall,
             status: "error",
@@ -1086,12 +1646,11 @@ export const streamChatResponse = async (
               message: `Function ${toolCall.name} is no longer available.`,
               recoverable: true,
             },
-            result: {
-              error: {
-                code: "TOOL_FUNCTION_NOT_FOUND",
-                message: `Function ${toolCall.name} is no longer available.`,
-              },
-            },
+            result: createRuntimeToolFailure(toolCall.name, {
+              code: "TOOL_FUNCTION_NOT_FOUND",
+              message: `Function ${toolCall.name} is no longer available.`,
+              recoverable: true,
+            }),
           };
           outputBlockBuilder.updateToolCall(failed);
           emitOutputBlocks();
@@ -1100,31 +1659,256 @@ export const streamChatResponse = async (
           continue;
         }
 
-        const { plugin, functionDef } = resolved;
-        const risk = getPluginFunctionRisk(functionDef);
-        const fingerprintCacheKey = `${plugin.id}\u0000${functionDef.name}`;
-        let fingerprintPromise =
-          functionFingerprintCache.get(fingerprintCacheKey);
-        if (!fingerprintPromise) {
-          fingerprintPromise = createPluginFunctionFingerprint(
-            plugin,
-            functionDef,
-          );
-          functionFingerprintCache.set(fingerprintCacheKey, fingerprintPromise);
+        const parameters = builtinBinding
+          ? builtinBinding.definition.function.parameters
+          : resolved!.functionDef.parameters;
+        const validation = validateToolArguments(parameters, toolCall.args);
+        if (!validation.ok) {
+          const failed: ToolCall = {
+            ...toolCall,
+            ...(resolved
+              ? {
+                  pluginId: resolved.plugin.id,
+                  pluginTitle: resolved.plugin.title,
+                }
+              : {}),
+            status: "error",
+            isError: true,
+            errorInfo: {
+              code: validation.error.code,
+              message: validation.error.message,
+              recoverable: true,
+            },
+            result: createRuntimeToolFailure(toolCall.name, {
+              ...validation.error,
+              recoverable: true,
+            }),
+          };
+          outputBlockBuilder.updateToolCall(failed);
+          emitOutputBlocks();
+          upsertToolCall(failed);
+          nonExecutedToolCalls.push(failed);
+          continue;
         }
-        const functionFingerprint = await fingerprintPromise;
-        const identifiedToolCall: ToolCall = {
+
+        const policy = builtinBinding
+          ? resolveBuiltinToolInvocationPolicy(builtinBinding, toolCall.args)
+          : getPluginFunctionInvocationPolicy(resolved!.functionDef, {
+              args: toolCall.args,
+              origin: resolved!.plugin.source === "mcp" ? "mcp" : "plugin",
+            });
+        const risk = toLegacyRisk(policy);
+        const pluginId = resolved?.plugin.id || "builtin";
+        const pluginTitle = resolved?.plugin.title || "Agent built-ins";
+        const functionName = resolved?.functionDef.name || toolCall.name;
+        let functionFingerprint: string;
+        if (resolved) {
+          const fingerprintCacheKey = `${pluginId}\u0000${functionName}`;
+          let fingerprintPromise =
+            functionFingerprintCache.get(fingerprintCacheKey);
+          if (!fingerprintPromise) {
+            fingerprintPromise = createPluginFunctionFingerprint(
+              resolved.plugin,
+              resolved.functionDef,
+            );
+            functionFingerprintCache.set(
+              fingerprintCacheKey,
+              fingerprintPromise,
+            );
+          }
+          functionFingerprint = await fingerprintPromise;
+        } else {
+          functionFingerprint = await hashToolArguments({
+            name: functionName,
+            descriptor: builtinBinding!.descriptor,
+          });
+        }
+
+        const argumentsHash = agentRun
+          ? await hashToolArguments(toolCall.args)
+          : undefined;
+        if (agentRun && argumentsHash) {
+          const priorWithSameArguments = agentRun.toolExecutions.find(
+            (record) =>
+              record.toolName === toolCall.name &&
+              record.argumentsHash === argumentsHash,
+          );
+          if (
+            priorWithSameArguments &&
+            priorWithSameArguments.definitionFingerprint !== functionFingerprint
+          ) {
+            const failed: ToolCall = {
+              ...toolCall,
+              pluginId,
+              pluginTitle,
+              functionFingerprint,
+              risk,
+              invocationPolicy: policy,
+              status: "error",
+              isError: true,
+              errorInfo: {
+                code: "TOOL_DEFINITION_CHANGED",
+                message:
+                  "The Tool definition changed during this run. Review the updated capability before trying again.",
+                recoverable: true,
+              },
+              result: normalizeToolResultEnvelope(
+                {
+                  ok: false,
+                  error: {
+                    code: "TOOL_DEFINITION_CHANGED",
+                    message:
+                      "The Tool definition changed during this run. Review the updated capability before trying again.",
+                    recoverable: true,
+                  },
+                },
+                {
+                  trust: getToolResultTrust(policy),
+                  provenance: {
+                    origin: policy.origin,
+                    toolName: toolCall.name,
+                    retrievedAt: Date.now(),
+                  },
+                },
+              ),
+            };
+            outputBlockBuilder.updateToolCall(failed);
+            emitOutputBlocks();
+            upsertToolCall(failed);
+            nonExecutedToolCalls.push(failed);
+            continue;
+          }
+
+          if (priorWithSameArguments) {
+            const replay = getToolReplayDecision(priorWithSameArguments);
+            if (replay.action === "reuse") {
+              const cached = requestHistory
+                .flatMap((message) => message.toolCalls || [])
+                .find(
+                  (historical) =>
+                    historical.id === priorWithSameArguments.callId &&
+                    historical.result !== undefined,
+                );
+              if (cached) {
+                const reused: ToolCall = {
+                  ...toolCall,
+                  pluginId,
+                  pluginTitle,
+                  functionFingerprint,
+                  executionRecordId: priorWithSameArguments.id,
+                  risk,
+                  invocationPolicy: policy,
+                  status: cached.isError ? "error" : "success",
+                  isError: cached.isError,
+                  result: cached.result,
+                  approvalReason: "automatic",
+                  confirmation: {
+                    required: false,
+                    state: "approved",
+                    decision: "automatic",
+                    decidedAt: Date.now(),
+                  },
+                  startedAt: Date.now(),
+                  endedAt: Date.now(),
+                  durationMs: 0,
+                };
+                outputBlockBuilder.updateToolCall(reused);
+                emitOutputBlocks();
+                upsertToolCall(reused);
+                nonExecutedToolCalls.push(reused);
+                continue;
+              }
+            }
+            if (replay.action === "block" || replay.action === "reuse") {
+              const failed: ToolCall = {
+                ...toolCall,
+                pluginId,
+                pluginTitle,
+                functionFingerprint,
+                executionRecordId: priorWithSameArguments.id,
+                risk,
+                invocationPolicy: policy,
+                status: "error",
+                isError: true,
+                errorInfo: {
+                  code: "TOOL_REPLAY_BLOCKED",
+                  message:
+                    replay.action === "reuse"
+                      ? "The committed Tool result is unavailable; the side effect was not replayed."
+                      : `The Tool effect cannot be replayed safely (${replay.reason}).`,
+                  recoverable: true,
+                },
+                result: normalizeToolResultEnvelope(
+                  {
+                    ok: false,
+                    error: {
+                      code: "TOOL_REPLAY_BLOCKED",
+                      message:
+                        replay.action === "reuse"
+                          ? "The committed Tool result is unavailable; the side effect was not replayed."
+                          : `The Tool effect cannot be replayed safely (${replay.reason}).`,
+                      recoverable: true,
+                    },
+                  },
+                  {
+                    trust: getToolResultTrust(policy),
+                    provenance: {
+                      origin: policy.origin,
+                      toolName: toolCall.name,
+                      retrievedAt: Date.now(),
+                    },
+                  },
+                ),
+              };
+              outputBlockBuilder.updateToolCall(failed);
+              emitOutputBlocks();
+              upsertToolCall(failed);
+              nonExecutedToolCalls.push(failed);
+              continue;
+            }
+          }
+        }
+
+        let identifiedToolCall: ToolCall = {
           ...toolCall,
-          pluginId: plugin.id,
-          pluginTitle: plugin.title,
+          pluginId,
+          pluginTitle,
           functionFingerprint,
           risk,
+          invocationPolicy: policy,
         };
+        if (agentRun) {
+          await updateAgentRun((current) =>
+            prepareToolExecution(current, {
+              callId: toolCall.id,
+              toolName: toolCall.name,
+              ...(resolved ? { pluginId } : {}),
+              definitionFingerprint: functionFingerprint,
+              argumentsHash: argumentsHash!,
+              targetSummary: getToolTargetScope(toolCall.args),
+              round: round + 1,
+              policy,
+            }),
+          );
+          const executionRecord = agentRun.toolExecutions.find(
+            (record) => record.callId === toolCall.id,
+          );
+          if (executionRecord) {
+            identifiedToolCall = {
+              ...identifiedToolCall,
+              executionRecordId: executionRecord.id,
+            };
+          }
+        }
 
-        if (
-          !requiresToolConfirmation(risk, enableDestructiveToolConfirmation)
-        ) {
-          const approvedToolCall: ToolCall = {
+        const approval = evaluateToolInvocationApproval(policy, {
+          profile: options?.approvalMode ?? "permissive",
+          originTrusted: policy.origin !== "mcp",
+          policyVerified: policy.origin !== "mcp",
+        });
+        identifiedToolCall.approvalReason = approval.reason;
+        if (!approval.requiresConfirmation) {
+          approvedToolCalls.push({
             ...identifiedToolCall,
             confirmation: {
               required: false,
@@ -1132,31 +1916,54 @@ export const streamChatResponse = async (
               decision: "automatic",
               decidedAt: Date.now(),
             },
-          };
-          approvedToolCalls.push(approvedToolCall);
+          });
           continue;
         }
 
         const approvalCandidate = {
-          pluginId: plugin.id,
-          functionName: functionDef.name,
+          pluginId,
+          functionName,
           risk,
           functionFingerprint,
           sessionId,
+          identity: createToolApprovalIdentity({
+            origin: policy.origin,
+            providerId: pluginId,
+            toolName: functionName,
+            toolFingerprint: functionFingerprint,
+            effects: policy.effects,
+            targetScope: getToolTargetScope(toolCall.args),
+          }),
         };
         let decision: ToolConfirmationDecision | undefined;
 
-        if (toolConfirmationController) {
+        if (
+          approval.canPersist &&
+          toolConfirmationController?.isSessionApproved?.(approvalCandidate)
+        ) {
+          decision = "allow_session";
+        }
+
+        if (!decision && toolConfirmationController) {
           const awaitingToolCall: ToolCall = {
             ...identifiedToolCall,
             status: "awaiting_confirmation",
-            confirmation: { required: true, state: "pending" },
+            confirmation: {
+              required: true,
+              canPersist: approval.canPersist,
+              state: "pending",
+            },
           };
           outputBlockBuilder.updateToolCall(awaitingToolCall);
           emitOutputBlocks();
           upsertToolCall(awaitingToolCall);
 
           try {
+            if (agentRun?.status === "running") {
+              await updateAgentRun((current) =>
+                transitionAgentRunStatus(current, "awaiting_approval"),
+              );
+            }
             decision = normalizeToolConfirmationDecision(
               await waitForToolConfirmation(
                 toolConfirmationController,
@@ -1164,13 +1971,21 @@ export const streamChatResponse = async (
                   ...approvalCandidate,
                   approvedAt: Date.now(),
                   toolCallId: toolCall.id,
-                  pluginTitle: plugin.title,
+                  pluginTitle,
                   args: redactSensitiveToolArgs(toolCall.args),
                 },
                 signal,
               ),
               risk,
             );
+            if (decision === "allow_session" && !approval.canPersist) {
+              decision = "allow_once";
+            }
+            if (agentRun?.status === "awaiting_approval") {
+              await updateAgentRun((current) =>
+                transitionAgentRunStatus(current, "running"),
+              );
+            }
           } catch (confirmationError) {
             const aborted = isAbortError(confirmationError, signal);
             const rejected = createConfirmationFailureToolCall(
@@ -1185,6 +2000,24 @@ export const streamChatResponse = async (
             emitOutputBlocks();
             upsertToolCall(rejected);
             if (aborted) throw createAbortError(signal);
+            if (agentRun?.status === "awaiting_approval") {
+              await updateAgentRun((current) =>
+                transitionAgentRunStatus(current, "running"),
+              );
+            }
+            if (identifiedToolCall.executionRecordId) {
+              await updateAgentRun((current) =>
+                failToolExecution(
+                  current,
+                  identifiedToolCall.executionRecordId!,
+                  {
+                    code: "TOOL_CONFIRMATION_FAILED",
+                    message: "Tool confirmation failed before execution.",
+                    recoverable: true,
+                  },
+                ),
+              );
+            }
             nonExecutedToolCalls.push(rejected);
             continue;
           }
@@ -1200,6 +2033,19 @@ export const streamChatResponse = async (
           outputBlockBuilder.updateToolCall(failed);
           emitOutputBlocks();
           upsertToolCall(failed);
+          if (identifiedToolCall.executionRecordId) {
+            await updateAgentRun((current) =>
+              failToolExecution(
+                current,
+                identifiedToolCall.executionRecordId!,
+                {
+                  code: "TOOL_CONFIRMATION_UNAVAILABLE",
+                  message: "Tool confirmation was unavailable.",
+                  recoverable: true,
+                },
+              ),
+            );
+          }
           nonExecutedToolCalls.push(failed);
           continue;
         }
@@ -1214,15 +2060,35 @@ export const streamChatResponse = async (
           outputBlockBuilder.updateToolCall(rejected);
           emitOutputBlocks();
           upsertToolCall(rejected);
+          if (identifiedToolCall.executionRecordId) {
+            await updateAgentRun((current) =>
+              failToolExecution(
+                current,
+                identifiedToolCall.executionRecordId!,
+                {
+                  code: "TOOL_CALL_DENIED",
+                  message: "The user denied this tool call.",
+                  recoverable: false,
+                },
+              ),
+            );
+          }
           nonExecutedToolCalls.push(rejected);
           continue;
         }
 
         const approvedAt = Date.now();
+        if (decision === "allow_session" && approval.canPersist) {
+          toolConfirmationController?.grantSessionApproval?.({
+            ...approvalCandidate,
+            approvedAt,
+          });
+        }
         const approvedToolCall: ToolCall = {
           ...identifiedToolCall,
           confirmation: {
             required: true,
+            canPersist: approval.canPersist,
             state: "approved",
             decision,
             decidedAt: approvedAt,
@@ -1231,123 +2097,321 @@ export const streamChatResponse = async (
         approvedToolCalls.push(approvedToolCall);
       }
 
-      approvedToolCalls.forEach((toolCall) => {
-        const runningToolCall: ToolCall = { ...toolCall, status: "running" };
+      for (let index = 0; index < approvedToolCalls.length; index += 1) {
+        const toolCall = approvedToolCalls[index];
+        const startedAt = Date.now();
+        if (toolCall.executionRecordId) {
+          await updateAgentRun((current) =>
+            markToolExecutionRunning(
+              current,
+              toolCall.executionRecordId!,
+              startedAt,
+            ),
+          );
+        }
+        const runningToolCall: ToolCall = {
+          ...toolCall,
+          status: "running",
+          startedAt,
+        };
+        approvedToolCalls[index] = runningToolCall;
         outputBlockBuilder.updateToolCall(runningToolCall);
         emitOutputBlocks();
         upsertToolCall(runningToolCall);
-      });
+      }
 
       const pluginImagesByToolCallId = new Map<string, Attachment[]>();
       const completedToolCalls = await mapWithConcurrencyGroups(
         approvedToolCalls,
         PLUGIN_EXECUTION_LIMITS.maxToolConcurrency,
-        (toolCall) =>
-          collectedBuiltinTools.bindingsByName.get(toolCall.name)
-            ?.executionGroup,
+        (toolCall) => builtinBindingsByName.get(toolCall.name)?.executionGroup,
         async (toolCall) => {
           try {
-            const builtinBinding = collectedBuiltinTools.bindingsByName.get(
-              toolCall.name,
-            );
-            const resultData = builtinBinding
-              ? await builtinBinding.execute(toolCall.args, {
-                  signal,
-                  sessionId,
-                  knowledgeScope: options?.knowledgeScope,
-                  emit: {
-                    search: (event) =>
-                      emitBuiltinSearch(
-                        toolCall.id,
-                        allToolCalls.findIndex(
-                          (candidate) => candidate.id === toolCall.id,
+            const builtinBinding = builtinBindingsByName.get(toolCall.name);
+            const awaitsUserInput = toolCall.name === "request_user_input";
+            if (awaitsUserInput && agentRun?.status === "running") {
+              await updateAgentRun((current) =>
+                transitionAgentRunStatus(current, "awaiting_input"),
+              );
+            }
+            let resultData: unknown;
+            try {
+              resultData = builtinBinding
+                ? await builtinBinding.execute(toolCall.args, {
+                    signal,
+                    sessionId,
+                    toolCallId: toolCall.id,
+                    userInputController: options?.userInputController,
+                    knowledgeScope: options?.knowledgeScope,
+                    emit: {
+                      search: (event) =>
+                        emitBuiltinSearch(
+                          toolCall.id,
+                          allToolCalls.findIndex(
+                            (candidate) => candidate.id === toolCall.id,
+                          ),
+                          event,
                         ),
-                        event,
-                      ),
-                    knowledgeSources: (sources, ragError) =>
-                      emitBuiltinKnowledgeSources(
-                        toolCall.id,
-                        allToolCalls.findIndex(
-                          (candidate) => candidate.id === toolCall.id,
+                      knowledgeSources: (sources, ragError) =>
+                        emitBuiltinKnowledgeSources(
+                          toolCall.id,
+                          allToolCalls.findIndex(
+                            (candidate) => candidate.id === toolCall.id,
+                          ),
+                          sources,
+                          ragError,
                         ),
-                        sources,
-                        ragError,
-                      ),
-                    skillInvocation: (invocation) => {
-                      pendingSkillInvocations.set(toolCall.id, invocation);
+                      skillInvocation: (invocation) => {
+                        pendingSkillInvocations.set(toolCall.id, invocation);
+                      },
+                      skillToolRestriction: (allowedTools) => {
+                        const next = new Set(allowedTools);
+                        skillAllowedToolNames = skillAllowedToolNames
+                          ? new Set(
+                              [...skillAllowedToolNames].filter((name) =>
+                                next.has(name),
+                              ),
+                            )
+                          : next;
+                      },
+                      taskPlan: (plan) => {
+                        outputBlockBuilder.upsertTaskPlan(plan);
+                        emitOutputBlocks();
+                      },
+                      workspaceFile: (file) => {
+                        outputBlockBuilder.upsertWorkspaceFile({
+                          path: file.path,
+                          fileName: file.fileName,
+                          mimeType: file.mimeType,
+                          bytes: file.bytes,
+                          url: file.url,
+                          revision: file.revision,
+                          ...(file.title ? { title: file.title } : {}),
+                        });
+                        emitOutputBlocks();
+                      },
+                      archiveFile: (archive) => {
+                        outputBlockBuilder.upsertArchiveFile({
+                          fileName: archive.fileName,
+                          bytes: archive.bytes,
+                          entryCount: archive.entryCount,
+                          url: archive.url,
+                          ...(archive.title ? { title: archive.title } : {}),
+                        });
+                        emitOutputBlocks();
+                      },
+                      longText: (request) => {
+                        const capture =
+                          outputBlockBuilder.startLongTextCapture(request);
+                        if (capture.ok) {
+                          longTextCaptureToolCallId = toolCall.id;
+                        }
+                        return capture;
+                      },
                     },
-                    taskPlan: (plan) => {
-                      outputBlockBuilder.upsertTaskPlan(plan);
-                      emitOutputBlocks();
-                    },
-                    workspaceFile: (file) => {
-                      outputBlockBuilder.upsertWorkspaceFile({
-                        path: file.path,
-                        fileName: file.fileName,
-                        mimeType: file.mimeType,
-                        bytes: file.bytes,
-                        url: file.url,
-                        revision: file.revision,
-                        ...(file.title ? { title: file.title } : {}),
-                      });
-                      emitOutputBlocks();
-                    },
-                    archiveFile: (archive) => {
-                      outputBlockBuilder.upsertArchiveFile({
-                        fileName: archive.fileName,
-                        bytes: archive.bytes,
-                        entryCount: archive.entryCount,
-                        url: archive.url,
-                        ...(archive.title ? { title: archive.title } : {}),
-                      });
-                      emitOutputBlocks();
-                    },
-                    longText: (request) => {
-                      const capture =
-                        outputBlockBuilder.startLongTextCapture(request);
-                      if (capture.ok) {
-                        longTextCaptureToolCallId = toolCall.id;
-                      }
-                      return capture;
-                    },
-                  },
-                })
-              : await executePluginFunction(
-                  toolCall.name,
-                  toolCall.args,
-                  toolCall.auth,
-                  toolCall.pluginId
-                    ? [toolCall.pluginId]
-                    : effectiveActivePlugins,
-                  signal,
-                  toolCall.pluginId &&
-                    toolCall.functionFingerprint &&
-                    toolCall.risk
-                    ? {
-                        pluginId: toolCall.pluginId,
-                        functionFingerprint: toolCall.functionFingerprint,
-                        risk: toolCall.risk,
-                      }
-                    : undefined,
+                  })
+                : await executePluginFunction(
+                    offeredPluginFunctionsByName.get(toolCall.name)?.functionDef
+                      .name || toolCall.name,
+                    toolCall.args,
+                    toolCall.auth,
+                    toolCall.pluginId
+                      ? [toolCall.pluginId]
+                      : effectiveActivePlugins,
+                    signal,
+                    toolCall.pluginId &&
+                      toolCall.functionFingerprint &&
+                      toolCall.risk
+                      ? {
+                          pluginId: toolCall.pluginId,
+                          functionFingerprint: toolCall.functionFingerprint,
+                          risk: toolCall.risk,
+                        }
+                      : undefined,
+                  );
+            } finally {
+              if (awaitsUserInput && agentRun?.status === "awaiting_input") {
+                await updateAgentRun((current) =>
+                  transitionAgentRunStatus(current, "running"),
                 );
-            const isError =
-              !!resultData &&
-              typeof resultData === "object" &&
-              "error" in resultData;
+              }
+            }
+            const outputSchema = builtinBinding
+              ? undefined
+              : offeredPluginFunctionsByName.get(toolCall.name)?.functionDef
+                  .outputSchema;
+            if (outputSchema) {
+              const preliminaryEnvelope = normalizeToolResultEnvelope(
+                resultData,
+                {
+                  trust: getToolResultTrust(toolCall.invocationPolicy!),
+                  provenance: {
+                    origin: toolCall.invocationPolicy!.origin,
+                    toolName: toolCall.name,
+                  },
+                },
+              );
+              if (!isToolResultFailure(preliminaryEnvelope)) {
+                const record =
+                  resultData &&
+                  typeof resultData === "object" &&
+                  !Array.isArray(resultData)
+                    ? (resultData as Record<string, unknown>)
+                    : undefined;
+                const outputValidation = validateToolOutput(
+                  outputSchema,
+                  record?.structuredContent ?? resultData,
+                );
+                if (!outputValidation.ok) {
+                  resultData = {
+                    ok: false,
+                    error: {
+                      ...outputValidation.error,
+                      recoverable: false,
+                    },
+                  };
+                }
+              }
+            }
+            if (agentRun) {
+              const defaultKind = toolCall.name.includes("mcp")
+                ? "mcp"
+                : toolCall.name.startsWith("fetch_") ||
+                    toolCall.name === "fetch_url"
+                  ? "fetch"
+                  : toolCall.name.includes("attachment")
+                    ? "attachment"
+                    : "search";
+              const evidence = collectAgentEvidenceRecords(resultData, {
+                toolCallId: toolCall.id,
+                defaultKind,
+              });
+              if (evidence.length > 0) {
+                await updateAgentRun((current) =>
+                  recordAgentEvidence(current, evidence),
+                );
+              }
+            }
+            const policy = toolCall.invocationPolicy!;
+            const rawEnvelope = normalizeToolResultEnvelope(resultData, {
+              trust: getToolResultTrust(policy),
+              provenance: {
+                origin: policy.origin,
+                toolName: toolCall.name,
+                retrievedAt: Date.now(),
+              },
+            });
+            const isError = isToolResultFailure(rawEnvelope);
             if (!builtinBinding && !isError) {
               const pluginImages = extractPluginImageAttachments(resultData);
               if (pluginImages.length > 0) {
                 pluginImagesByToolCallId.set(toolCall.id, pluginImages);
               }
             }
-            const storedResultData = isError
+            const compactedResult = isError
               ? resultData
               : compactPluginImageResultForHistory(resultData);
+            const historyResult = await compactLargeToolResult(
+              toolCall,
+              compactedResult,
+            );
+            const endedAt = Date.now();
+            const hasSideEffect =
+              !isError &&
+              policy.effects.some(
+                (effect) =>
+                  effect === "local_write" ||
+                  effect === "local_destructive" ||
+                  effect === "external_write" ||
+                  effect === "external_destructive",
+              );
+            const effectReceipt = hasSideEffect
+              ? {
+                  committedAt: endedAt,
+                  effectId: toolCall.id,
+                  targetHash: await hashToolArguments(
+                    getToolTargetScope(toolCall.args),
+                  ),
+                  resultHash: await hashToolArguments(historyResult.value),
+                  reversible:
+                    policy.effects.includes("local_write") &&
+                    !policy.effects.includes("local_destructive"),
+                }
+              : undefined;
+            const storedResultData = normalizeToolResultEnvelope(
+              historyResult.value,
+              {
+                trust: getToolResultTrust(policy),
+                provenance: {
+                  origin: policy.origin,
+                  toolName: toolCall.name,
+                  retrievedAt: Date.now(),
+                },
+                ...(historyResult.resultRef
+                  ? {
+                      artifacts: [
+                        {
+                          kind: "workspace_file" as const,
+                          id: historyResult.resultRef.id,
+                          contentHash: historyResult.resultRef.contentHash,
+                        },
+                      ],
+                    }
+                  : {}),
+                ...(effectReceipt ? { receipt: effectReceipt } : {}),
+              },
+            );
+            if (toolCall.executionRecordId) {
+              if (isError) {
+                await updateAgentRun((current) => {
+                  const executionError = {
+                    code: rawEnvelope.error.code,
+                    message: rawEnvelope.error.message,
+                    recoverable: rawEnvelope.error.recoverable,
+                  };
+                  if (rawEnvelope.error.effectUnknown) {
+                    const uncertain = markToolExecutionEffectUnknown(
+                      current,
+                      toolCall.executionRecordId!,
+                      executionError,
+                      endedAt,
+                    );
+                    return transitionAgentRunStatus(uncertain, "failed", {
+                      at: endedAt,
+                      stop: {
+                        reason: "effect_unknown",
+                        error: executionError,
+                      },
+                    });
+                  }
+                  return failToolExecution(
+                    current,
+                    toolCall.executionRecordId!,
+                    executionError,
+                    endedAt,
+                  );
+                });
+              } else {
+                await updateAgentRun((current) =>
+                  commitToolExecution(current, toolCall.executionRecordId!, {
+                    at: endedAt,
+                    resultRefs: historyResult.resultRef
+                      ? [historyResult.resultRef]
+                      : [{ kind: "tool_cache", id: toolCall.id }],
+                    ...(effectReceipt ? { receipt: effectReceipt } : {}),
+                  }),
+                );
+              }
+            }
             const completed: ToolCall = {
               ...toolCall,
               status: isError ? "error" : "success",
               isError,
               result: storedResultData,
+              endedAt,
+              durationMs: toolCall.startedAt
+                ? Math.max(0, endedAt - toolCall.startedAt)
+                : undefined,
             };
             outputBlockBuilder.updateToolCall(completed);
             emitOutputBlocks();
@@ -1355,14 +2419,54 @@ export const streamChatResponse = async (
             return completed;
           } catch (toolError) {
             if (isAbortError(toolError, signal)) throw toolError;
+            const endedAt = Date.now();
+            if (toolCall.executionRecordId) {
+              await updateAgentRun((current) =>
+                failToolExecution(
+                  current,
+                  toolCall.executionRecordId!,
+                  {
+                    code: "TOOL_EXECUTION_FAILED",
+                    message:
+                      toolError instanceof Error
+                        ? toolError.message
+                        : String(toolError),
+                    recoverable: false,
+                  },
+                  endedAt,
+                ),
+              );
+            }
+            const policy = toolCall.invocationPolicy!;
             const failed: ToolCall = {
               ...toolCall,
               status: "error",
               isError: true,
-              result:
-                toolError instanceof Error
-                  ? toolError.message
-                  : String(toolError),
+              result: normalizeToolResultEnvelope(
+                {
+                  ok: false,
+                  error: {
+                    code: "TOOL_EXECUTION_FAILED",
+                    message:
+                      toolError instanceof Error
+                        ? toolError.message
+                        : String(toolError),
+                    recoverable: false,
+                  },
+                },
+                {
+                  trust: getToolResultTrust(policy),
+                  provenance: {
+                    origin: policy.origin,
+                    toolName: toolCall.name,
+                    retrievedAt: endedAt,
+                  },
+                },
+              ),
+              endedAt,
+              durationMs: toolCall.startedAt
+                ? Math.max(0, endedAt - toolCall.startedAt)
+                : undefined,
             };
             outputBlockBuilder.updateToolCall(failed);
             emitOutputBlocks();
@@ -1374,6 +2478,16 @@ export const streamChatResponse = async (
       const roundPluginImages = approvedToolCalls
         .flatMap((toolCall) => pluginImagesByToolCallId.get(toolCall.id) || [])
         .slice(0, ATTACHMENT_LIMITS.maxCount);
+      const unknownEffectCall = completedToolCalls.find(
+        (toolCall) =>
+          isToolResultFailure(toolCall.result) &&
+          toolCall.result.error.effectUnknown,
+      );
+      if (unknownEffectCall) {
+        throw new Error(
+          `The effect of ${unknownEffectCall.name} could not be confirmed.`,
+        );
+      }
       const completedById = new Map(
         [...completedToolCalls, ...nonExecutedToolCalls].map((toolCall) => [
           toolCall.id,
@@ -1476,14 +2590,76 @@ export const streamChatResponse = async (
           roundPluginImages.length > 0
             ? "Use the tool results above and the attached image outputs to answer the user's original request. Only call another tool if more external data is required."
             : "Use the tool results above to answer the user's original request. Only call another tool if more external data is required.";
-        requestTools = tools;
+        requestTools = skillAllowedToolNames
+          ? tools.filter((tool) =>
+              skillAllowedToolNames!.has(tool.function.name),
+            )
+          : tools;
       }
       requestAttachments = roundPluginImages;
     }
 
     assertForcedPluginsCalled();
+    if (agentRun?.status === "running") {
+      await updateAgentRun((current) =>
+        transitionAgentRunStatus(current, "completed", {
+          stop: { reason: "completed" },
+        }),
+      );
+    }
     return committedContent;
   } catch (error) {
+    if (
+      agentRun &&
+      agentRun.status !== "completed" &&
+      agentRun.status !== "failed" &&
+      agentRun.status !== "cancelled"
+    ) {
+      await updateAgentRun((current) => {
+        const recovered = recoverInterruptedToolExecutions(current);
+        const hasUnknownEffect = recovered.toolExecutions.some(
+          (record) => record.status === "effect_unknown",
+        );
+        if (hasUnknownEffect) {
+          return transitionAgentRunStatus(recovered, "failed", {
+            stop: {
+              reason: "effect_unknown",
+              error: {
+                code: "TOOL_EFFECT_UNKNOWN",
+                message:
+                  "A tool may have produced a side effect before its result was saved.",
+                recoverable: false,
+              },
+            },
+          });
+        }
+        if (typeof navigator !== "undefined" && !navigator.onLine) {
+          return transitionAgentRunStatus(recovered, "interrupted", {
+            stop: { reason: "offline" },
+          });
+        }
+        if (isAbortError(error, signal)) {
+          return transitionAgentRunStatus(recovered, "cancelled", {
+            stop: { reason: "user_stopped" },
+          });
+        }
+        return transitionAgentRunStatus(recovered, "failed", {
+          stop: {
+            reason: "runtime_error",
+            error: {
+              code: error instanceof Error ? error.name : undefined,
+              message:
+                error instanceof Error
+                  ? error.message
+                  : "Agent execution failed.",
+              recoverable: true,
+            },
+          },
+        });
+      });
+    }
     throw error;
+  } finally {
+    if (agentRunLease) releaseAgentRunLease(agentRunLease);
   }
 };

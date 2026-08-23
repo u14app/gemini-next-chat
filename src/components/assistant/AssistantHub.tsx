@@ -17,10 +17,20 @@ import {
   Sparkles,
   Save,
   Library,
+  CircleAlert,
+  CopyPlus,
+  History,
 } from "lucide-react";
 import { v7 as uuidv7 } from "uuid";
 import { useLocale, useTranslations } from "next-intl";
-import { LobeAgent, LobeAgentMeta } from "@/types";
+import type {
+  AgentApprovalMode,
+  AgentMemoryScope,
+  AgentProfileV2,
+  AgentSkillMode,
+  LobeAgent,
+  LobeAgentMeta,
+} from "@/types";
 import {
   getAgentsResult,
   getAgentDetail,
@@ -41,10 +51,18 @@ import {
 import { createStreamingReplacement } from "@/lib/utils/streamingText";
 import { MARKET_LIMITS } from "@/config/limits";
 import { normalizeLocalAgent } from "@/lib/market/agents";
+import {
+  DEFAULT_AGENT_PROFILE,
+  getMissingAgentProfileDependencies,
+  normalizeAgentProfile,
+} from "@/lib/assistant/profile";
 import { logDevError } from "@/lib/utils/devLogger";
 import type { MarketLoadResult } from "@/lib/market/loadResult";
 import MarketLoadNotice from "@/components/ui/MarketLoadNotice";
 import { Button } from "@/components/ui/primitives";
+import { SimpleSwitch } from "@/components/ui/controls";
+import { diffAgentProfiles } from "@/lib/assistant/profileHistory";
+import { useAgentProfileRevisionStore } from "@/store/core/agentProfileRevisionStore";
 
 interface AssistantHubProps {
   onClose: () => void;
@@ -52,6 +70,61 @@ interface AssistantHubProps {
 }
 
 const ITEMS_PER_PAGE = 24;
+
+type VisibleAgentBudgetKey =
+  "maxToolRounds" | "maxToolCalls" | "maxTotalTokens" | "maxDurationMs";
+
+const AGENT_MEMORY_SCOPES: AgentMemoryScope[] = [
+  "global",
+  "workspace",
+  "agent",
+  "session",
+];
+
+const createAgentProfileDraft = (profile?: AgentProfileV2): AgentProfileV2 => {
+  const source = normalizeAgentProfile(profile) || DEFAULT_AGENT_PROFILE;
+
+  return {
+    schemaVersion: 2,
+    runtime: {
+      ...source.runtime,
+      ...(source.runtime.budget
+        ? { budget: { ...source.runtime.budget } }
+        : {}),
+    },
+    capabilities: {
+      ...source.capabilities,
+      skillPolicies: (source.capabilities.skillPolicies || []).map(
+        (policy) => ({ ...policy }),
+      ),
+      pluginIds: [...(source.capabilities.pluginIds || [])],
+      toolIds: [...(source.capabilities.toolIds || [])],
+      knowledgeCollectionIds: [
+        ...(source.capabilities.knowledgeCollectionIds || []),
+      ],
+      memoryScopes: [...(source.capabilities.memoryScopes || ["global"])],
+    },
+  };
+};
+
+const countMissingSelectableDependencies = (
+  profile: AgentProfileV2 | undefined,
+  skillIds: Iterable<string>,
+  pluginIds: Iterable<string>,
+) => {
+  if (!profile?.runtime.agentEnabled) return 0;
+
+  const missing = getMissingAgentProfileDependencies(profile, {
+    skillIds,
+    pluginIds,
+    // AssistantHub does not own the tool or knowledge registries, so it only
+    // reports dependencies it can verify here.
+    toolIds: profile.capabilities.toolIds,
+    knowledgeCollectionIds: profile.capabilities.knowledgeCollectionIds,
+  });
+
+  return missing.skillIds.length + missing.pluginIds.length;
+};
 
 // Helper to format category names
 const formatCategoryName = (str: string) => {
@@ -79,6 +152,8 @@ const AssistantEditorModal = ({
   const t = useTranslations("Assistant");
   const isEditing = !!agent;
   const { selectedModel } = useChatStore();
+  const installedPlugins = useSettingsStore((state) => state.installedPlugins);
+  const installedSkills = useSettingsStore((state) => state.installedSkills);
 
   // Initialize state. If agent exists, populate.
   const [meta, setMeta] = useState<LobeAgentMeta>({
@@ -89,6 +164,16 @@ const AssistantEditorModal = ({
     tags: [],
     systemRole: "",
   });
+  const [agentProfile, setAgentProfile] = useState<AgentProfileV2 | undefined>(
+    () => {
+      const profile = normalizeAgentProfile(agent?.profile);
+      return profile ? createAgentProfileDraft(profile) : undefined;
+    },
+  );
+  const [selectedRevisionId, setSelectedRevisionId] = useState("");
+  const profileRevisions = useAgentProfileRevisionStore((state) =>
+    agent ? state.revisionsByProfileId[agent.identifier] || [] : [],
+  );
 
   const [isOptimizing, setIsOptimizing] = useState(false);
   const [optimizeError, setOptimizeError] = useState("");
@@ -109,12 +194,28 @@ const AssistantEditorModal = ({
   const descriptionInputId = `${editorId}-description`;
   const systemPromptInputId = `${editorId}-system-prompt`;
   const tagInputId = `${editorId}-tag`;
+  const agentDescriptionId = `${editorId}-agent-description`;
+  const agentEnabledInputId = `${editorId}-agent-enabled`;
+  const agentSearchInputId = `${editorId}-agent-search`;
+  const approvalModeInputId = `${editorId}-approval-mode`;
+  const preferredModelInputId = `${editorId}-preferred-model`;
+  const maxRoundsInputId = `${editorId}-max-rounds`;
+  const maxCallsInputId = `${editorId}-max-calls`;
+  const maxTokensInputId = `${editorId}-max-tokens`;
+  const maxDurationInputId = `${editorId}-max-duration`;
+  const reasoningModeInputId = `${editorId}-reasoning-mode`;
+  const memoryGroupId = `${editorId}-memory-group`;
+  const toolIdsInputId = `${editorId}-tool-ids`;
+  const knowledgeIdsInputId = `${editorId}-knowledge-ids`;
+  const pluginGroupId = `${editorId}-plugin-group`;
+  const skillGroupId = `${editorId}-skill-group`;
 
   useEffect(() => {
     optimizeRunRef.current += 1;
     setOptimizeError("");
     setIsOptimizing(false);
     setIsDeleteConfirming(false);
+    setSelectedRevisionId("");
     if (deleteConfirmTimerRef.current) {
       clearTimeout(deleteConfirmTimerRef.current);
       deleteConfirmTimerRef.current = null;
@@ -129,6 +230,8 @@ const AssistantEditorModal = ({
         tags: agent.meta.tags || [],
         systemRole: agent.meta.systemRole || "",
       });
+      const profile = normalizeAgentProfile(agent.profile);
+      setAgentProfile(profile ? createAgentProfileDraft(profile) : undefined);
     } else {
       setMeta({
         title: "",
@@ -138,6 +241,7 @@ const AssistantEditorModal = ({
         tags: [],
         systemRole: "",
       });
+      setAgentProfile(undefined);
     }
   }, [agent]);
 
@@ -168,6 +272,151 @@ const AssistantEditorModal = ({
 
   const [tagInput, setTagInput] = useState("");
 
+  const isAgentEnabled = agentProfile?.runtime.agentEnabled === true;
+  const installedSkillIds = useMemo(
+    () => new Set(installedSkills.map((skill) => skill.id)),
+    [installedSkills],
+  );
+  const installedPluginIds = useMemo(
+    () => new Set(installedPlugins.map((plugin) => plugin.id)),
+    [installedPlugins],
+  );
+  const missingDependencyCount = countMissingSelectableDependencies(
+    agentProfile,
+    installedSkillIds,
+    installedPluginIds,
+  );
+  const draftDiffCount = useMemo(
+    () =>
+      agentProfile
+        ? diffAgentProfiles(normalizeAgentProfile(agent?.profile), agentProfile)
+            .length
+        : 0,
+    [agent?.profile, agentProfile],
+  );
+  const preferredModelOptions = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          [agentProfile?.runtime.preferredModel, selectedModel].filter(
+            (model): model is string => Boolean(model),
+          ),
+        ),
+      ),
+    [agentProfile?.runtime.preferredModel, selectedModel],
+  );
+
+  const updateAgentProfile = (
+    update: (profile: AgentProfileV2) => AgentProfileV2,
+  ) => {
+    setAgentProfile((current) => update(current || createAgentProfileDraft()));
+  };
+
+  const toggleAgentEnabled = () => {
+    updateAgentProfile((profile) => ({
+      ...profile,
+      runtime: {
+        ...profile.runtime,
+        agentEnabled: !profile.runtime.agentEnabled,
+      },
+    }));
+  };
+
+  const updateBudgetLimit = (
+    key: VisibleAgentBudgetKey,
+    rawValue: string,
+    multiplier = 1,
+  ) => {
+    updateAgentProfile((profile) => {
+      const budget = { ...profile.runtime.budget };
+      const value = Number(rawValue);
+
+      if (!rawValue.trim() || !Number.isSafeInteger(value) || value <= 0) {
+        delete budget[key];
+      } else {
+        budget[key] = value * multiplier;
+      }
+
+      return {
+        ...profile,
+        runtime: {
+          ...profile.runtime,
+          budget: Object.keys(budget).length > 0 ? budget : undefined,
+        },
+      };
+    });
+  };
+
+  const toggleMemoryScope = (scope: AgentMemoryScope) => {
+    updateAgentProfile((profile) => {
+      const current = profile.capabilities.memoryScopes || ["global"];
+      const memoryScopes = current.includes(scope)
+        ? current.filter((item) => item !== scope)
+        : [...current, scope];
+      return {
+        ...profile,
+        capabilities: {
+          ...profile.capabilities,
+          memoryScopes,
+        },
+      };
+    });
+  };
+
+  const updateCapabilityIds = (
+    key: "toolIds" | "knowledgeCollectionIds",
+    rawValue: string,
+  ) => {
+    const ids = Array.from(
+      new Set(
+        rawValue
+          .split(/[\n,]/)
+          .map((value) => value.trim().slice(0, 160))
+          .filter(Boolean),
+      ),
+    ).slice(0, 100);
+    updateAgentProfile((profile) => ({
+      ...profile,
+      capabilities: { ...profile.capabilities, [key]: ids },
+    }));
+  };
+
+  const togglePlugin = (pluginId: string) => {
+    updateAgentProfile((profile) => {
+      const pluginIds = profile.capabilities.pluginIds || [];
+      return {
+        ...profile,
+        capabilities: {
+          ...profile.capabilities,
+          pluginIds: pluginIds.includes(pluginId)
+            ? pluginIds.filter((id) => id !== pluginId)
+            : [...pluginIds, pluginId],
+        },
+      };
+    });
+  };
+
+  const setSkillMode = (skillId: string, mode: AgentSkillMode) => {
+    updateAgentProfile((profile) => {
+      const policies = profile.capabilities.skillPolicies || [];
+      const existingIndex = policies.findIndex(
+        (policy) => policy.skillId === skillId,
+      );
+      const skillPolicies = [...policies];
+
+      if (existingIndex >= 0) {
+        skillPolicies[existingIndex] = { skillId, mode };
+      } else {
+        skillPolicies.push({ skillId, mode });
+      }
+
+      return {
+        ...profile,
+        capabilities: { ...profile.capabilities, skillPolicies },
+      };
+    });
+  };
+
   const clearDeleteConfirmation = () => {
     if (deleteConfirmTimerRef.current) {
       clearTimeout(deleteConfirmTimerRef.current);
@@ -180,6 +429,8 @@ const AssistantEditorModal = ({
     if (!meta.title.trim() || !meta.description.trim()) return; // Simple validation
     clearDeleteConfirmation();
 
+    const sanitizedProfile = normalizeAgentProfile(agentProfile);
+
     const updatedAgent: LobeAgent = {
       identifier: agent?.identifier || uuidv7(),
       meta: meta,
@@ -187,11 +438,29 @@ const AssistantEditorModal = ({
       homepage: agent?.homepage || "",
       author: agent?.author || "User",
       isCustom: agent?.isCustom ?? true,
+      ...(sanitizedProfile ? { profile: sanitizedProfile } : {}),
     };
     const normalizedAgent = normalizeLocalAgent(updatedAgent);
     if (!normalizedAgent) return;
 
     onSave(normalizedAgent);
+    onClose();
+  };
+
+  const handleFork = () => {
+    if (!meta.title.trim() || !meta.description.trim()) return;
+    const profile = normalizeAgentProfile(agentProfile);
+    const fork = normalizeLocalAgent({
+      identifier: uuidv7(),
+      meta: { ...meta, title: t("agentForkTitle", { title: meta.title }) },
+      createdAt: new Date().toISOString(),
+      homepage: "",
+      author: "User",
+      isCustom: true,
+      ...(profile ? { profile } : {}),
+    });
+    if (!fork) return;
+    onSave(fork);
     onClose();
   };
 
@@ -245,7 +514,7 @@ const AssistantEditorModal = ({
 
     const focusableElements = Array.from(
       dialog.querySelectorAll<HTMLElement>(
-        'button:not([disabled]), input:not([disabled]):not([tabindex="-1"]), textarea:not([disabled]), [href], [tabindex]:not([tabindex="-1"])',
+        'button:not([disabled]), input:not([disabled]):not([tabindex="-1"]), select:not([disabled]), textarea:not([disabled]), [href], [tabindex]:not([tabindex="-1"])',
       ),
     ).filter((element) => element.offsetParent !== null);
 
@@ -328,7 +597,7 @@ const AssistantEditorModal = ({
         aria-labelledby={dialogTitleId}
         tabIndex={-1}
         onKeyDown={handleDialogKeyDown}
-        className="flex max-h-[90vh] w-full max-w-lg flex-col overflow-hidden overscroll-contain rounded-2xl border border-gray-200 bg-white shadow-2xl dark:border-border dark:bg-card"
+        className="flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden overscroll-contain rounded-2xl border border-gray-200 bg-white shadow-2xl dark:border-border dark:bg-card"
       >
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 dark:border-border">
           <h3
@@ -539,6 +808,546 @@ const AssistantEditorModal = ({
             </div>
           </div>
 
+          <fieldset
+            aria-describedby={agentDescriptionId}
+            className="rounded-xl border border-border bg-muted/20 p-3"
+          >
+            <legend className="sr-only">{t("agentConfiguration")}</legend>
+            <div className="flex items-start justify-between gap-4">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                  <BotMessageSquare
+                    size={15}
+                    className="text-rose-500"
+                    aria-hidden="true"
+                  />
+                  {t("agentConfiguration")}
+                </div>
+                <p
+                  id={agentDescriptionId}
+                  className="mt-1 text-xs leading-relaxed text-muted-foreground"
+                >
+                  {t("agentConfigurationDescription")}
+                </p>
+              </div>
+              <div className="flex shrink-0 items-center gap-2">
+                <label
+                  htmlFor={agentEnabledInputId}
+                  className="text-xs font-medium text-foreground"
+                >
+                  {t("enableAgent")}
+                </label>
+                <SimpleSwitch
+                  id={agentEnabledInputId}
+                  name="assistant-agent-enabled"
+                  checked={isAgentEnabled}
+                  onChange={toggleAgentEnabled}
+                  ariaLabel={t("enableAgentAria")}
+                />
+              </div>
+            </div>
+
+            {isAgentEnabled && agentProfile && (
+              <div className="mt-3 space-y-3 border-t border-border pt-3">
+                {missingDependencyCount > 0 && (
+                  <p className="flex items-center gap-1.5 rounded-lg bg-amber-50 px-2.5 py-2 text-xs text-amber-700 dark:bg-amber-900/20 dark:text-amber-300">
+                    <CircleAlert size={13} aria-hidden="true" />
+                    {t("agentMissingDependencies", {
+                      count: missingDependencyCount,
+                    })}
+                  </p>
+                )}
+
+                {agent ? (
+                  <div className="flex flex-col gap-2 rounded-lg border border-border bg-background p-2 sm:flex-row sm:items-center">
+                    <div className="flex min-w-0 flex-1 items-center gap-2">
+                      <History
+                        size={14}
+                        className="shrink-0 text-muted-foreground"
+                        aria-hidden="true"
+                      />
+                      <select
+                        aria-label={t("agentRevisionHistory")}
+                        value={selectedRevisionId}
+                        onChange={(event) => {
+                          const revisionId = event.target.value;
+                          setSelectedRevisionId(revisionId);
+                          const revision = profileRevisions.find(
+                            (candidate) => candidate.id === revisionId,
+                          );
+                          if (revision) {
+                            setAgentProfile(
+                              createAgentProfileDraft(revision.profile),
+                            );
+                          }
+                        }}
+                        className="h-9 min-w-0 flex-1 rounded-lg border border-border bg-muted/30 px-2 text-xs text-foreground outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+                      >
+                        <option value="">
+                          {t("agentCurrentDraft", { count: draftDiffCount })}
+                        </option>
+                        {profileRevisions.map((revision) => (
+                          <option key={revision.id} value={revision.id}>
+                            {t("agentRevisionOption", {
+                              sequence: revision.sequence,
+                              count: revision.changes.length,
+                              time: new Date(
+                                revision.createdAt,
+                              ).toLocaleString(),
+                            })}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <Button
+                      variant="bare"
+                      type="button"
+                      onClick={handleFork}
+                      className="inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-lg px-3 text-xs font-medium text-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60"
+                    >
+                      <CopyPlus size={14} aria-hidden="true" />
+                      {t("agentForkLocal")}
+                    </Button>
+                  </div>
+                ) : null}
+
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <div className="space-y-1">
+                    <label
+                      htmlFor={approvalModeInputId}
+                      className="text-xs font-semibold text-muted-foreground"
+                    >
+                      {t("agentApprovalMode")}
+                    </label>
+                    <select
+                      id={approvalModeInputId}
+                      name="assistant-agent-approval-mode"
+                      value={agentProfile.runtime.approvalMode}
+                      onChange={(event) =>
+                        updateAgentProfile((profile) => ({
+                          ...profile,
+                          runtime: {
+                            ...profile.runtime,
+                            approvalMode: event.target
+                              .value as AgentApprovalMode,
+                          },
+                        }))
+                      }
+                      className="h-9 w-full rounded-lg border border-border bg-background px-2.5 text-xs text-foreground outline-none transition-[border-color,box-shadow] focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+                    >
+                      <option value="permissive">
+                        {t("agentApprovalPermissive")}
+                      </option>
+                      <option value="balanced">
+                        {t("agentApprovalBalanced")}
+                      </option>
+                      <option value="strict">{t("agentApprovalStrict")}</option>
+                    </select>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label
+                      htmlFor={preferredModelInputId}
+                      className="text-xs font-semibold text-muted-foreground"
+                    >
+                      {t("agentPreferredModel")}
+                    </label>
+                    <select
+                      id={preferredModelInputId}
+                      name="assistant-agent-preferred-model"
+                      value={agentProfile.runtime.preferredModel || ""}
+                      onChange={(event) =>
+                        updateAgentProfile((profile) => ({
+                          ...profile,
+                          runtime: {
+                            ...profile.runtime,
+                            preferredModel: event.target.value || undefined,
+                          },
+                        }))
+                      }
+                      className="h-9 w-full rounded-lg border border-border bg-background px-2.5 text-xs text-foreground outline-none transition-[border-color,box-shadow] focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+                    >
+                      <option value="">{t("agentUseChatModel")}</option>
+                      {preferredModelOptions.map((model) => (
+                        <option key={model} value={model}>
+                          {model === selectedModel
+                            ? t("agentCurrentModel", { model })
+                            : model}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <div className="flex min-h-11 items-center justify-between gap-4 rounded-lg border border-border bg-background px-3 py-2">
+                    <label
+                      htmlFor={agentSearchInputId}
+                      className="text-xs font-medium text-foreground"
+                    >
+                      {t("agentSearch")}
+                    </label>
+                    <SimpleSwitch
+                      id={agentSearchInputId}
+                      name="assistant-agent-search"
+                      checked={agentProfile.runtime.searchEnabled === true}
+                      onChange={() =>
+                        updateAgentProfile((profile) => ({
+                          ...profile,
+                          runtime: {
+                            ...profile.runtime,
+                            searchEnabled: !profile.runtime.searchEnabled,
+                          },
+                        }))
+                      }
+                      ariaLabel={t("agentSearchAria")}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label
+                      htmlFor={reasoningModeInputId}
+                      className="text-xs font-semibold text-muted-foreground"
+                    >
+                      {t("agentReasoningMode")}
+                    </label>
+                    <select
+                      id={reasoningModeInputId}
+                      name="assistant-agent-reasoning-mode"
+                      value={agentProfile.runtime.reasoningMode || "auto"}
+                      onChange={(event) =>
+                        updateAgentProfile((profile) => ({
+                          ...profile,
+                          runtime: {
+                            ...profile.runtime,
+                            reasoningMode: event.target.value as NonNullable<
+                              AgentProfileV2["runtime"]["reasoningMode"]
+                            >,
+                          },
+                        }))
+                      }
+                      className="h-9 w-full rounded-lg border border-border bg-background px-2.5 text-xs text-foreground outline-none transition-[border-color,box-shadow] focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+                    >
+                      <option value="off">{t("agentReasoningOff")}</option>
+                      <option value="auto">{t("agentReasoningAuto")}</option>
+                      <option value="low">{t("agentReasoningLow")}</option>
+                      <option value="medium">
+                        {t("agentReasoningMedium")}
+                      </option>
+                      <option value="high">{t("agentReasoningHigh")}</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <div className="text-xs font-semibold text-muted-foreground">
+                    {t("agentRunLimits")}
+                  </div>
+                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                    <div className="space-y-1">
+                      <label
+                        htmlFor={maxRoundsInputId}
+                        className="text-[11px] text-muted-foreground"
+                      >
+                        {t("agentMaxRounds")}
+                      </label>
+                      <input
+                        id={maxRoundsInputId}
+                        name="assistant-agent-max-rounds"
+                        type="number"
+                        min={1}
+                        step={1}
+                        inputMode="numeric"
+                        value={agentProfile.runtime.budget?.maxToolRounds ?? ""}
+                        onChange={(event) =>
+                          updateBudgetLimit("maxToolRounds", event.target.value)
+                        }
+                        className="h-9 w-full rounded-lg border border-border bg-background px-2.5 text-xs tabular-nums text-foreground outline-none transition-[border-color,box-shadow] focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label
+                        htmlFor={maxCallsInputId}
+                        className="text-[11px] text-muted-foreground"
+                      >
+                        {t("agentMaxCalls")}
+                      </label>
+                      <input
+                        id={maxCallsInputId}
+                        name="assistant-agent-max-calls"
+                        type="number"
+                        min={1}
+                        step={1}
+                        inputMode="numeric"
+                        value={agentProfile.runtime.budget?.maxToolCalls ?? ""}
+                        onChange={(event) =>
+                          updateBudgetLimit("maxToolCalls", event.target.value)
+                        }
+                        className="h-9 w-full rounded-lg border border-border bg-background px-2.5 text-xs tabular-nums text-foreground outline-none transition-[border-color,box-shadow] focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label
+                        htmlFor={maxTokensInputId}
+                        className="text-[11px] text-muted-foreground"
+                      >
+                        {t("agentMaxTokens")}
+                      </label>
+                      <input
+                        id={maxTokensInputId}
+                        name="assistant-agent-max-tokens"
+                        type="number"
+                        min={1}
+                        step={1}
+                        inputMode="numeric"
+                        value={
+                          agentProfile.runtime.budget?.maxTotalTokens ?? ""
+                        }
+                        onChange={(event) =>
+                          updateBudgetLimit(
+                            "maxTotalTokens",
+                            event.target.value,
+                          )
+                        }
+                        className="h-9 w-full rounded-lg border border-border bg-background px-2.5 text-xs tabular-nums text-foreground outline-none transition-[border-color,box-shadow] focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label
+                        htmlFor={maxDurationInputId}
+                        className="text-[11px] text-muted-foreground"
+                      >
+                        {t("agentMaxMinutes")}
+                      </label>
+                      <input
+                        id={maxDurationInputId}
+                        name="assistant-agent-max-duration"
+                        type="number"
+                        min={1}
+                        step={1}
+                        inputMode="numeric"
+                        value={
+                          agentProfile.runtime.budget?.maxDurationMs
+                            ? Math.ceil(
+                                agentProfile.runtime.budget.maxDurationMs /
+                                  60_000,
+                              )
+                            : ""
+                        }
+                        onChange={(event) =>
+                          updateBudgetLimit(
+                            "maxDurationMs",
+                            event.target.value,
+                            60_000,
+                          )
+                        }
+                        className="h-9 w-full rounded-lg border border-border bg-background px-2.5 text-xs tabular-nums text-foreground outline-none transition-[border-color,box-shadow] focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <div
+                    id={memoryGroupId}
+                    className="text-xs font-semibold text-muted-foreground"
+                  >
+                    {t("agentMemoryScopes")}
+                  </div>
+                  <div
+                    role="group"
+                    aria-labelledby={memoryGroupId}
+                    className="grid grid-cols-2 gap-1.5 sm:grid-cols-4"
+                  >
+                    {AGENT_MEMORY_SCOPES.map((scope) => {
+                      const isAllowed = (
+                        agentProfile.capabilities.memoryScopes || []
+                      ).includes(scope);
+                      return (
+                        <Button
+                          variant="bare"
+                          type="button"
+                          key={scope}
+                          aria-pressed={isAllowed}
+                          onClick={() => toggleMemoryScope(scope)}
+                          className={`min-h-11 rounded-lg border px-2 text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 ${
+                            isAllowed
+                              ? "border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-800 dark:bg-blue-900/20 dark:text-blue-300"
+                              : "border-border bg-background text-muted-foreground hover:text-foreground"
+                          }`}
+                        >
+                          {t(`agentMemoryScope_${scope}`)}
+                        </Button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <div className="space-y-1">
+                    <label
+                      htmlFor={toolIdsInputId}
+                      className="text-xs font-semibold text-muted-foreground"
+                    >
+                      {t("agentToolAllowlist")}
+                    </label>
+                    <textarea
+                      id={toolIdsInputId}
+                      name="assistant-agent-tool-ids"
+                      rows={2}
+                      value={(agentProfile.capabilities.toolIds || []).join(
+                        ", ",
+                      )}
+                      placeholder={t("agentCapabilityIdsPlaceholder")}
+                      onChange={(event) =>
+                        updateCapabilityIds("toolIds", event.target.value)
+                      }
+                      className="w-full resize-y rounded-lg border border-border bg-background px-2.5 py-2 text-xs text-foreground outline-none transition-[border-color,box-shadow] focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label
+                      htmlFor={knowledgeIdsInputId}
+                      className="text-xs font-semibold text-muted-foreground"
+                    >
+                      {t("agentKnowledgeAllowlist")}
+                    </label>
+                    <textarea
+                      id={knowledgeIdsInputId}
+                      name="assistant-agent-knowledge-ids"
+                      rows={2}
+                      value={(
+                        agentProfile.capabilities.knowledgeCollectionIds || []
+                      ).join(", ")}
+                      placeholder={t("agentCapabilityIdsPlaceholder")}
+                      onChange={(event) =>
+                        updateCapabilityIds(
+                          "knowledgeCollectionIds",
+                          event.target.value,
+                        )
+                      }
+                      className="w-full resize-y rounded-lg border border-border bg-background px-2.5 py-2 text-xs text-foreground outline-none transition-[border-color,box-shadow] focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <div
+                    id={pluginGroupId}
+                    className="text-xs font-semibold text-muted-foreground"
+                  >
+                    {t("agentPluginAllowlist")}
+                  </div>
+                  <div
+                    role="group"
+                    aria-labelledby={pluginGroupId}
+                    className="flex max-h-28 flex-wrap gap-1.5 overflow-y-auto"
+                  >
+                    {installedPlugins.length > 0 ? (
+                      installedPlugins.map((plugin) => {
+                        const isAllowed = (
+                          agentProfile.capabilities.pluginIds || []
+                        ).includes(plugin.id);
+
+                        return (
+                          <Button
+                            variant="bare"
+                            type="button"
+                            key={plugin.id}
+                            aria-label={t("agentPluginToggleAria", {
+                              title: plugin.title,
+                            })}
+                            aria-pressed={isAllowed}
+                            onClick={() => togglePlugin(plugin.id)}
+                            className={`flex max-w-full items-center gap-1.5 rounded-lg border px-2 py-1 text-[11px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 ${
+                              isAllowed
+                                ? "border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-800 dark:bg-blue-900/20 dark:text-blue-300"
+                                : "border-border bg-background text-muted-foreground hover:text-foreground"
+                            }`}
+                          >
+                            <span className="max-w-48 truncate">
+                              {plugin.title}
+                            </span>
+                            {isAllowed && (
+                              <Check size={11} aria-hidden="true" />
+                            )}
+                          </Button>
+                        );
+                      })
+                    ) : (
+                      <p className="text-xs text-muted-foreground">
+                        {t("agentNoPlugins")}
+                      </p>
+                    )}
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <div
+                    id={skillGroupId}
+                    className="text-xs font-semibold text-muted-foreground"
+                  >
+                    {t("agentSkillPolicy")}
+                  </div>
+                  {installedSkills.length > 0 ? (
+                    <div
+                      role="group"
+                      aria-labelledby={skillGroupId}
+                      className="max-h-48 overflow-y-auto rounded-lg border border-border bg-background"
+                    >
+                      {installedSkills.map((skill) => {
+                        const mode =
+                          agentProfile.capabilities.skillPolicies?.find(
+                            (policy) => policy.skillId === skill.id,
+                          )?.mode || "disabled";
+
+                        return (
+                          <div
+                            key={skill.id}
+                            className="flex items-center justify-between gap-3 border-b border-border px-2.5 py-1.5 last:border-b-0"
+                          >
+                            <span
+                              className="min-w-0 flex-1 truncate text-xs text-foreground"
+                              title={skill.title}
+                            >
+                              {skill.title}
+                            </span>
+                            <select
+                              aria-label={t("agentSkillModeAria", {
+                                title: skill.title,
+                              })}
+                              value={mode}
+                              onChange={(event) =>
+                                setSkillMode(
+                                  skill.id,
+                                  event.target.value as AgentSkillMode,
+                                )
+                              }
+                              className="h-7 shrink-0 rounded-md border border-border bg-muted/40 px-2 text-[11px] text-foreground outline-none transition-[border-color,box-shadow] focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+                            >
+                              <option value="auto">
+                                {t("agentSkillAuto")}
+                              </option>
+                              <option value="manual">
+                                {t("agentSkillManual")}
+                              </option>
+                              <option value="disabled">
+                                {t("agentSkillDisabled")}
+                              </option>
+                            </select>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">
+                      {t("agentNoSkills")}
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
+          </fieldset>
+
           <div className="space-y-2">
             <label
               htmlFor={tagInputId}
@@ -659,6 +1468,7 @@ interface AssistantCardProps {
   onReset?: (e: React.MouseEvent, id: string) => void;
   hasOverride?: boolean;
   isDetailLoading?: boolean;
+  missingDependencyCount?: number;
 }
 
 const AssistantCard: React.FC<AssistantCardProps> = ({
@@ -669,6 +1479,7 @@ const AssistantCard: React.FC<AssistantCardProps> = ({
   onReset,
   hasOverride,
   isDetailLoading,
+  missingDependencyCount = 0,
 }) => {
   const t = useTranslations("Assistant");
   const [isDeleteConfirming, setIsDeleteConfirming] = useState(false);
@@ -789,7 +1600,16 @@ const AssistantCard: React.FC<AssistantCardProps> = ({
       <Button
         variant="bare"
         type="button"
-        aria-label={t("selectAssistantAria", { title: agent.meta.title })}
+        aria-label={
+          agent.profile?.runtime.agentEnabled
+            ? missingDependencyCount > 0
+              ? t("selectAgentAssistantMissingAria", {
+                  title: agent.meta.title,
+                  count: missingDependencyCount,
+                })
+              : t("selectAgentAssistantAria", { title: agent.meta.title })
+            : t("selectAssistantAria", { title: agent.meta.title })
+        }
         onClick={() => onClick(agent)}
         className="flex h-full w-full flex-col p-4 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-rose-500 dark:focus-visible:ring-rose-400"
       >
@@ -811,6 +1631,12 @@ const AssistantCard: React.FC<AssistantCardProps> = ({
                     <span className="truncate">{t("edited")}</span>
                   </span>
                 )}
+                {agent.profile?.runtime.agentEnabled && (
+                  <span className="flex shrink-0 items-center gap-1 rounded-full bg-rose-100 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-rose-700 dark:bg-rose-900/30 dark:text-rose-300">
+                    <BotMessageSquare size={9} aria-hidden="true" />
+                    <span className="truncate">{t("agentBadge")}</span>
+                  </span>
+                )}
                 {agent.meta.category && (
                   <span className="max-w-25 shrink-0 truncate rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-medium text-gray-600 dark:bg-accent dark:text-foreground/85">
                     {formatCategoryName(agent.meta.category)}
@@ -827,6 +1653,15 @@ const AssistantCard: React.FC<AssistantCardProps> = ({
         <p className="mb-3 line-clamp-2 flex-1 text-xs leading-relaxed text-gray-500 dark:text-muted-foreground">
           {agent.meta.description}
         </p>
+
+        {missingDependencyCount > 0 && (
+          <p className="mb-2 flex items-center gap-1.5 text-[10px] font-medium text-amber-700 dark:text-amber-300">
+            <CircleAlert size={11} aria-hidden="true" />
+            {t("agentMissingDependencies", {
+              count: missingDependencyCount,
+            })}
+          </p>
+        )}
 
         <div className="mt-auto flex items-center justify-between gap-3">
           <div className="flex min-w-0 flex-wrap gap-1">
@@ -925,6 +1760,8 @@ const AssistantHub: React.FC<AssistantHubProps> = ({ onClose, onSelect }) => {
     customAgents,
     usedAgents,
     agentOverrides,
+    installedPlugins,
+    installedSkills,
     addCustomAgent,
     updateAgent,
     removeLocalAgent,
@@ -932,6 +1769,12 @@ const AssistantHub: React.FC<AssistantHubProps> = ({ onClose, onSelect }) => {
     recordUsedAgent,
     _hasHydrated,
   } = useSettingsStore();
+  const recordProfileRevision = useAgentProfileRevisionStore(
+    (state) => state.recordRevision,
+  );
+  const clearProfileRevisions = useAgentProfileRevisionStore(
+    (state) => state.clearProfileRevisions,
+  );
 
   const [apiAgents, setApiAgents] = useState<LobeAgent[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -1075,6 +1918,15 @@ const AssistantHub: React.FC<AssistantHubProps> = ({ onClose, onSelect }) => {
     });
   }, [apiAgents, agentOverrides]);
 
+  const installedPluginIds = useMemo(
+    () => new Set(installedPlugins.map((plugin) => plugin.id)),
+    [installedPlugins],
+  );
+  const installedSkillIds = useMemo(
+    () => new Set(installedSkills.map((skill) => skill.id)),
+    [installedSkills],
+  );
+
   // Reset to page 1 when search or category changes
   useEffect(() => {
     setCurrentPage(1);
@@ -1159,6 +2011,7 @@ const AssistantHub: React.FC<AssistantHubProps> = ({ onClose, onSelect }) => {
         // Merge detail config into meta for editing purposes
         const fullAgent = {
           ...agent,
+          ...(detail.profile ? { profile: detail.profile } : {}),
           meta: {
             ...agent.meta,
             ...detail.meta, // Refresh meta from details if newer
@@ -1192,10 +2045,12 @@ const AssistantHub: React.FC<AssistantHubProps> = ({ onClose, onSelect }) => {
   const handleDeleteLocal = (e: React.MouseEvent, identifier: string) => {
     e.stopPropagation();
     removeLocalAgent(identifier);
+    clearProfileRevisions(identifier);
   };
 
   const handleEditorDelete = (identifier: string) => {
     removeLocalAgent(identifier);
+    clearProfileRevisions(identifier);
   };
 
   const handleResetOverride = (e: React.MouseEvent, identifier: string) => {
@@ -1217,6 +2072,9 @@ const AssistantHub: React.FC<AssistantHubProps> = ({ onClose, onSelect }) => {
     } else {
       // Saving an override for a built-in agent
       updateAgent(savedAgent.identifier, savedAgent, false);
+    }
+    if (savedAgent.profile) {
+      recordProfileRevision(savedAgent.identifier, savedAgent.profile);
     }
   };
 
@@ -1376,6 +2234,11 @@ const AssistantHub: React.FC<AssistantHubProps> = ({ onClose, onSelect }) => {
                     onReset={handleResetOverride}
                     hasOverride={!!agentOverrides[agent.identifier]}
                     isDetailLoading={loadingAgentId === agent.identifier}
+                    missingDependencyCount={countMissingSelectableDependencies(
+                      agent.profile,
+                      installedSkillIds,
+                      installedPluginIds,
+                    )}
                   />
                 ))}
               </div>
@@ -1485,6 +2348,11 @@ const AssistantHub: React.FC<AssistantHubProps> = ({ onClose, onSelect }) => {
                       onReset={handleResetOverride}
                       hasOverride={!!agentOverrides[agent.identifier]}
                       isDetailLoading={loadingAgentId === agent.identifier}
+                      missingDependencyCount={countMissingSelectableDependencies(
+                        agent.profile,
+                        installedSkillIds,
+                        installedPluginIds,
+                      )}
                     />
                   ))}
                 </div>

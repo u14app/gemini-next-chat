@@ -1,0 +1,67 @@
+{
+  "id": "workspace-document-builder",
+  "name": "workspace-document-builder",
+  "title": "Workspace Document Builder",
+  "description": "Build a reviewable document in the session workspace with revision-safe edits, validation, and immutable publication.",
+  "category": "productivity",
+  "tags": ["workspace", "document", "artifact", "revision"],
+  "audience": "user-facing",
+  "language": "en",
+  "outputFormat": "markdown",
+  "risk": {
+    "level": "medium",
+    "textOnly": true,
+    "scriptRequired": false,
+    "externalToolRequired": true,
+    "networkRequired": false,
+    "reviewRequiredForHighStakes": true
+  },
+  "activation": {
+    "embeddingText": "workspace document builder draft edit diff revision validate publish immutable artifact",
+    "useWhen": [
+      "The requested deliverable should be a file or long-lived document."
+    ],
+    "avoidWhen": ["A short chat response is the complete deliverable."],
+    "exampleQueries": [
+      "Build this report as a file",
+      "Create and publish a workspace document"
+    ]
+  },
+  "builtIn": true,
+  "version": "2.0.0",
+  "publisher": "Neo Chat",
+  "source": "builtin",
+  "contentHash": "sha256:f6a17c494a8c181c88d67d5376ef27165b2dd97ed35d3b29e951b3e83a2618c3",
+  "locales": ["en"],
+  "runtime": {
+    "kind": "declarative_text",
+    "supportsScripts": false,
+    "acceptsPlaintextSecrets": false
+  },
+  "requiredCapabilities": ["workspace_write", "artifact_publish"],
+  "allowedTools": [
+    "stat_workspace_file",
+    "read_workspace_file",
+    "write_workspace_file",
+    "edit_workspace_file",
+    "diff_workspace_file",
+    "apply_workspace_patch",
+    "validate_workspace_file",
+    "publish_artifact",
+    "share_workspace_file"
+  ],
+  "parameters": [],
+  "outputContract": {
+    "format": "artifact",
+    "description": "An immutable published Artifact linked from the answer, with its source revision and validation result."
+  },
+  "evalCases": [
+    {
+      "id": "revision-conflict",
+      "input": "Update a document whose revision changed after it was read.",
+      "expected": ["does not overwrite", "reads or diffs the latest revision"]
+    }
+  ],
+  "file": "workspace-document-builder.json",
+  "content": "# Workspace Document Builder\n\nInspect the target path and current revision before modifying it. Create a concise outline, write a scratch draft, and use revision-checked edits or patches for subsequent changes. If expectedRevision conflicts, stop and compare against the latest revision; never overwrite silently. Keep large source material and intermediate output in workspace files rather than model context.\n\nValidate the final file for its declared format and requested constraints. Show the material diff or summarize it accurately. Publish only the approved final revision as an immutable content-addressed Artifact; later scratch edits must not change the published result. Link the published Artifact in the final answer and distinguish it from mutable workspace files."
+}

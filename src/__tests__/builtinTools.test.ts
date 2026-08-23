@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { MEMORY_LIMITS } from "../config/limits";
 import type { MemoryRecord } from "../lib/memory/types";
+import { getAgentBuiltinToolNames } from "../lib/agent";
 import { collectBuiltinTools } from "../services/api/chat/builtinTools";
 
 interface MockMemoryState {
@@ -277,21 +278,80 @@ describe("built-in tool registry", () => {
 
     expect(agentTools).toEqual([
       "start_long_text_output",
+      "request_user_input",
       "update_task_plan",
       "web_search",
+      "search_web",
       "search_knowledge",
       "run_javascript",
       "fetch_url",
+      "fetch_urls",
+      "inspect_attachment",
+      "extract_document",
       "list_workspace_files",
+      "stat_workspace_file",
+      "diff_workspace_file",
       "search_workspace_files",
       "read_workspace_file",
       "write_workspace_file",
       "edit_workspace_file",
+      "apply_workspace_patch",
       "move_workspace_file",
+      "trash_workspace_file",
+      "restore_workspace_file",
       "delete_workspace_file",
+      "validate_workspace_file",
+      "publish_artifact",
       "share_workspace_file",
       "create_archive",
     ]);
+  });
+
+  it("pauses through the structured user-input controller", async () => {
+    mocks.memoryState.settings.enabled = false;
+    const binding = collectBuiltinTools({
+      message: "Clarify the target",
+      agentModeEnabled: true,
+    }).bindingsByName.get("request_user_input");
+    const requestInput = vi.fn(async () => ({
+      status: "answered" as const,
+      answers: { target: "staging" },
+    }));
+
+    await expect(
+      binding?.execute(
+        {
+          questions: [
+            {
+              id: "target",
+              question: "Which target?",
+              kind: "single_choice",
+              options: [
+                { value: "staging", label: "Staging" },
+                { value: "production", label: "Production" },
+              ],
+            },
+          ],
+        },
+        {
+          sessionId: "session-1",
+          toolCallId: "call-input",
+          userInputController: { requestInput },
+          emit: {},
+        },
+      ),
+    ).resolves.toEqual({
+      status: "answered",
+      answers: { target: "staging" },
+    });
+    expect(requestInput).toHaveBeenCalledWith(
+      expect.objectContaining({
+        requestId: "call-input",
+        sessionId: "session-1",
+        questions: [expect.objectContaining({ id: "target" })],
+      }),
+      undefined,
+    );
   });
 
   it("serializes every built-in that can observe or mutate workspace state", () => {
@@ -304,13 +364,23 @@ describe("built-in tool registry", () => {
     for (const name of [
       "run_javascript",
       "fetch_url",
+      "fetch_urls",
+      "inspect_attachment",
+      "extract_document",
       "list_workspace_files",
+      "stat_workspace_file",
+      "diff_workspace_file",
       "search_workspace_files",
       "read_workspace_file",
       "write_workspace_file",
       "edit_workspace_file",
+      "apply_workspace_patch",
       "move_workspace_file",
+      "trash_workspace_file",
+      "restore_workspace_file",
       "delete_workspace_file",
+      "validate_workspace_file",
+      "publish_artifact",
       "share_workspace_file",
       "create_archive",
     ]) {
@@ -335,19 +405,90 @@ describe("built-in tool registry", () => {
 
     expect(names).toEqual([
       "start_long_text_output",
+      "request_user_input",
       "update_task_plan",
       "run_javascript",
       "fetch_url",
+      "fetch_urls",
+      "inspect_attachment",
+      "extract_document",
       "list_workspace_files",
+      "stat_workspace_file",
+      "diff_workspace_file",
       "search_workspace_files",
       "read_workspace_file",
       "write_workspace_file",
       "edit_workspace_file",
+      "apply_workspace_patch",
       "move_workspace_file",
+      "trash_workspace_file",
+      "restore_workspace_file",
       "delete_workspace_file",
+      "validate_workspace_file",
+      "publish_artifact",
       "share_workspace_file",
       "create_archive",
     ]);
     expect(names).not.toContain("web_search");
+  });
+
+  it("keeps the capability-panel catalog aligned with runtime schemas", () => {
+    mocks.memoryState.settings.enabled = false;
+    const runtimeNames = collectBuiltinTools({
+      message: "Research this",
+      agentModeEnabled: true,
+      useSearch: true,
+      searchMode: "external",
+      installedSkills: [],
+    }).definitions.map((definition) => definition.function.name);
+
+    expect(runtimeNames).toEqual(
+      getAgentBuiltinToolNames({
+        agentModeEnabled: true,
+        memoryEnabled: false,
+        externalSearchEnabled: true,
+        knowledgeEnabled: false,
+        skillsEnabled: false,
+        mcpEnabled: false,
+        dynamicToolsEnabled: false,
+        workspaceEnabled: true,
+      }),
+    );
+  });
+
+  it("removes OPFS capabilities from the real catalog when unavailable", () => {
+    mocks.memoryState.settings.enabled = false;
+    const collected = collectBuiltinTools({
+      message: "Compute without storage",
+      agentModeEnabled: true,
+      workspaceAvailable: false,
+    });
+    const names = collected.definitions.map(
+      (definition) => definition.function.name,
+    );
+
+    expect(names).toEqual(
+      getAgentBuiltinToolNames({
+        agentModeEnabled: true,
+        memoryEnabled: false,
+        externalSearchEnabled: false,
+        knowledgeEnabled: false,
+        skillsEnabled: false,
+        mcpEnabled: false,
+        dynamicToolsEnabled: false,
+        workspaceEnabled: false,
+      }),
+    );
+    expect(names).toContain("run_javascript");
+    expect(names).toContain("fetch_url");
+    expect(names).not.toContain("list_workspace_files");
+    expect(names).not.toContain("publish_artifact");
+    expect(
+      collected.bindingsByName.get("run_javascript")?.definition.function
+        .parameters,
+    ).not.toMatchObject({ properties: { writeFiles: expect.anything() } });
+    expect(
+      collected.bindingsByName.get("fetch_url")?.definition.function.parameters,
+    ).not.toMatchObject({ properties: { saveToPath: expect.anything() } });
   });
 });

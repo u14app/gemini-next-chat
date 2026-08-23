@@ -4,6 +4,14 @@ import { describe, expect, it } from "vitest";
 import { normalizeSkillCatalog, normalizeTextSkill } from "../lib/skills";
 
 const skillsDir = resolve(process.cwd(), "public/data/skills");
+const V2_BUILTIN_IDS = new Set([
+  "requirements-interview",
+  "deep-research",
+  "citation-evidence-audit",
+  "workspace-document-builder",
+  "tabular-analysis",
+  "execution-verifier",
+]);
 
 function readJson(path: string) {
   return JSON.parse(readFileSync(path, "utf8"));
@@ -27,15 +35,15 @@ describe("public skills dataset", () => {
 
     expect(schema.$id).toBe("skills.schema.json");
     expect(schema.title).toBe("Skills Dataset");
-    expect(englishCatalog.schemaVersion).toBe("skills-v1");
-    expect(zhCatalog.schemaVersion).toBe("skills-v1");
-    expect(jaCatalog.schemaVersion).toBe("skills-v1");
-    expect(englishCatalog.skills).toHaveLength(57);
-    expect(zhCatalog.skills).toHaveLength(57);
-    expect(jaCatalog.skills).toHaveLength(57);
-    expect(ids.size).toBe(57);
-    expect(englishCatalog.skillCount).toBe(57);
-    expect(jaCatalog.skillCount).toBe(57);
+    expect(englishCatalog.schemaVersion).toBe("skills-v2");
+    expect(zhCatalog.schemaVersion).toBe("skills-v2");
+    expect(jaCatalog.schemaVersion).toBe("skills-v2");
+    expect(englishCatalog.skills).toHaveLength(63);
+    expect(zhCatalog.skills).toHaveLength(63);
+    expect(jaCatalog.skills).toHaveLength(63);
+    expect(ids.size).toBe(63);
+    expect(englishCatalog.skillCount).toBe(63);
+    expect(jaCatalog.skillCount).toBe(63);
     expect(jaCatalog.locale).toBe("ja");
     expect(englishCatalog.categories).toContain("writing");
     expect(jaCatalog.categories).toEqual(englishCatalog.categories);
@@ -57,7 +65,10 @@ describe("public skills dataset", () => {
         const file = skill.file;
         return (
           Boolean(file) &&
-          file!.endsWith(".zh-CN.json") &&
+          (V2_BUILTIN_IDS.has(skill.id)
+            ? file ===
+              englishCatalog.skills.find((entry) => entry.id === skill.id)?.file
+            : file!.endsWith(".zh-CN.json")) &&
           existsSync(resolve(skillsDir, file!))
         );
       }),
@@ -100,18 +111,35 @@ describe("public skills dataset", () => {
 
       expect(enDefinition?.content).toBeTruthy();
       expect(zhDefinition?.content).toBeTruthy();
-      expect(enDefinition!.content.length).toBeGreaterThan(1_000);
-      expect(zhDefinition!.content.length).toBeGreaterThan(900);
-      expect(enDefinition!.content).toContain("## Output Contract");
-      expect(zhDefinition!.content).toContain("## 输出要求");
+      if (enDefinition?.version === "2.0.0") {
+        expect(enDefinition).toMatchObject({
+          version: "2.0.0",
+          publisher: "Neo Chat",
+          source: "builtin",
+          runtime: {
+            kind: "declarative_text",
+            supportsScripts: false,
+            acceptsPlaintextSecrets: false,
+          },
+          outputContract: expect.any(Object),
+          evalCases: expect.any(Array),
+        });
+        expect(enDefinition!.content.length).toBeGreaterThan(600);
+        expect(Array.isArray(enDefinition?.allowedTools)).toBe(true);
+      } else {
+        expect(enDefinition!.content.length).toBeGreaterThan(1_000);
+        expect(zhDefinition!.content.length).toBeGreaterThan(900);
+        expect(enDefinition!.content).toContain("## Output Contract");
+        expect(zhDefinition!.content).toContain("## 输出要求");
+        expect(enDefinition?.risk.externalToolRequired).toBe(false);
+        expect(zhDefinition?.risk.externalToolRequired).toBe(false);
+        expect(enDefinition?.risk.networkRequired).toBe(false);
+        expect(zhDefinition?.risk.networkRequired).toBe(false);
+      }
       expect(enDefinition?.risk.textOnly).toBe(true);
       expect(zhDefinition?.risk.textOnly).toBe(true);
       expect(enDefinition?.risk.scriptRequired).toBe(false);
       expect(zhDefinition?.risk.scriptRequired).toBe(false);
-      expect(enDefinition?.risk.externalToolRequired).toBe(false);
-      expect(zhDefinition?.risk.externalToolRequired).toBe(false);
-      expect(enDefinition?.risk.networkRequired).toBe(false);
-      expect(zhDefinition?.risk.networkRequired).toBe(false);
     }
   });
 

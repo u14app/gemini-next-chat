@@ -4,6 +4,7 @@ export {
   useChatPanelNavigation,
   useChatRequestPreparation,
   useToolConfirmationController,
+  useAgentUserInputController,
   useChatShellState,
   useChatThemeEffects,
   useComposerAttachments,

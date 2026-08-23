@@ -157,16 +157,15 @@ the OpenAI Responses API. Supported built-ins can expose plugin-level API Base
 URL and Model ID fields; Agnes video remains a two-step `create_video` /
 `get_video_result` flow and accepts public HTTPS image URLs for image-to-video.
 
-Tool calls execute automatically by default. If the user enables destructive-
-tool confirmation in System settings, only calls marked or inferred as
-`destructive` pause for allow-once or deny decisions; `read`, `write`, and
-`external` calls continue automatically. Destructive approval is never
-persisted for the chat. Session-scoped approval records are limited to `write`
-and `external` risks and are bound to the plugin ID, function name, risk level,
-and stable function fingerprint. Confirmation summaries redact credential-like
-arguments, and interrupted confirmations fail closed. The expected function
-fingerprint travels with every execution request and is rechecked against the
-server registry before any REST or MCP dispatch.
+Tool calls use effect-aware policy. Reads and recoverable writes may run
+automatically according to the selected Agent approval Profile. Permanent
+deletion, payment, publication, permission changes, credential exfiltration,
+and unknown MCP functions always pause for allow-once or deny. Destructive
+approval is never persisted. Session approvals bind the provider/server, Tool
+name, effect, target scope, and stable definition fingerprint. Confirmation
+summaries redact credential-like arguments, interrupted confirmations fail
+closed, and the expected fingerprint plus canonical arguments are rechecked
+before REST or MCP dispatch.
 
 If two active plugins expose the same function name, execution returns a
 collision error instead of choosing one silently. Keep function names unique

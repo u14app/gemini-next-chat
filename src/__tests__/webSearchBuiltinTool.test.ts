@@ -14,7 +14,10 @@ vi.mock("@/services/api/searchService", () => ({
   createSearchProvider: mocks.createSearchProvider,
 }));
 
-import { createWebSearchBinding } from "../services/api/chat/builtinTools/webSearch";
+import {
+  createSearchWebV2Binding,
+  createWebSearchBinding,
+} from "../services/api/chat/builtinTools/webSearch";
 
 function createContext(
   search: (event: BuiltinSearchEvent) => void,
@@ -54,6 +57,7 @@ describe("web_search built-in binding", () => {
     await expect(
       binding.execute({ query: "   " }, createContext(emitSearch)),
     ).resolves.toEqual({
+      ok: false,
       error: {
         code: "WEB_SEARCH_INVALID_QUERY",
         message: "web_search requires a non-empty query.",
@@ -163,6 +167,7 @@ describe("web_search built-in binding", () => {
     await expect(
       binding.execute({ query: "provider failure" }, createContext(emitSearch)),
     ).resolves.toEqual({
+      ok: false,
       error: {
         code: "WEB_SEARCH_FAILED",
         message: "search down",
@@ -193,6 +198,67 @@ describe("web_search built-in binding", () => {
     expect(emitSearch.mock.calls.map(([event]) => event.phase)).toEqual([
       "start",
       "cancel",
+    ]);
+  });
+});
+
+describe("search_web v2 built-in binding", () => {
+  beforeEach(() => mocks.createSearchProvider.mockReset());
+
+  it("runs bounded batch queries with filters and Evidence metadata", async () => {
+    const emitSearch = vi.fn<(event: BuiltinSearchEvent) => void>();
+    mocks.createSearchProvider.mockResolvedValue({
+      sources: [
+        {
+          title: "Filtered result",
+          url: "https://example.com/result",
+          content: "Evidence for the filtered query",
+        },
+      ],
+      images: [],
+    });
+
+    const result = (await createSearchWebV2Binding().execute(
+      {
+        queries: ["release notes", "security notes"],
+        mode: "news",
+        domains: ["example.com", "invalid"],
+        language: "en",
+        date_from: "2026-08-01",
+        date_to: "2026-08-23",
+        time_range: "month",
+        max_results_per_query: 3,
+      },
+      createContext(emitSearch),
+    )) as {
+      sources: Array<{ metadata?: Record<string, unknown> }>;
+      filters: Record<string, unknown>;
+    };
+
+    expect(mocks.createSearchProvider).toHaveBeenCalledTimes(2);
+    expect(mocks.createSearchProvider).toHaveBeenCalledWith(
+      expect.objectContaining({
+        query: expect.stringContaining("site:example.com"),
+        scope: "news",
+        maxResults: 3,
+        timeRange: "month",
+      }),
+      undefined,
+    );
+    expect(result.filters).toMatchObject({
+      domains: ["example.com"],
+      language: "en",
+      appliedAs: "query_operators",
+    });
+    expect(result.sources[0]?.metadata).toMatchObject({
+      sourceId: expect.stringMatching(/^source-/),
+      retrievedAt: expect.any(Number),
+      contentHash: expect.stringMatching(/^(?:sha256|fnv1a):/),
+      externalUntrusted: true,
+    });
+    expect(emitSearch.mock.calls.map(([event]) => event.phase)).toEqual([
+      "start",
+      "complete",
     ]);
   });
 });

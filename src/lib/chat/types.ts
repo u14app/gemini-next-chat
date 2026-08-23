@@ -1,7 +1,18 @@
-import type { PluginFunctionRisk } from "../plugin/types";
+import type {
+  PluginFunctionRisk,
+  ToolApprovalReason,
+  ToolApprovalIdentityV2,
+  ToolInvocationPolicy,
+} from "../plugin/types";
 import type { CitationSource, ImageSource, Source } from "../search/types";
 import type { AppliedSkillInvocation } from "../skills/types";
 import type { TaskPlanStep } from "../agent/taskPlan";
+import type {
+  AgentApprovalMode,
+  AgentProfileV2,
+  AgentRunBudget,
+  AgentSkillPolicy,
+} from "../assistant/types";
 
 export interface Attachment {
   id: string;
@@ -43,6 +54,8 @@ export type MessageGenerationStatus = "streaming" | "interrupted" | "completed";
 export interface MessageGenerationState {
   status: MessageGenerationStatus;
   requestId: string;
+  /** Links this message to its persisted Agent run when Agent mode is active. */
+  agentRunId?: string;
   ownerDeviceId: string;
   model: string;
   attempt: number;
@@ -52,6 +65,8 @@ export interface MessageGenerationState {
 
 export interface ToolCall {
   id: string;
+  /** Links the transcript item to its minimal execution-journal record. */
+  executionRecordId?: string;
   name: string;
   pluginId?: string;
   pluginTitle?: string;
@@ -69,8 +84,14 @@ export interface ToolCall {
   resultImages?: Attachment[];
   isError?: boolean;
   risk?: PluginFunctionRisk;
+  invocationPolicy?: ToolInvocationPolicy;
+  approvalReason?: ToolApprovalReason;
+  startedAt?: number;
+  endedAt?: number;
+  durationMs?: number;
   confirmation?: {
     required: boolean;
+    canPersist?: boolean;
     state: "pending" | "approved" | "denied" | "interrupted" | "error";
     decision?: ToolConfirmationDecision | "automatic";
     decidedAt?: number;
@@ -90,12 +111,56 @@ export interface ToolCall {
 
 export type ToolConfirmationDecision = "allow_once" | "allow_session" | "deny";
 
+export type AgentUserInputQuestionKind =
+  "single_choice" | "multiple_choice" | "confirmation" | "short_text";
+
+export interface AgentUserInputOption {
+  value: string;
+  label: string;
+  description?: string;
+}
+
+export interface AgentUserInputQuestion {
+  id: string;
+  header?: string;
+  question: string;
+  kind: AgentUserInputQuestionKind;
+  required?: boolean;
+  maxSelections?: number;
+  maxLength?: number;
+  options?: AgentUserInputOption[];
+}
+
+export interface AgentUserInputRequest {
+  requestId: string;
+  toolCallId: string;
+  sessionId: string;
+  questions: AgentUserInputQuestion[];
+}
+
+export type AgentUserInputAnswerValue = string | string[] | boolean;
+
+export type AgentUserInputResult =
+  | {
+      status: "answered";
+      answers: Record<string, AgentUserInputAnswerValue>;
+    }
+  | { status: "cancelled"; answers: Record<string, never> };
+
+export interface AgentUserInputController {
+  requestInput: (
+    request: AgentUserInputRequest,
+    signal?: AbortSignal,
+  ) => Promise<AgentUserInputResult>;
+}
+
 export interface ToolSessionApproval {
   pluginId: string;
   functionName: string;
   risk: PluginFunctionRisk;
   functionFingerprint: string;
   approvedAt: number;
+  identity?: ToolApprovalIdentityV2;
 }
 
 export interface ToolConfirmationRequest extends ToolSessionApproval {
@@ -377,6 +442,12 @@ export interface SessionConfig {
   activePlugins?: string[];
   activeSkills?: string[];
   toolApprovals?: ToolSessionApproval[];
+  agentProfileId?: string;
+  /** Sanitized snapshot keeps an existing chat stable if a market Profile changes. */
+  agentProfile?: AgentProfileV2;
+  approvalMode?: AgentApprovalMode;
+  agentBudget?: AgentRunBudget;
+  skillPolicies?: AgentSkillPolicy[];
 }
 
 export interface Session {
@@ -412,6 +483,7 @@ export interface Workspace {
   enableReasoning?: boolean;
   activePlugins?: string[];
   activeSkills?: string[];
+  agentProfile?: AgentProfileV2;
   createdAt: number;
 }
 

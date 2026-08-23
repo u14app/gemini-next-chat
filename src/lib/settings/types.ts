@@ -15,6 +15,7 @@ export type {
   MemoryRecord,
   MemorySettings,
   MemorySource,
+  MemoryScope,
   MemoryType,
 } from "../memory/types";
 

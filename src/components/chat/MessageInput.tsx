@@ -30,7 +30,6 @@ import {
   PencilSparkles,
   Sparkles,
   Quote,
-  Bot,
 } from "lucide-react";
 import { useTranslations } from "next-intl";
 import type {
@@ -120,6 +119,17 @@ import {
   useShortcutPresentation,
 } from "@/components/shortcuts/ShortcutHint";
 import { Button } from "@/components/ui/primitives";
+import AgentCapabilityMenu, {
+  type AgentCapabilitySummary,
+} from "@/components/agent/AgentCapabilityMenu";
+import AgentArtifactDrawer from "@/components/agent/AgentArtifactDrawer";
+import { resolveAgentProfile } from "@/lib/assistant/profile";
+import {
+  getAgentBuiltinToolNames,
+  isAgentWorkspaceAvailable,
+} from "@/lib/agent";
+import { getEnabledPluginFunctions } from "@/lib/plugin/resolve";
+import { useMemoryStore } from "@/store/core/memoryStore";
 
 type MessageInputVariant = "default" | "hero";
 
@@ -226,6 +236,7 @@ const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
     const [isPreparingSend, setIsPreparingSend] = useState(false);
     const [forcedSkillIds, setForcedSkillIds] = useState<string[]>([]);
     const [forcedPluginIds, setForcedPluginIds] = useState<string[]>([]);
+    const [showArtifactDrawer, setShowArtifactDrawer] = useState(false);
 
     const t = useTranslations("MessageInput");
     const tConfig = useTranslations("Config");
@@ -236,6 +247,7 @@ const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
       setChatConfig,
       currentSessionId,
       sessions,
+      workspaces,
       updateSessionConfig,
     } = useChatStore();
     const {
@@ -254,6 +266,16 @@ const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
     } = useSettingsStore();
 
     const { providers } = useCoreSettingsStore();
+    const memoryAvailable = useMemoryStore(
+      (state) =>
+        state.settings.enabled &&
+        state.settings.searchEnabled &&
+        (typeof window === "undefined" || state._hasHydrated),
+    );
+    const [workspaceAvailable, setWorkspaceAvailable] = useState(false);
+    useEffect(() => {
+      setWorkspaceAvailable(isAgentWorkspaceAvailable());
+    }, []);
 
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     const composerRootRef = useRef<HTMLDivElement>(null);
@@ -543,11 +565,6 @@ const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
         teardownRecording();
       };
     }, [teardownRecording]);
-    const agentModeTooltip = !modelCapabilities.toolCall
-      ? t("agentModeUnavailable")
-      : agentModeEnabled
-        ? t("disableAgentMode")
-        : t("enableAgentMode");
     const agentSearchRequiresExternalProvider =
       agentModeEnabled &&
       isSearchEnabled &&
@@ -606,6 +623,179 @@ const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
 
       return groups;
     }, [validPlugins]);
+
+    const currentWorkspace = useMemo(
+      () =>
+        currentSession?.workspaceId
+          ? workspaces.find(
+              (workspace) => workspace.id === currentSession.workspaceId,
+            )
+          : undefined,
+      [currentSession?.workspaceId, workspaces],
+    );
+    const effectiveAgentProfile = useMemo(
+      () =>
+        resolveAgentProfile(
+          currentWorkspace?.agentProfile,
+          currentSession?.config?.agentProfile,
+          {
+            runtime: {
+              ...(currentSession?.config?.approvalMode
+                ? { approvalMode: currentSession.config.approvalMode }
+                : {}),
+              ...(currentSession?.config?.agentBudget
+                ? { budget: currentSession.config.agentBudget }
+                : {}),
+            },
+            capabilities: {
+              ...(currentSession?.config?.skillPolicies
+                ? { skillPolicies: currentSession.config.skillPolicies }
+                : {}),
+            },
+          },
+        ),
+      [
+        currentSession?.config?.agentBudget,
+        currentSession?.config?.agentProfile,
+        currentSession?.config?.approvalMode,
+        currentSession?.config?.skillPolicies,
+        currentWorkspace?.agentProfile,
+      ],
+    );
+    const effectiveAgentPluginIds = useMemo(() => {
+      const hasProfileLayer = Boolean(
+        currentSession?.config?.agentProfile || currentWorkspace?.agentProfile,
+      );
+      const requested =
+        currentSession?.config?.activePlugins !== undefined
+          ? currentSession.config.activePlugins
+          : hasProfileLayer
+            ? effectiveAgentProfile.capabilities.pluginIds || []
+            : activePlugins;
+      return Array.from(new Set([...forcedPluginIds, ...requested])).filter(
+        (id) => validPlugins.some((plugin) => plugin.id === id),
+      );
+    }, [
+      activePlugins,
+      currentSession?.config?.activePlugins,
+      currentSession?.config?.agentProfile,
+      currentWorkspace?.agentProfile,
+      effectiveAgentProfile.capabilities.pluginIds,
+      forcedPluginIds,
+      validPlugins,
+    ]);
+    const agentCapabilitySummary = useMemo<AgentCapabilitySummary>(() => {
+      const policies = effectiveAgentProfile.capabilities.skillPolicies || [];
+      const automaticIds = policies
+        .filter((policy) => policy.mode === "auto")
+        .map((policy) => policy.skillId);
+      const hasSkillPolicyLayer =
+        Boolean(
+          currentSession?.config?.agentProfile ||
+          currentWorkspace?.agentProfile,
+        ) || currentSession?.config?.skillPolicies !== undefined;
+      const effectiveAutomaticIds = hasSkillPolicyLayer
+        ? automaticIds
+        : activeSkillIds;
+      const automaticSkillNames = effectiveAutomaticIds.flatMap((id) => {
+        const skill = installedSkills.find((candidate) => candidate.id === id);
+        return skill ? [skill.title] : [];
+      });
+      const manualSkillNames = policies.flatMap((policy) => {
+        if (policy.mode !== "manual") return [];
+        const skill = installedSkills.find(
+          (candidate) => candidate.id === policy.skillId,
+        );
+        return skill ? [skill.title] : [];
+      });
+      const selectedPlugins = effectiveAgentPluginIds.flatMap((id) => {
+        const plugin = validPlugins.find((candidate) => candidate.id === id);
+        return plugin ? [plugin] : [];
+      });
+      const pluginFunctions = selectedPlugins.flatMap((plugin) =>
+        getEnabledPluginFunctions(plugin, pluginConfigs[plugin.id]).map(
+          (fn) => ({ pluginId: plugin.id, name: fn.name }),
+        ),
+      );
+      const allowedToolIds = effectiveAgentProfile.capabilities.toolIds || [];
+      const restrictTools = allowedToolIds.length > 0;
+      const mcpEnabled = selectedPlugins.some(
+        (plugin) => plugin.source === "mcp",
+      );
+      const knowledgeIds = new Set(
+        effectiveAgentProfile.capabilities.knowledgeCollectionIds?.length
+          ? effectiveAgentProfile.capabilities.knowledgeCollectionIds
+          : currentWorkspace?.knowledgeCollectionIds || [],
+      );
+      attachments.filter(isKnowledgeAttachment).forEach((attachment) => {
+        if (attachment.data) knowledgeIds.add(attachment.data);
+      });
+      const builtins = getAgentBuiltinToolNames({
+        agentModeEnabled,
+        memoryEnabled:
+          memoryAvailable &&
+          (effectiveAgentProfile.capabilities.memoryScopes || []).length > 0,
+        externalSearchEnabled:
+          isSearchEnabled && searchCompatibility.mode === "external",
+        knowledgeEnabled: knowledgeIds.size > 0,
+        skillsEnabled: automaticSkillNames.length > 0,
+        mcpEnabled,
+        dynamicToolsEnabled: pluginFunctions.length > 0,
+        workspaceEnabled: workspaceAvailable,
+        allowedToolIds,
+      });
+      const directlyLoadedPluginTools = pluginFunctions
+        .filter(
+          ({ pluginId, name }) =>
+            forcedPluginIds.includes(pluginId) ||
+            (restrictTools && allowedToolIds.includes(name)),
+        )
+        .map(({ name }) => name);
+      const registeredToolNames = Array.from(
+        new Set([...builtins, ...directlyLoadedPluginTools]),
+      );
+      const discoverableToolCount = pluginFunctions.filter(
+        ({ pluginId, name }) =>
+          !registeredToolNames.includes(name) &&
+          !forcedPluginIds.includes(pluginId),
+      ).length;
+
+      return {
+        profileId: currentSession?.config?.agentProfileId,
+        approvalMode: effectiveAgentProfile.runtime.approvalMode,
+        searchEnabled:
+          isSearchEnabled && searchCompatibility.mode === "external",
+        registeredToolNames,
+        discoverableToolCount,
+        pluginNames: selectedPlugins.map((plugin) => plugin.title),
+        automaticSkillNames,
+        manualSkillNames,
+        memoryScopes: effectiveAgentProfile.capabilities.memoryScopes || [
+          "global",
+        ],
+        knowledgeCount: knowledgeIds.size,
+        workspaceAvailable,
+      };
+    }, [
+      activeSkillIds,
+      agentModeEnabled,
+      attachments,
+      currentSession?.config?.agentProfileId,
+      currentSession?.config?.agentProfile,
+      currentSession?.config?.skillPolicies,
+      currentWorkspace?.knowledgeCollectionIds,
+      currentWorkspace?.agentProfile,
+      effectiveAgentPluginIds,
+      effectiveAgentProfile,
+      forcedPluginIds,
+      installedSkills,
+      isSearchEnabled,
+      memoryAvailable,
+      pluginConfigs,
+      searchCompatibility.mode,
+      validPlugins,
+      workspaceAvailable,
+    ]);
 
     const isInputBusy =
       disabled || isTranscribing || isParsingAttachments || isPreparingSend;
@@ -1687,30 +1877,29 @@ const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
 
             {/* Agent Mode Button */}
             <div>
-              <Tooltip content={agentModeTooltip} position="top">
-                <Button
-                  variant="bare"
-                  type="button"
-                  aria-label={agentModeTooltip}
-                  aria-pressed={
-                    modelCapabilities.toolCall ? agentModeEnabled : undefined
-                  }
-                  aria-disabled={!modelCapabilities.toolCall ? true : undefined}
-                  className={`${iconButtonBaseClass} transition-colors ${iconButtonFocusClass} ${
-                    agentModeEnabled
-                      ? "text-blue-500 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20"
-                      : !modelCapabilities.toolCall
-                        ? "text-gray-400 dark:text-muted-foreground/60"
-                        : "text-gray-500 dark:text-muted-foreground hover:text-gray-700 dark:hover:text-foreground hover:bg-gray-100 dark:hover:bg-accent/50"
-                  }`}
-                  onClick={handleAgentModeToggle}
-                  disabled={isInputBusy}
-                >
-                  <Bot size={16} aria-hidden="true" />
-                </Button>
-              </Tooltip>
+              <AgentCapabilityMenu
+                enabled={agentModeEnabled}
+                supported={modelCapabilities.toolCall}
+                disabled={isInputBusy}
+                summary={agentCapabilitySummary}
+                onToggle={handleAgentModeToggle}
+                onOpenArtifacts={() => setShowArtifactDrawer(true)}
+                buttonClassName={`${iconButtonBaseClass} transition-colors ${iconButtonFocusClass} ${
+                  agentModeEnabled
+                    ? "text-blue-500 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20"
+                    : !modelCapabilities.toolCall
+                      ? "text-gray-400 dark:text-muted-foreground/60"
+                      : "text-gray-500 dark:text-muted-foreground hover:text-gray-700 dark:hover:text-foreground hover:bg-gray-100 dark:hover:bg-accent/50"
+                }`}
+              />
             </div>
           </div>
+
+          <AgentArtifactDrawer
+            open={showArtifactDrawer}
+            sessionId={currentSessionId}
+            onClose={() => setShowArtifactDrawer(false)}
+          />
 
           <div className="flex shrink-0 items-center gap-0.5">
             {/* Model Selector */}

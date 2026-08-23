@@ -12,7 +12,7 @@ const asRecord = (args: unknown): Record<string, unknown> =>
 const toToolResult = <T>(result: WorkspaceResult<T>): unknown =>
   result.ok
     ? { ok: true, ...result.value }
-    : { error: { ...result.error, recoverable: true } };
+    : { ok: false, error: { ...result.error, recoverable: true } };
 
 export function createArchiveBinding(): BuiltinToolBinding {
   return {
@@ -55,6 +55,13 @@ export function createArchiveBinding(): BuiltinToolBinding {
       },
     },
     risk: "read",
+    descriptor: {
+      version: 2,
+      effects: ["local_write"],
+      idempotency: "non_idempotent",
+      sensitivity: "user_data",
+      origin: "builtin",
+    },
     displayKey: "createArchive",
     agentOnly: true,
     executionGroup: "workspace",
@@ -64,6 +71,7 @@ export function createArchiveBinding(): BuiltinToolBinding {
 
       if (!Array.isArray(input.paths)) {
         return {
+          ok: false,
           error: {
             code: "WORKSPACE_INVALID_PATH",
             message: "paths must be an array of workspace file paths.",
@@ -76,6 +84,7 @@ export function createArchiveBinding(): BuiltinToolBinding {
       // before doing the work rather than zipping into nothing.
       if (!context.emit.archiveFile) {
         return {
+          ok: false,
           error: {
             code: "WORKSPACE_SHARE_UNAVAILABLE",
             message: "Archive downloads are unavailable for this request.",

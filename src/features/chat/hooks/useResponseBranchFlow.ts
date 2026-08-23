@@ -66,6 +66,7 @@ export function useResponseBranchFlow(deps: ChatFlowDeps) {
     activeStreamCheckpointRef,
     persistLongTextFilesForMessage,
     toolConfirmationController,
+    agentUserInputController,
     getEffectiveContextForSession,
     processPromptForModel,
     createAgentToolStreamOptions,
@@ -194,6 +195,16 @@ export function useResponseBranchFlow(deps: ChatFlowDeps) {
         generationModel,
       );
       if (!isGenerationRunActive(generation)) return;
+      if (effectiveContext.agentModeEnabled) {
+        const current = useChatStore
+          .getState()
+          .activeMessages.find((message) => message.id === branchMessageId);
+        if (current?.generation) {
+          updateMessage(currentSessionId, branchMessageId, {
+            generation: { ...current.generation, agentRunId: requestId },
+          });
+        }
+      }
       commitInjectedMemoryContext(
         currentSessionId,
         sessionMeta,
@@ -206,7 +217,9 @@ export function useResponseBranchFlow(deps: ChatFlowDeps) {
           selectedModel: generationModel,
           locale,
           installedSkills,
-          activeSkillIds: effectiveContext.activeSkillIds,
+          activeSkillIds: effectiveContext.agentModeEnabled
+            ? []
+            : effectiveContext.activeSkillIds,
           skillBundles,
           activeSkillBundleIds,
           skillParameterValues: skillParameterValuesRef.current,
@@ -394,11 +407,25 @@ export function useResponseBranchFlow(deps: ChatFlowDeps) {
             },
             toolConfirmationController,
             {
+              userInputController: agentUserInputController,
               ...createAgentToolStreamOptions({
                 sessionId: currentSessionId,
                 modelMessageId: branchMessageId,
                 knowledgeScope,
                 isActive: () => isGenerationRunActive(generation),
+                allowedSkillIds: effectiveContext.agentSkillIds,
+                allowedToolIds: effectiveContext.agentToolIds,
+                approvalMode: effectiveContext.approvalMode,
+                agentBudget: effectiveContext.agentBudget,
+                memoryScopes: effectiveContext.memoryScopes,
+                memoryScopeIds: effectiveContext.memoryScopeIds,
+                agentRun: effectiveContext.agentModeEnabled
+                  ? {
+                      id: requestId,
+                      userMessageId: lastUserMsg.id,
+                      modelMessageId: branchMessageId,
+                    }
+                  : undefined,
               }),
               forcedPluginIds: lastUserMsg.forcedPluginIds,
             },
@@ -604,6 +631,9 @@ export function useResponseBranchFlow(deps: ChatFlowDeps) {
         attempt: 0,
         checkpointAt: startedAt,
         continuedFrom: previousRequestId,
+        ...(interruptedMessage.generation.agentRunId
+          ? { agentRunId: interruptedMessage.generation.agentRunId }
+          : {}),
       },
     });
 
@@ -613,6 +643,11 @@ export function useResponseBranchFlow(deps: ChatFlowDeps) {
         sessionMeta,
         generationModel,
       );
+      const resumableAgentRunId =
+        effectiveContext.agentModeEnabled &&
+        interruptedMessage.generation.agentRunId
+          ? interruptedMessage.generation.agentRunId
+          : undefined;
       const { prepareHistoryForLLM, streamChatResponse } =
         await loadChatService();
       const history = await prepareHistoryForLLM(
@@ -672,7 +707,8 @@ export function useResponseBranchFlow(deps: ChatFlowDeps) {
                 customModelMetadata,
                 searchCompatibility: effectiveContext.searchCompatibility,
               }),
-              useSearch: false,
+              useSearch: resumableAgentRunId ? chatConfig.useSearch : false,
+              useAgentMode: Boolean(resumableAgentRunId),
             },
             (streamText, streamReasoning, outputBlocks) => {
               if (!isGenerationRunActive(generation)) return;
@@ -716,15 +752,38 @@ export function useResponseBranchFlow(deps: ChatFlowDeps) {
             undefined,
             undefined,
             generation.controller.signal,
-            [],
+            resumableAgentRunId ? effectiveContext.activePluginIds : [],
             undefined,
             undefined,
             toolConfirmationController,
-            {
-              disableTools: true,
-              initialOutputBlocks: continuationOutputBlocks,
-              resumeLongTextBlockId: resumableLongTextBlock?.id,
-            },
+            resumableAgentRunId
+              ? {
+                  userInputController: agentUserInputController,
+                  ...createAgentToolStreamOptions({
+                    sessionId,
+                    modelMessageId: messageId,
+                    knowledgeScope: [],
+                    isActive: () => isGenerationRunActive(generation),
+                    allowedSkillIds: effectiveContext.agentSkillIds,
+                    allowedToolIds: effectiveContext.agentToolIds,
+                    approvalMode: effectiveContext.approvalMode,
+                    agentBudget: effectiveContext.agentBudget,
+                    memoryScopes: effectiveContext.memoryScopes,
+                    memoryScopeIds: effectiveContext.memoryScopeIds,
+                    agentRun: {
+                      id: resumableAgentRunId,
+                      modelMessageId: messageId,
+                    },
+                  }),
+                  resumeAgentRun: true,
+                  initialOutputBlocks: continuationOutputBlocks,
+                  resumeLongTextBlockId: resumableLongTextBlock?.id,
+                }
+              : {
+                  disableTools: true,
+                  initialOutputBlocks: continuationOutputBlocks,
+                  resumeLongTextBlockId: resumableLongTextBlock?.id,
+                },
           ),
       });
 

@@ -1,6 +1,11 @@
 import { MARKET_LIMITS, PLUGIN_EXECUTION_LIMITS } from "@/config/limits";
 import type { Plugin, PluginFunction } from "@/types";
-import type { McpTransport } from "../plugin/types";
+import type {
+  McpToolAnnotations,
+  McpToolIcon,
+  McpTransport,
+  ToolDescriptorV2,
+} from "../plugin/types";
 import { DEFAULT_MCP_SERVER_LOGO_URL } from "./defaults";
 
 export const MCP_REGISTRY_BASE_URL =
@@ -14,8 +19,12 @@ export interface McpRegistryListOptions {
 
 export interface McpRegistryTool {
   name?: unknown;
+  title?: unknown;
   description?: unknown;
   inputSchema?: unknown;
+  outputSchema?: unknown;
+  icons?: unknown;
+  annotations?: unknown;
 }
 
 interface NormalizedMcpRemote {
@@ -110,6 +119,101 @@ function normalizeToolInputSchema(value: unknown): Record<string, unknown> {
   return { ...value };
 }
 
+function normalizeToolOutputSchema(
+  value: unknown,
+): Record<string, unknown> | undefined {
+  return isRecord(value) ? { ...value } : undefined;
+}
+
+function normalizeMcpToolIcons(value: unknown): McpToolIcon[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+
+  const icons: McpToolIcon[] = [];
+  for (const candidate of value) {
+    if (!isRecord(candidate)) continue;
+    const src = trimString(candidate.src, 2_048);
+    if (!src) continue;
+
+    const mimeType = trimString(candidate.mimeType, 160);
+    const sizes = Array.isArray(candidate.sizes)
+      ? candidate.sizes
+          .map((size) => trimString(size, 80))
+          .filter(Boolean)
+          .slice(0, 8)
+      : [];
+    const theme =
+      candidate.theme === "light" || candidate.theme === "dark"
+        ? candidate.theme
+        : undefined;
+    icons.push({
+      src,
+      ...(mimeType ? { mimeType } : {}),
+      ...(sizes.length > 0 ? { sizes } : {}),
+      ...(theme ? { theme } : {}),
+    });
+    if (icons.length >= 8) break;
+  }
+
+  return icons.length > 0 ? icons : undefined;
+}
+
+function normalizeMcpToolAnnotations(
+  value: unknown,
+): McpToolAnnotations | undefined {
+  if (!isRecord(value)) return undefined;
+
+  const title = trimString(value.title, 300);
+  const annotations: McpToolAnnotations = {
+    ...(title ? { title } : {}),
+    ...(typeof value.readOnlyHint === "boolean"
+      ? { readOnlyHint: value.readOnlyHint }
+      : {}),
+    ...(typeof value.destructiveHint === "boolean"
+      ? { destructiveHint: value.destructiveHint }
+      : {}),
+    ...(typeof value.idempotentHint === "boolean"
+      ? { idempotentHint: value.idempotentHint }
+      : {}),
+    ...(typeof value.openWorldHint === "boolean"
+      ? { openWorldHint: value.openWorldHint }
+      : {}),
+  };
+  return Object.keys(annotations).length > 0 ? annotations : undefined;
+}
+
+/**
+ * MCP annotations are server-provided hints. This descriptor is therefore
+ * display-only until a separate trust decision verifies both server and tool.
+ */
+export function createMcpToolDescriptorV2(
+  annotations?: McpToolAnnotations,
+): ToolDescriptorV2 {
+  const readOnly = annotations?.readOnlyHint === true;
+  const explicitlyNonDestructive =
+    annotations?.readOnlyHint === false &&
+    annotations.destructiveHint === false;
+
+  return {
+    version: 2,
+    effects: readOnly
+      ? ["network_read"]
+      : explicitlyNonDestructive
+        ? ["external_write"]
+        : ["external_destructive"],
+    idempotency:
+      readOnly || annotations?.idempotentHint === true
+        ? "idempotent"
+        : annotations?.idempotentHint === false
+          ? "non_idempotent"
+          : "unknown",
+    sensitivity: "unknown",
+    origin: "mcp",
+    ...(typeof annotations?.openWorldHint === "boolean"
+      ? { openWorld: annotations.openWorldHint }
+      : {}),
+  };
+}
+
 export function normalizeMcpToolFunctions(
   serverName: string,
   tools: McpRegistryTool[] | unknown,
@@ -130,12 +234,21 @@ export function normalizeMcpToolFunctions(
     const description =
       trimString(tool.description, 2_048) ||
       `Call the MCP tool ${mcpToolName}.`;
+    const title = trimString(tool.title, 300);
+    const icons = normalizeMcpToolIcons(tool.icons);
+    const annotations = normalizeMcpToolAnnotations(tool.annotations);
+    const outputSchema = normalizeToolOutputSchema(tool.outputSchema);
 
     functions.push({
       name,
       mcpToolName,
       description,
       parameters: normalizeToolInputSchema(tool.inputSchema),
+      ...(title ? { title } : {}),
+      ...(icons ? { icons } : {}),
+      ...(annotations ? { annotations } : {}),
+      ...(outputSchema ? { outputSchema } : {}),
+      mcpPolicyHint: createMcpToolDescriptorV2(annotations),
       risk: "external",
     });
   }

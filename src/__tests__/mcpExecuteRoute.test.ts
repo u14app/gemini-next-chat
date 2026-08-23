@@ -68,6 +68,12 @@ describe("MCP plugin execute route", () => {
           mcpToolName: "resolve-library-id",
           description: "Resolve package docs.",
           parameters: { type: "object", properties: {} },
+          outputSchema: {
+            type: "object",
+            additionalProperties: false,
+            properties: { answer: { type: "string" } },
+            required: ["answer"],
+          },
           risk: "external",
         },
       ],
@@ -124,6 +130,22 @@ describe("MCP plugin execute route", () => {
       result: { structuredContent: { answer: "ok" } },
     });
 
+    executeMcpToolRequestMock.mockResolvedValueOnce({
+      structuredContent: { answer: 42 },
+    });
+    const invalidOutputResponse = await POST(
+      createRequest({
+        pluginId: "mcp:io.github/context7:1.2.3",
+        functionName: "mcp_io_github_context7__resolve_library_id",
+        expectedFingerprint,
+        args: { libraryName: "react" },
+      }) as any,
+    );
+    expect(invalidOutputResponse.status).toBe(502);
+    await expect(invalidOutputResponse.json()).resolves.toMatchObject({
+      code: "TOOL_OUTPUT_SCHEMA_INVALID",
+    });
+
     const changedResponse = await POST(
       createRequest({
         pluginId: "mcp:io.github/context7:1.2.3",
@@ -136,6 +158,6 @@ describe("MCP plugin execute route", () => {
     await expect(changedResponse.json()).resolves.toMatchObject({
       code: "TOOL_DEFINITION_CHANGED",
     });
-    expect(executeMcpToolRequestMock).toHaveBeenCalledTimes(1);
+    expect(executeMcpToolRequestMock).toHaveBeenCalledTimes(2);
   });
 });

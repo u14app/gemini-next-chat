@@ -5,6 +5,7 @@ import { useTranslations } from "next-intl";
 import { ChevronDown, LoaderCircle, Brain } from "lucide-react";
 import type { ToolCall } from "@/types";
 import { Button } from "@/components/ui/primitives";
+import { isToolResultEnvelope } from "@/lib/agent/toolResult";
 
 interface MemorySearchBlockProps {
   toolCalls: ToolCall[];
@@ -53,6 +54,9 @@ const normalizeMemories = (value: unknown): DisplayMemory[] => {
   return memories;
 };
 
+const unwrapResult = (value: unknown): unknown =>
+  isToolResultEnvelope(value) && value.ok ? value.data : value;
+
 const MemorySearchBlock: React.FC<MemorySearchBlockProps> = ({ toolCalls }) => {
   const t = useTranslations("Content");
   const [isExpanded, setIsExpanded] = useState(false);
@@ -74,7 +78,7 @@ const MemorySearchBlock: React.FC<MemorySearchBlockProps> = ({ toolCalls }) => {
   const memories = useMemo(
     () =>
       memorySearches.flatMap((toolCall) =>
-        normalizeMemories(getRecord(toolCall.result).memories),
+        normalizeMemories(getRecord(unwrapResult(toolCall.result)).memories),
       ),
     [memorySearches],
   );
@@ -98,7 +102,7 @@ const MemorySearchBlock: React.FC<MemorySearchBlockProps> = ({ toolCalls }) => {
         aria-controls={panelId}
         aria-busy={isLoading || undefined}
         onClick={() => setIsExpanded(!isExpanded)}
-        className="flex w-full items-center gap-2 px-3 py-2 text-[11px] font-medium text-gray-500 transition-colors hover:bg-gray-100/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/50 dark:text-muted-foreground dark:hover:bg-accent/30"
+        className="flex min-h-11 w-full items-center gap-2 px-3 py-2 text-[11px] font-medium text-gray-500 transition-colors hover:bg-gray-100/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/50 motion-reduce:transition-none dark:text-muted-foreground dark:hover:bg-accent/30"
       >
         {isLoading ? (
           <LoaderCircle
@@ -127,11 +131,7 @@ const MemorySearchBlock: React.FC<MemorySearchBlockProps> = ({ toolCalls }) => {
         id={panelId}
         role="region"
         aria-label={t("memorySearchDetails")}
-        className={`grid transition-[grid-template-rows,opacity] duration-300 ease-in-out ${
-          isExpanded
-            ? "grid-rows-[1fr] opacity-100"
-            : "grid-rows-[0fr] opacity-0"
-        }`}
+        hidden={!isExpanded}
       >
         <div className="overflow-hidden">
           <div className="space-y-3 border-t border-gray-200/50 bg-white/40 px-3 py-3 text-xs text-gray-600 dark:border-border dark:bg-card/30 dark:text-foreground/80">

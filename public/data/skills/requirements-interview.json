@@ -1,0 +1,62 @@
+{
+  "id": "requirements-interview",
+  "name": "requirements-interview",
+  "title": "Requirements Interview",
+  "description": "Turn an ambiguous request into a decision-ready brief by asking only the smallest set of consequential questions.",
+  "category": "productivity",
+  "tags": ["requirements", "interview", "clarification", "scope"],
+  "audience": "user-facing",
+  "language": "en",
+  "outputFormat": "markdown",
+  "risk": {
+    "level": "low",
+    "textOnly": true,
+    "scriptRequired": false,
+    "externalToolRequired": false,
+    "networkRequired": false,
+    "reviewRequiredForHighStakes": true
+  },
+  "activation": {
+    "embeddingText": "requirements interview clarify ambiguous product engineering or business requests scope acceptance criteria non-goals constraints",
+    "useWhen": [
+      "A missing choice would materially change the implementation or deliverable."
+    ],
+    "avoidWhen": [
+      "The answer can be discovered from the current workspace or a read-only tool."
+    ],
+    "exampleQueries": [
+      "Interview me before writing this feature",
+      "Turn this idea into clear requirements"
+    ]
+  },
+  "builtIn": true,
+  "version": "2.0.0",
+  "publisher": "Neo Chat",
+  "source": "builtin",
+  "contentHash": "sha256:a70358d5d5e1f3de48faaf09c38ef8a943cdd3531b6720ab43c8dde099535814",
+  "locales": ["en"],
+  "runtime": {
+    "kind": "declarative_text",
+    "supportsScripts": false,
+    "acceptsPlaintextSecrets": false
+  },
+  "requiredCapabilities": ["structured_user_input"],
+  "allowedTools": ["request_user_input"],
+  "parameters": [],
+  "outputContract": {
+    "format": "markdown",
+    "description": "A concise brief containing goals, decisions, constraints, acceptance criteria, assumptions, and open questions."
+  },
+  "evalCases": [
+    {
+      "id": "ambiguous-feature",
+      "input": "Build a sharing feature.",
+      "expected": [
+        "asks only consequential questions",
+        "does not invent permission or audience rules"
+      ]
+    }
+  ],
+  "file": "requirements-interview.json",
+  "content": "# Requirements Interview\n\nClarify only decisions that materially change the result. First inspect supplied context and use available read-only evidence; do not ask the user for facts the Agent can discover. Group at most three concise questions in one `request_user_input` call. Prefer mutually exclusive options with a recommended default and a short tradeoff. Never ask for passwords, API keys, tokens, or unnecessary personal data.\n\nAfter the answers, produce a brief with: goal, users, in-scope behavior, non-goals, constraints, acceptance criteria, risks, explicit assumptions, and remaining open questions. Distinguish confirmed decisions from proposals. If the user cancels, preserve known facts and identify the minimum unresolved blocker instead of pretending the missing decision was made."
+}

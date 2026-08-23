@@ -53,7 +53,7 @@ const awaitingWriteCall: ToolCall = {
   risk: "write",
   args: { title: "Bug", apiKey: "do-not-display" },
   status: "awaiting_confirmation",
-  confirmation: { required: true, state: "pending" },
+  confirmation: { required: true, canPersist: true, state: "pending" },
 };
 
 describe("ToolCallBlock confirmation controls", () => {
@@ -75,6 +75,29 @@ describe("ToolCallBlock confirmation controls", () => {
         ...awaitingWriteCall,
         id: "call-destructive",
         risk: "destructive",
+        confirmation: {
+          required: true,
+          canPersist: false,
+          state: "pending",
+        },
+      },
+      { onDecision: vi.fn() },
+    );
+
+    expect(screen.getByText("Allow once")).toBeTruthy();
+    expect(screen.queryByText("Allow for this chat")).toBeNull();
+  });
+
+  it("does not offer session permission when V2 policy forbids persistence", () => {
+    renderBlock(
+      {
+        ...awaitingWriteCall,
+        id: "call-credential",
+        confirmation: {
+          required: true,
+          canPersist: false,
+          state: "pending",
+        },
       },
       { onDecision: vi.fn() },
     );
@@ -156,6 +179,17 @@ describe("ToolCallBlock built-in tool presentation", () => {
     });
 
     expect(screen.getByText("Running Web search…")).toBeTruthy();
+  });
+
+  it("keeps the current Tool target visible in the collapsed summary", () => {
+    renderBlock({
+      id: "fetch-target",
+      name: "fetch_url",
+      args: { url: "https://example.com/report" },
+      status: "pending",
+    });
+
+    expect(screen.getByText("Target: https://example.com/report")).toBeTruthy();
   });
 
   it("shows distinct names and icons for all Agent built-ins", async () => {

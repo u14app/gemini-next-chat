@@ -35,11 +35,18 @@ describe("skill invocation wiring", () => {
         "autoSelect: skillAutoSelect && !effectiveContext.agentModeEnabled",
       ),
     ).toBe(streamCallCount - 1);
+    expect(
+      countOccurrences(
+        chatApp,
+        "activeSkillIds: effectiveContext.agentModeEnabled",
+      ),
+    ).toBe(streamCallCount - 1);
     expect(chatApp).toContain(
       "skillAutoSelect && !effectiveContext.agentModeEnabled",
     );
+    // Continuation has no new Skill resolution, but resumes the same AgentRun.
     expect(countOccurrences(chatApp, "createAgentToolStreamOptions({")).toBe(
-      streamCallCount - 1,
+      streamCallCount,
     );
     // The stream-option callbacks moved into the shared preparation hook.
     const requestPreparation = readFileSync(
@@ -51,6 +58,9 @@ describe("skill invocation wiring", () => {
     );
     expect(requestPreparation).toContain("onKnowledgeSources:");
     expect(requestPreparation).toContain("onSkillInvocation:");
+    expect(requestPreparation).toContain(
+      "skillAutoSelect || effectiveContext.agentModeEnabled",
+    );
     expect(chatApp).toContain("processedData.knowledgeScope");
   });
 });

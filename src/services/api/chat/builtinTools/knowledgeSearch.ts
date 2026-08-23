@@ -19,6 +19,7 @@ const MAX_COLLECTION_ID_CHARS = 120;
 
 function errorResult(code: string, message: string) {
   return {
+    ok: false as const,
     error: {
       code,
       message,
@@ -144,6 +145,13 @@ export function createKnowledgeSearchBinding(): BuiltinToolBinding {
       },
     },
     risk: "read",
+    descriptor: {
+      version: 2,
+      effects: ["local_read"],
+      idempotency: "idempotent",
+      sensitivity: "user_data",
+      origin: "builtin",
+    },
     displayKey: "knowledgeSearch",
     agentOnly: true,
     async execute(args, context) {

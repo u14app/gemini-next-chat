@@ -13,6 +13,7 @@ import type { BuiltinToolBinding, BuiltinToolContext } from "./types";
 
 function errorResult(code: string, message: string) {
   return {
+    ok: false as const,
     error: {
       code,
       message,
@@ -104,14 +105,17 @@ async function loadRequestedFiles(
   return { files };
 }
 
-export function createJavaScriptBinding(): BuiltinToolBinding {
+export function createJavaScriptBinding({
+  workspaceEnabled = true,
+}: { workspaceEnabled?: boolean } = {}): BuiltinToolBinding {
   return {
     definition: {
       type: "function",
       function: {
         name: "run_javascript",
-        description:
-          "Run bounded synchronous JavaScript in an isolated browser sandbox. The sandbox has no network, DOM, storage, imports, or external libraries. Workspace files named in readFiles are exposed as the `files` object (path to text); when writeFiles is true, call writeFile(path, content) to save results back to the workspace.",
+        description: workspaceEnabled
+          ? "Run bounded synchronous JavaScript in an isolated browser sandbox. The sandbox has no network, DOM, storage, imports, or external libraries. Workspace files named in readFiles are exposed as the `files` object (path to text); when writeFiles is true, call writeFile(path, content) to save results back to the workspace."
+          : "Run bounded synchronous JavaScript in an isolated browser sandbox. The sandbox has no network, DOM, storage, imports, external libraries, or workspace access in this browser.",
         parameters: {
           type: "object",
           additionalProperties: false,
@@ -123,25 +127,69 @@ export function createJavaScriptBinding(): BuiltinToolBinding {
               description:
                 "Synchronous JavaScript. Use console.log or a return value for output.",
             },
-            readFiles: {
-              type: "array",
-              maxItems: AGENT_WORKSPACE_LIMITS.maxSandboxReadFiles,
-              items: { type: "string", minLength: 1 },
-              description:
-                "Workspace text files to load into the `files` object before running.",
-            },
-            writeFiles: {
-              type: "boolean",
-              default: false,
-              description:
-                "Enables writeFile(path, content) so the run can save files to the workspace.",
-            },
+            ...(workspaceEnabled
+              ? {
+                  readFiles: {
+                    type: "array",
+                    maxItems: AGENT_WORKSPACE_LIMITS.maxSandboxReadFiles,
+                    items: { type: "string", minLength: 1 },
+                    description:
+                      "Workspace text files to load into the `files` object before running.",
+                  },
+                  writeFiles: {
+                    type: "boolean",
+                    default: false,
+                    description:
+                      "Enables writeFile(path, content) so the run can save files to the workspace.",
+                  },
+                  expectedRevisions: {
+                    type: "object",
+                    maxProperties: AGENT_WORKSPACE_LIMITS.maxSandboxWriteFiles,
+                    additionalProperties: {
+                      type: "string",
+                      minLength: 1,
+                      maxLength: 256,
+                    },
+                    description:
+                      "Map each existing output path to the revision previously read. Paths omitted here are created and fail if they already exist.",
+                  },
+                }
+              : {}),
           },
           required: ["code"],
         },
       },
     },
     risk: "read",
+    descriptor: {
+      version: 2,
+      effects: ["local_read"],
+      idempotency: "idempotent",
+      sensitivity: "none",
+      origin: "builtin",
+    },
+    resolveInvocationPolicy(args, descriptor) {
+      const input =
+        args && typeof args === "object" && !Array.isArray(args)
+          ? (args as Record<string, unknown>)
+          : {};
+      const readsWorkspace =
+        workspaceEnabled &&
+        Array.isArray(input.readFiles) &&
+        input.readFiles.length > 0;
+      const writesWorkspace = workspaceEnabled && input.writeFiles === true;
+      return {
+        effects: writesWorkspace
+          ? [
+              ...(readsWorkspace ? (["local_read"] as const) : []),
+              "local_write",
+            ]
+          : descriptor.effects,
+        idempotency: writesWorkspace ? "unknown" : descriptor.idempotency,
+        sensitivity: readsWorkspace ? "user_data" : descriptor.sensitivity,
+        origin: descriptor.origin,
+      };
+    },
     displayKey: "javascript",
     agentOnly: true,
     executionGroup: "workspace",
@@ -171,6 +219,12 @@ export function createJavaScriptBinding(): BuiltinToolBinding {
           )
         : [];
       const captureFiles = input.writeFiles === true;
+      const expectedRevisions =
+        input.expectedRevisions &&
+        typeof input.expectedRevisions === "object" &&
+        !Array.isArray(input.expectedRevisions)
+          ? (input.expectedRevisions as Record<string, unknown>)
+          : {};
 
       const loaded = await loadRequestedFiles(requestedPaths, context);
       if (loaded.error) {
@@ -195,11 +249,16 @@ export function createJavaScriptBinding(): BuiltinToolBinding {
         const writeErrors: string[] = [];
         if (captureFiles) {
           for (const [path, content] of Object.entries(run.files)) {
+            const expectedRevision =
+              typeof expectedRevisions[path] === "string"
+                ? String(expectedRevisions[path])
+                : undefined;
             const written = await writeWorkspaceText(
               context.sessionId,
               path,
               content,
-              "overwrite",
+              expectedRevision ? "overwrite" : "create",
+              { expectedRevision },
             );
             if (written.ok) {
               writtenPaths.push(written.value.path);

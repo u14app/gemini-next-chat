@@ -404,3 +404,77 @@ export async function callMcpTool(
   );
   return result.value;
 }
+
+export async function inspectMcpServer(
+  options: McpClientRequestOptions,
+): Promise<unknown> {
+  const result = await withMcpClient(options, async (client) => ({
+    server: client.getServerVersion(),
+    capabilities: client.getServerCapabilities(),
+    instructions: client.getInstructions(),
+  }));
+  return { ...result.value, transport: result.transport };
+}
+
+export async function listMcpResources(
+  options: McpClientRequestOptions & { cursor?: string },
+): Promise<unknown> {
+  const result = await withMcpClient(options, (client, requestOptions) =>
+    client.listResources(
+      options.cursor !== undefined ? { cursor: options.cursor } : undefined,
+      requestOptions,
+    ),
+  );
+  return { ...result.value, transport: result.transport };
+}
+
+export async function listMcpResourceTemplates(
+  options: McpClientRequestOptions & { cursor?: string },
+): Promise<unknown> {
+  const result = await withMcpClient(options, (client, requestOptions) =>
+    client.listResourceTemplates(
+      options.cursor !== undefined ? { cursor: options.cursor } : undefined,
+      requestOptions,
+    ),
+  );
+  return { ...result.value, transport: result.transport };
+}
+
+export async function readMcpResource(
+  options: McpClientRequestOptions & { uri: string },
+): Promise<unknown> {
+  const result = await withMcpClient(options, (client, requestOptions) =>
+    client.readResource({ uri: options.uri }, requestOptions),
+  );
+  return { ...result.value, transport: result.transport };
+}
+
+export async function listMcpPrompts(
+  options: McpClientRequestOptions & { cursor?: string },
+): Promise<unknown> {
+  const result = await withMcpClient(options, (client, requestOptions) =>
+    client.listPrompts(
+      options.cursor !== undefined ? { cursor: options.cursor } : undefined,
+      requestOptions,
+    ),
+  );
+  return { ...result.value, transport: result.transport };
+}
+
+export async function getMcpPrompt(
+  options: McpClientRequestOptions & {
+    name: string;
+    args?: Record<string, string>;
+  },
+): Promise<unknown> {
+  const result = await withMcpClient(options, (client, requestOptions) =>
+    client.getPrompt(
+      {
+        name: options.name,
+        ...(options.args ? { arguments: options.args } : {}),
+      },
+      requestOptions,
+    ),
+  );
+  return { ...result.value, transport: result.transport };
+}

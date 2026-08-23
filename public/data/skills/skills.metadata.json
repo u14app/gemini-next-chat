@@ -1,6 +1,6 @@
 {
-  "schemaVersion": "skills-v1",
-  "generatedAt": "2026-07-04",
+  "schemaVersion": "skills-v2",
+  "generatedAt": "2026-08-23",
   "locale": "en",
   "datasetName": "Skills Starter Set",
   "description": "A modular set of text-only AI skills. Metadata is used for routing; full skill definitions are loaded only after selection.",
@@ -60,7 +60,7 @@
       "note": "Useful for future security filtering; this local dataset is self-contained and text-only."
     }
   ],
-  "skillCount": 57,
+  "skillCount": 63,
   "categories": [
     "analysis",
     "content",
@@ -71,6 +71,7 @@
     "meta",
     "product",
     "productivity",
+    "quality",
     "reading",
     "research",
     "safety",
@@ -2301,6 +2302,260 @@
         ]
       },
       "file": "workflow-sop.json"
+    },
+    {
+      "id": "requirements-interview",
+      "name": "requirements-interview",
+      "title": "Requirements Interview",
+      "description": "Ask only consequential questions and turn the answers into a decision-ready requirements brief.",
+      "category": "productivity",
+      "tags": ["requirements", "clarification", "scope"],
+      "audience": "user-facing",
+      "language": "en",
+      "outputFormat": "markdown",
+      "risk": {
+        "level": "low",
+        "textOnly": true,
+        "scriptRequired": false,
+        "externalToolRequired": false,
+        "networkRequired": false,
+        "reviewRequiredForHighStakes": true
+      },
+      "activation": {
+        "embeddingText": "requirements interview clarification scope acceptance criteria",
+        "useWhen": ["A missing decision would materially change the result."],
+        "avoidWhen": ["The answer is discoverable from available context."],
+        "exampleQueries": ["Interview me before implementing this"]
+      },
+      "version": "2.0.0",
+      "publisher": "Neo Chat",
+      "source": "builtin",
+      "contentHash": "sha256:a70358d5d5e1f3de48faaf09c38ef8a943cdd3531b6720ab43c8dde099535814",
+      "locales": ["en"],
+      "runtime": {
+        "kind": "declarative_text",
+        "supportsScripts": false,
+        "acceptsPlaintextSecrets": false
+      },
+      "requiredCapabilities": ["structured_user_input"],
+      "allowedTools": ["request_user_input"],
+      "file": "requirements-interview.json",
+      "builtIn": true
+    },
+    {
+      "id": "deep-research",
+      "name": "deep-research",
+      "title": "Deep Research",
+      "description": "Conduct bounded, current multi-source research with source-quality and stopping checks.",
+      "category": "research",
+      "tags": ["research", "web", "sources"],
+      "audience": "user-facing",
+      "language": "en",
+      "outputFormat": "markdown",
+      "risk": {
+        "level": "medium",
+        "textOnly": true,
+        "scriptRequired": false,
+        "externalToolRequired": true,
+        "networkRequired": true,
+        "reviewRequiredForHighStakes": true
+      },
+      "activation": {
+        "embeddingText": "deep research current primary sources evidence citations",
+        "useWhen": ["The request needs current multi-source evidence."],
+        "avoidWhen": ["The task is purely creative."],
+        "exampleQueries": ["Research this topic with current sources"]
+      },
+      "version": "2.0.0",
+      "publisher": "Neo Chat",
+      "source": "builtin",
+      "contentHash": "sha256:777ed55a46e2ce25510b6f0c35414488d27f10586b72c1ab3e6a7188508ae26c",
+      "locales": ["en"],
+      "runtime": {
+        "kind": "declarative_text",
+        "supportsScripts": false,
+        "acceptsPlaintextSecrets": false
+      },
+      "requiredCapabilities": ["network_read", "evidence_ledger"],
+      "allowedTools": ["search_web", "web_search", "fetch_urls", "fetch_url"],
+      "file": "deep-research.json",
+      "builtIn": true
+    },
+    {
+      "id": "citation-evidence-audit",
+      "name": "citation-evidence-audit",
+      "title": "Citation Evidence Audit",
+      "description": "Audit each material claim against sources that were actually retrieved.",
+      "category": "research",
+      "tags": ["citations", "evidence", "audit"],
+      "audience": "system-facing",
+      "language": "en",
+      "outputFormat": "markdown",
+      "risk": {
+        "level": "low",
+        "textOnly": true,
+        "scriptRequired": false,
+        "externalToolRequired": false,
+        "networkRequired": false,
+        "reviewRequiredForHighStakes": true
+      },
+      "activation": {
+        "embeddingText": "citation evidence audit claims provenance",
+        "useWhen": ["A draft relies on external evidence."],
+        "avoidWhen": ["No factual claims need citations."],
+        "exampleQueries": ["Audit these citations"]
+      },
+      "version": "2.0.0",
+      "publisher": "Neo Chat",
+      "source": "builtin",
+      "contentHash": "sha256:49d2604cc8d213df176c34f753ffb33ba95f2e0a584e9a519722733122fed95d",
+      "locales": ["en"],
+      "runtime": {
+        "kind": "declarative_text",
+        "supportsScripts": false,
+        "acceptsPlaintextSecrets": false
+      },
+      "requiredCapabilities": ["evidence_ledger"],
+      "allowedTools": ["search_web", "web_search", "fetch_urls", "fetch_url"],
+      "file": "citation-evidence-audit.json",
+      "builtIn": true
+    },
+    {
+      "id": "workspace-document-builder",
+      "name": "workspace-document-builder",
+      "title": "Workspace Document Builder",
+      "description": "Build revision-safe workspace documents and publish immutable Artifacts.",
+      "category": "productivity",
+      "tags": ["workspace", "document", "artifact"],
+      "audience": "user-facing",
+      "language": "en",
+      "outputFormat": "markdown",
+      "risk": {
+        "level": "medium",
+        "textOnly": true,
+        "scriptRequired": false,
+        "externalToolRequired": true,
+        "networkRequired": false,
+        "reviewRequiredForHighStakes": true
+      },
+      "activation": {
+        "embeddingText": "workspace document revision diff validate publish artifact",
+        "useWhen": ["The deliverable should be a file."],
+        "avoidWhen": ["A short chat answer is sufficient."],
+        "exampleQueries": ["Build this report as a file"]
+      },
+      "version": "2.0.0",
+      "publisher": "Neo Chat",
+      "source": "builtin",
+      "contentHash": "sha256:f6a17c494a8c181c88d67d5376ef27165b2dd97ed35d3b29e951b3e83a2618c3",
+      "locales": ["en"],
+      "runtime": {
+        "kind": "declarative_text",
+        "supportsScripts": false,
+        "acceptsPlaintextSecrets": false
+      },
+      "requiredCapabilities": ["workspace_write", "artifact_publish"],
+      "allowedTools": [
+        "stat_workspace_file",
+        "read_workspace_file",
+        "write_workspace_file",
+        "diff_workspace_file",
+        "validate_workspace_file",
+        "publish_artifact"
+      ],
+      "file": "workspace-document-builder.json",
+      "builtIn": true
+    },
+    {
+      "id": "tabular-analysis",
+      "name": "tabular-analysis",
+      "title": "Tabular Analysis",
+      "description": "Inspect, clean, analyze, and report tabular data with reproducible calculations.",
+      "category": "analysis",
+      "tags": ["table", "csv", "xlsx", "analysis"],
+      "audience": "user-facing",
+      "language": "en",
+      "outputFormat": "markdown",
+      "risk": {
+        "level": "medium",
+        "textOnly": true,
+        "scriptRequired": false,
+        "externalToolRequired": true,
+        "networkRequired": false,
+        "reviewRequiredForHighStakes": true
+      },
+      "activation": {
+        "embeddingText": "tabular csv xlsx spreadsheet analysis",
+        "useWhen": ["The input is rows and columns."],
+        "avoidWhen": ["No table is involved."],
+        "exampleQueries": ["Analyze this spreadsheet"]
+      },
+      "version": "2.0.0",
+      "publisher": "Neo Chat",
+      "source": "builtin",
+      "contentHash": "sha256:f6130efa65bf16c8adb448fcb1891225765fb30a0ef445bf812f5a81974ca897",
+      "locales": ["en"],
+      "runtime": {
+        "kind": "declarative_text",
+        "supportsScripts": false,
+        "acceptsPlaintextSecrets": false
+      },
+      "requiredCapabilities": ["document_extract", "workspace_read"],
+      "allowedTools": [
+        "inspect_attachment",
+        "extract_document",
+        "read_workspace_file",
+        "run_javascript",
+        "write_workspace_file",
+        "validate_workspace_file",
+        "publish_artifact"
+      ],
+      "file": "tabular-analysis.json",
+      "builtIn": true
+    },
+    {
+      "id": "execution-verifier",
+      "name": "execution-verifier",
+      "title": "Execution Verifier",
+      "description": "Verify claimed results against receipts, revisions, validation, evidence, and unrun boundaries.",
+      "category": "quality",
+      "tags": ["verification", "receipt", "acceptance criteria"],
+      "audience": "system-facing",
+      "language": "en",
+      "outputFormat": "markdown",
+      "risk": {
+        "level": "low",
+        "textOnly": true,
+        "scriptRequired": false,
+        "externalToolRequired": true,
+        "networkRequired": false,
+        "reviewRequiredForHighStakes": true
+      },
+      "activation": {
+        "embeddingText": "execution verification receipts revisions validation",
+        "useWhen": ["The Agent claims work completed."],
+        "avoidWhen": ["No execution claim exists."],
+        "exampleQueries": ["Verify the work before handoff"]
+      },
+      "version": "2.0.0",
+      "publisher": "Neo Chat",
+      "source": "builtin",
+      "contentHash": "sha256:b110196c2e7ba5c174fd0bd918f8cc21f9f3eef204e90d0a1c33825de22787e5",
+      "locales": ["en"],
+      "runtime": {
+        "kind": "declarative_text",
+        "supportsScripts": false,
+        "acceptsPlaintextSecrets": false
+      },
+      "requiredCapabilities": ["tool_receipts"],
+      "allowedTools": [
+        "stat_workspace_file",
+        "diff_workspace_file",
+        "validate_workspace_file",
+        "read_workspace_file"
+      ],
+      "file": "execution-verifier.json",
+      "builtIn": true
     }
   ]
 }

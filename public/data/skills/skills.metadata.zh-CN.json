@@ -1,6 +1,6 @@
 {
-  "schemaVersion": "skills-v1",
-  "generatedAt": "2026-07-04",
+  "schemaVersion": "skills-v2",
+  "generatedAt": "2026-08-23",
   "locale": "zh-CN",
   "datasetName": "Skills Starter Set",
   "description": "一组模块化纯文本 AI skills。目录数据用于路由，完整技能定义仅在选中后加载。",
@@ -60,7 +60,7 @@
       "note": "Useful for future security filtering; this local dataset is self-contained and text-only."
     }
   ],
-  "skillCount": 57,
+  "skillCount": 63,
   "categories": [
     "analysis",
     "content",
@@ -71,6 +71,7 @@
     "meta",
     "product",
     "productivity",
+    "quality",
     "reading",
     "research",
     "safety",
@@ -2060,6 +2061,260 @@
         "exampleQueries": ["帮我写 SOP", "把这个流程标准化", "生成操作手册"]
       },
       "file": "workflow-sop.zh-CN.json"
+    },
+    {
+      "id": "requirements-interview",
+      "name": "requirements-interview",
+      "title": "需求访谈",
+      "description": "只询问会实质改变结果的问题，并整理为可决策的需求简报。",
+      "category": "productivity",
+      "tags": ["需求", "澄清", "范围"],
+      "audience": "user-facing",
+      "language": "zh-CN",
+      "outputFormat": "markdown",
+      "risk": {
+        "level": "low",
+        "textOnly": true,
+        "scriptRequired": false,
+        "externalToolRequired": false,
+        "networkRequired": false,
+        "reviewRequiredForHighStakes": true
+      },
+      "activation": {
+        "embeddingText": "需求访谈 澄清 范围 验收标准",
+        "useWhen": ["缺失决策会实质改变结果。"],
+        "avoidWhen": ["可从当前上下文直接查明。"],
+        "exampleQueries": ["实现前先访谈我并明确需求"]
+      },
+      "version": "2.0.0",
+      "publisher": "Neo Chat",
+      "source": "builtin",
+      "contentHash": "sha256:a70358d5d5e1f3de48faaf09c38ef8a943cdd3531b6720ab43c8dde099535814",
+      "locales": ["en"],
+      "runtime": {
+        "kind": "declarative_text",
+        "supportsScripts": false,
+        "acceptsPlaintextSecrets": false
+      },
+      "requiredCapabilities": ["structured_user_input"],
+      "allowedTools": ["request_user_input"],
+      "file": "requirements-interview.json",
+      "builtIn": true
+    },
+    {
+      "id": "deep-research",
+      "name": "deep-research",
+      "title": "深度研究",
+      "description": "通过来源质量、时效、矛盾和停止条件完成有界的多源研究。",
+      "category": "research",
+      "tags": ["研究", "Web", "来源"],
+      "audience": "user-facing",
+      "language": "zh-CN",
+      "outputFormat": "markdown",
+      "risk": {
+        "level": "medium",
+        "textOnly": true,
+        "scriptRequired": false,
+        "externalToolRequired": true,
+        "networkRequired": true,
+        "reviewRequiredForHighStakes": true
+      },
+      "activation": {
+        "embeddingText": "深度研究 最新 一手来源 证据 引用",
+        "useWhen": ["请求需要当前多源证据。"],
+        "avoidWhen": ["任务完全是创作。"],
+        "exampleQueries": ["用最新来源深入研究这个主题"]
+      },
+      "version": "2.0.0",
+      "publisher": "Neo Chat",
+      "source": "builtin",
+      "contentHash": "sha256:777ed55a46e2ce25510b6f0c35414488d27f10586b72c1ab3e6a7188508ae26c",
+      "locales": ["en"],
+      "runtime": {
+        "kind": "declarative_text",
+        "supportsScripts": false,
+        "acceptsPlaintextSecrets": false
+      },
+      "requiredCapabilities": ["network_read", "evidence_ledger"],
+      "allowedTools": ["search_web", "web_search", "fetch_urls", "fetch_url"],
+      "file": "deep-research.json",
+      "builtIn": true
+    },
+    {
+      "id": "citation-evidence-audit",
+      "name": "citation-evidence-audit",
+      "title": "引用证据审计",
+      "description": "逐项核对重要主张与实际获取过的来源。",
+      "category": "research",
+      "tags": ["引用", "证据", "审计"],
+      "audience": "system-facing",
+      "language": "zh-CN",
+      "outputFormat": "markdown",
+      "risk": {
+        "level": "low",
+        "textOnly": true,
+        "scriptRequired": false,
+        "externalToolRequired": false,
+        "networkRequired": false,
+        "reviewRequiredForHighStakes": true
+      },
+      "activation": {
+        "embeddingText": "引用 证据 审计 主张 来源",
+        "useWhen": ["草稿依赖外部证据。"],
+        "avoidWhen": ["没有需要引用的事实主张。"],
+        "exampleQueries": ["审计这些引用是否支持正文"]
+      },
+      "version": "2.0.0",
+      "publisher": "Neo Chat",
+      "source": "builtin",
+      "contentHash": "sha256:49d2604cc8d213df176c34f753ffb33ba95f2e0a584e9a519722733122fed95d",
+      "locales": ["en"],
+      "runtime": {
+        "kind": "declarative_text",
+        "supportsScripts": false,
+        "acceptsPlaintextSecrets": false
+      },
+      "requiredCapabilities": ["evidence_ledger"],
+      "allowedTools": ["search_web", "web_search", "fetch_urls", "fetch_url"],
+      "file": "citation-evidence-audit.json",
+      "builtIn": true
+    },
+    {
+      "id": "workspace-document-builder",
+      "name": "workspace-document-builder",
+      "title": "工作区文档构建器",
+      "description": "用 revision 安全地构建文档并发布不可变 Artifact。",
+      "category": "productivity",
+      "tags": ["工作区", "文档", "Artifact"],
+      "audience": "user-facing",
+      "language": "zh-CN",
+      "outputFormat": "markdown",
+      "risk": {
+        "level": "medium",
+        "textOnly": true,
+        "scriptRequired": false,
+        "externalToolRequired": true,
+        "networkRequired": false,
+        "reviewRequiredForHighStakes": true
+      },
+      "activation": {
+        "embeddingText": "工作区 文档 revision diff 校验 发布 artifact",
+        "useWhen": ["交付物应为文件。"],
+        "avoidWhen": ["简短聊天回答已经足够。"],
+        "exampleQueries": ["把这份报告构建成文件"]
+      },
+      "version": "2.0.0",
+      "publisher": "Neo Chat",
+      "source": "builtin",
+      "contentHash": "sha256:f6a17c494a8c181c88d67d5376ef27165b2dd97ed35d3b29e951b3e83a2618c3",
+      "locales": ["en"],
+      "runtime": {
+        "kind": "declarative_text",
+        "supportsScripts": false,
+        "acceptsPlaintextSecrets": false
+      },
+      "requiredCapabilities": ["workspace_write", "artifact_publish"],
+      "allowedTools": [
+        "stat_workspace_file",
+        "read_workspace_file",
+        "write_workspace_file",
+        "diff_workspace_file",
+        "validate_workspace_file",
+        "publish_artifact"
+      ],
+      "file": "workspace-document-builder.json",
+      "builtIn": true
+    },
+    {
+      "id": "tabular-analysis",
+      "name": "tabular-analysis",
+      "title": "表格分析",
+      "description": "以可复现的计算检查、清洗、分析并报告表格数据。",
+      "category": "analysis",
+      "tags": ["表格", "CSV", "XLSX", "分析"],
+      "audience": "user-facing",
+      "language": "zh-CN",
+      "outputFormat": "markdown",
+      "risk": {
+        "level": "medium",
+        "textOnly": true,
+        "scriptRequired": false,
+        "externalToolRequired": true,
+        "networkRequired": false,
+        "reviewRequiredForHighStakes": true
+      },
+      "activation": {
+        "embeddingText": "表格 csv xlsx 电子表格 分析",
+        "useWhen": ["输入由行列组成。"],
+        "avoidWhen": ["任务不涉及表格。"],
+        "exampleQueries": ["分析这份电子表格"]
+      },
+      "version": "2.0.0",
+      "publisher": "Neo Chat",
+      "source": "builtin",
+      "contentHash": "sha256:f6130efa65bf16c8adb448fcb1891225765fb30a0ef445bf812f5a81974ca897",
+      "locales": ["en"],
+      "runtime": {
+        "kind": "declarative_text",
+        "supportsScripts": false,
+        "acceptsPlaintextSecrets": false
+      },
+      "requiredCapabilities": ["document_extract", "workspace_read"],
+      "allowedTools": [
+        "inspect_attachment",
+        "extract_document",
+        "read_workspace_file",
+        "run_javascript",
+        "write_workspace_file",
+        "validate_workspace_file",
+        "publish_artifact"
+      ],
+      "file": "tabular-analysis.json",
+      "builtIn": true
+    },
+    {
+      "id": "execution-verifier",
+      "name": "execution-verifier",
+      "title": "执行验证器",
+      "description": "依据回执、revision、校验、证据和未执行边界验证结果声明。",
+      "category": "quality",
+      "tags": ["验证", "回执", "验收标准"],
+      "audience": "system-facing",
+      "language": "zh-CN",
+      "outputFormat": "markdown",
+      "risk": {
+        "level": "low",
+        "textOnly": true,
+        "scriptRequired": false,
+        "externalToolRequired": true,
+        "networkRequired": false,
+        "reviewRequiredForHighStakes": true
+      },
+      "activation": {
+        "embeddingText": "执行验证 回执 revision 校验",
+        "useWhen": ["Agent 声称工作已经完成。"],
+        "avoidWhen": ["不存在执行声明。"],
+        "exampleQueries": ["交付前验证这次工作"]
+      },
+      "version": "2.0.0",
+      "publisher": "Neo Chat",
+      "source": "builtin",
+      "contentHash": "sha256:b110196c2e7ba5c174fd0bd918f8cc21f9f3eef204e90d0a1c33825de22787e5",
+      "locales": ["en"],
+      "runtime": {
+        "kind": "declarative_text",
+        "supportsScripts": false,
+        "acceptsPlaintextSecrets": false
+      },
+      "requiredCapabilities": ["tool_receipts"],
+      "allowedTools": [
+        "stat_workspace_file",
+        "diff_workspace_file",
+        "validate_workspace_file",
+        "read_workspace_file"
+      ],
+      "file": "execution-verifier.json",
+      "builtIn": true
     }
   ]
 }

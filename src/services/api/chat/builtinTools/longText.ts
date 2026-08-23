@@ -36,15 +36,26 @@ export function createLongTextOutputBinding(): BuiltinToolBinding {
       },
     },
     risk: "read",
+    descriptor: {
+      version: 2,
+      effects: ["local_write"],
+      idempotency: "non_idempotent",
+      sensitivity: "user_data",
+      origin: "builtin",
+    },
     displayKey: "longTextOutput",
     async execute(args, context) {
       context.signal?.throwIfAborted();
       const parsed = parseLongTextOutputRequest(args);
       if (!parsed.ok) {
-        return { error: { ...parsed.error, recoverable: true } };
+        return {
+          ok: false,
+          error: { ...parsed.error, recoverable: true },
+        };
       }
       if (hasStarted) {
         return {
+          ok: false,
           error: {
             code: "LONG_TEXT_OUTPUT_ALREADY_STARTED",
             message: "Only one long text document can be created per response.",
@@ -55,6 +66,7 @@ export function createLongTextOutputBinding(): BuiltinToolBinding {
 
       if (!context.emit.longText) {
         return {
+          ok: false,
           error: {
             code: "LONG_TEXT_OUTPUT_UNAVAILABLE",
             message:
@@ -65,7 +77,10 @@ export function createLongTextOutputBinding(): BuiltinToolBinding {
       }
       const capture = context.emit.longText(parsed.value);
       if (!capture.ok) {
-        return { error: { ...capture.error, recoverable: true } };
+        return {
+          ok: false,
+          error: { ...capture.error, recoverable: true },
+        };
       }
       hasStarted = true;
       context.signal?.throwIfAborted();

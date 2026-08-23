@@ -442,6 +442,16 @@ describe("app export helpers", () => {
                     },
                   },
                   {
+                    type: "workspace_file",
+                    file: {
+                      path: "out/published.md",
+                      fileName: "published.md",
+                      mimeType: "text/markdown",
+                      bytes: 9,
+                      url: `opfs://chat/artifacts/s1/${"a".repeat(64)}-published.md`,
+                    },
+                  },
+                  {
                     type: "workspace_archive",
                     archive: {
                       fileName: "bundle.zip",
@@ -473,6 +483,7 @@ describe("app export helpers", () => {
 
     expect([...referenced].sort()).toEqual([
       "opfs://chat/archives/s1/archive-id.zip",
+      `opfs://chat/artifacts/s1/${"a".repeat(64)}-published.md`,
       "opfs://chat/long-text/document.md",
       "opfs://chat/s1/attachment.txt",
       "opfs://chat/workspace/s1/out/report.md",

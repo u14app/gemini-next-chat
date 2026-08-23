@@ -1,6 +1,6 @@
 {
-  "schemaVersion": "skills-v1",
-  "generatedAt": "2026-07-04",
+  "schemaVersion": "skills-v2",
+  "generatedAt": "2026-08-23",
   "locale": "ja",
   "datasetName": "Skills Starter Set",
   "description": "チャットで使うモジュール式の純テキスト AI Skills。カタログはルーティングに使われ、詳細定義は選択後に英語版から読み込まれます。",
@@ -60,7 +60,7 @@
       "note": "Useful for future security filtering; this local dataset is self-contained and text-only."
     }
   ],
-  "skillCount": 57,
+  "skillCount": 63,
   "categories": [
     "analysis",
     "content",
@@ -71,6 +71,7 @@
     "meta",
     "product",
     "productivity",
+    "quality",
     "reading",
     "research",
     "safety",
@@ -2226,6 +2227,260 @@
         ]
       },
       "file": "workflow-sop.json"
+    },
+    {
+      "id": "requirements-interview",
+      "name": "requirements-interview",
+      "title": "要件インタビュー",
+      "description": "結果を左右する質問だけを行い、意思決定可能な要件概要にまとめます。",
+      "category": "productivity",
+      "tags": ["要件", "確認", "範囲"],
+      "audience": "user-facing",
+      "language": "ja",
+      "outputFormat": "markdown",
+      "risk": {
+        "level": "low",
+        "textOnly": true,
+        "scriptRequired": false,
+        "externalToolRequired": false,
+        "networkRequired": false,
+        "reviewRequiredForHighStakes": true
+      },
+      "activation": {
+        "embeddingText": "要件 インタビュー 確認 範囲 受け入れ基準",
+        "useWhen": ["不足する決定が結果を大きく変える場合。"],
+        "avoidWhen": ["現在の文脈から確認できる場合。"],
+        "exampleQueries": ["実装前に要件を確認して"]
+      },
+      "version": "2.0.0",
+      "publisher": "Neo Chat",
+      "source": "builtin",
+      "contentHash": "sha256:a70358d5d5e1f3de48faaf09c38ef8a943cdd3531b6720ab43c8dde099535814",
+      "locales": ["en"],
+      "runtime": {
+        "kind": "declarative_text",
+        "supportsScripts": false,
+        "acceptsPlaintextSecrets": false
+      },
+      "requiredCapabilities": ["structured_user_input"],
+      "allowedTools": ["request_user_input"],
+      "file": "requirements-interview.json",
+      "builtIn": true
+    },
+    {
+      "id": "deep-research",
+      "name": "deep-research",
+      "title": "ディープリサーチ",
+      "description": "情報源の品質、鮮度、矛盾、停止条件を明示して複数情報源を調査します。",
+      "category": "research",
+      "tags": ["調査", "Web", "情報源"],
+      "audience": "user-facing",
+      "language": "ja",
+      "outputFormat": "markdown",
+      "risk": {
+        "level": "medium",
+        "textOnly": true,
+        "scriptRequired": false,
+        "externalToolRequired": true,
+        "networkRequired": true,
+        "reviewRequiredForHighStakes": true
+      },
+      "activation": {
+        "embeddingText": "深い調査 最新 一次情報 証拠 引用",
+        "useWhen": ["最新の複数情報源が必要な場合。"],
+        "avoidWhen": ["純粋な創作の場合。"],
+        "exampleQueries": ["最新情報で詳しく調査して"]
+      },
+      "version": "2.0.0",
+      "publisher": "Neo Chat",
+      "source": "builtin",
+      "contentHash": "sha256:777ed55a46e2ce25510b6f0c35414488d27f10586b72c1ab3e6a7188508ae26c",
+      "locales": ["en"],
+      "runtime": {
+        "kind": "declarative_text",
+        "supportsScripts": false,
+        "acceptsPlaintextSecrets": false
+      },
+      "requiredCapabilities": ["network_read", "evidence_ledger"],
+      "allowedTools": ["search_web", "web_search", "fetch_urls", "fetch_url"],
+      "file": "deep-research.json",
+      "builtIn": true
+    },
+    {
+      "id": "citation-evidence-audit",
+      "name": "citation-evidence-audit",
+      "title": "引用証拠監査",
+      "description": "重要な主張を実際に取得した情報源と照合します。",
+      "category": "research",
+      "tags": ["引用", "証拠", "監査"],
+      "audience": "system-facing",
+      "language": "ja",
+      "outputFormat": "markdown",
+      "risk": {
+        "level": "low",
+        "textOnly": true,
+        "scriptRequired": false,
+        "externalToolRequired": false,
+        "networkRequired": false,
+        "reviewRequiredForHighStakes": true
+      },
+      "activation": {
+        "embeddingText": "引用 証拠 監査 主張 出典",
+        "useWhen": ["外部証拠を使う下書きの場合。"],
+        "avoidWhen": ["引用が必要な事実主張がない場合。"],
+        "exampleQueries": ["この引用を監査して"]
+      },
+      "version": "2.0.0",
+      "publisher": "Neo Chat",
+      "source": "builtin",
+      "contentHash": "sha256:49d2604cc8d213df176c34f753ffb33ba95f2e0a584e9a519722733122fed95d",
+      "locales": ["en"],
+      "runtime": {
+        "kind": "declarative_text",
+        "supportsScripts": false,
+        "acceptsPlaintextSecrets": false
+      },
+      "requiredCapabilities": ["evidence_ledger"],
+      "allowedTools": ["search_web", "web_search", "fetch_urls", "fetch_url"],
+      "file": "citation-evidence-audit.json",
+      "builtIn": true
+    },
+    {
+      "id": "workspace-document-builder",
+      "name": "workspace-document-builder",
+      "title": "ワークスペース文書ビルダー",
+      "description": "リビジョンを守って文書を作成し、不変 Artifact を公開します。",
+      "category": "productivity",
+      "tags": ["ワークスペース", "文書", "Artifact"],
+      "audience": "user-facing",
+      "language": "ja",
+      "outputFormat": "markdown",
+      "risk": {
+        "level": "medium",
+        "textOnly": true,
+        "scriptRequired": false,
+        "externalToolRequired": true,
+        "networkRequired": false,
+        "reviewRequiredForHighStakes": true
+      },
+      "activation": {
+        "embeddingText": "ワークスペース 文書 revision diff 検証 公開 artifact",
+        "useWhen": ["成果物がファイルの場合。"],
+        "avoidWhen": ["短いチャット回答で十分な場合。"],
+        "exampleQueries": ["このレポートをファイルにして"]
+      },
+      "version": "2.0.0",
+      "publisher": "Neo Chat",
+      "source": "builtin",
+      "contentHash": "sha256:f6a17c494a8c181c88d67d5376ef27165b2dd97ed35d3b29e951b3e83a2618c3",
+      "locales": ["en"],
+      "runtime": {
+        "kind": "declarative_text",
+        "supportsScripts": false,
+        "acceptsPlaintextSecrets": false
+      },
+      "requiredCapabilities": ["workspace_write", "artifact_publish"],
+      "allowedTools": [
+        "stat_workspace_file",
+        "read_workspace_file",
+        "write_workspace_file",
+        "diff_workspace_file",
+        "validate_workspace_file",
+        "publish_artifact"
+      ],
+      "file": "workspace-document-builder.json",
+      "builtIn": true
+    },
+    {
+      "id": "tabular-analysis",
+      "name": "tabular-analysis",
+      "title": "表形式データ分析",
+      "description": "再現可能な計算で表形式データを点検、整形、分析します。",
+      "category": "analysis",
+      "tags": ["表", "CSV", "XLSX", "分析"],
+      "audience": "user-facing",
+      "language": "ja",
+      "outputFormat": "markdown",
+      "risk": {
+        "level": "medium",
+        "textOnly": true,
+        "scriptRequired": false,
+        "externalToolRequired": true,
+        "networkRequired": false,
+        "reviewRequiredForHighStakes": true
+      },
+      "activation": {
+        "embeddingText": "表 csv xlsx スプレッドシート 分析",
+        "useWhen": ["入力が行と列で構成される場合。"],
+        "avoidWhen": ["表を扱わない場合。"],
+        "exampleQueries": ["このスプレッドシートを分析して"]
+      },
+      "version": "2.0.0",
+      "publisher": "Neo Chat",
+      "source": "builtin",
+      "contentHash": "sha256:f6130efa65bf16c8adb448fcb1891225765fb30a0ef445bf812f5a81974ca897",
+      "locales": ["en"],
+      "runtime": {
+        "kind": "declarative_text",
+        "supportsScripts": false,
+        "acceptsPlaintextSecrets": false
+      },
+      "requiredCapabilities": ["document_extract", "workspace_read"],
+      "allowedTools": [
+        "inspect_attachment",
+        "extract_document",
+        "read_workspace_file",
+        "run_javascript",
+        "write_workspace_file",
+        "validate_workspace_file",
+        "publish_artifact"
+      ],
+      "file": "tabular-analysis.json",
+      "builtIn": true
+    },
+    {
+      "id": "execution-verifier",
+      "name": "execution-verifier",
+      "title": "実行検証",
+      "description": "領収情報、リビジョン、検証結果、証拠、未実行範囲から完了主張を確認します。",
+      "category": "quality",
+      "tags": ["検証", "領収情報", "受け入れ基準"],
+      "audience": "system-facing",
+      "language": "ja",
+      "outputFormat": "markdown",
+      "risk": {
+        "level": "low",
+        "textOnly": true,
+        "scriptRequired": false,
+        "externalToolRequired": true,
+        "networkRequired": false,
+        "reviewRequiredForHighStakes": true
+      },
+      "activation": {
+        "embeddingText": "実行 検証 receipt revision validation",
+        "useWhen": ["Agent が完了を主張する場合。"],
+        "avoidWhen": ["実行の主張がない場合。"],
+        "exampleQueries": ["引き渡し前に実行結果を確認して"]
+      },
+      "version": "2.0.0",
+      "publisher": "Neo Chat",
+      "source": "builtin",
+      "contentHash": "sha256:b110196c2e7ba5c174fd0bd918f8cc21f9f3eef204e90d0a1c33825de22787e5",
+      "locales": ["en"],
+      "runtime": {
+        "kind": "declarative_text",
+        "supportsScripts": false,
+        "acceptsPlaintextSecrets": false
+      },
+      "requiredCapabilities": ["tool_receipts"],
+      "allowedTools": [
+        "stat_workspace_file",
+        "diff_workspace_file",
+        "validate_workspace_file",
+        "read_workspace_file"
+      ],
+      "file": "execution-verifier.json",
+      "builtIn": true
     }
   ]
 }

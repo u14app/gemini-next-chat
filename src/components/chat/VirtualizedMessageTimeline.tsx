@@ -41,6 +41,7 @@ interface VirtualizedMessageTimelineProps {
   onRetract: (message: Message) => void;
   onRegenerate: (messageId: string, model?: string) => void;
   onContinue: (messageId: string) => void;
+  onStopGeneration?: () => void;
   onReply: (message: Message) => void;
   onNavigateToMessage: (messageId: string) => void;
   onVersionChange: (id: string, direction: "prev" | "next") => void;
@@ -96,6 +97,7 @@ const VirtualizedMessageTimeline = React.forwardRef<
       onRetract,
       onRegenerate,
       onContinue,
+      onStopGeneration,
       onReply,
       onNavigateToMessage,
       onVersionChange,
@@ -288,6 +290,11 @@ const VirtualizedMessageTimeline = React.forwardRef<
                       onRegenerate(row.message.id, model)
                     }
                     onContinue={() => onContinue(row.message.id)}
+                    onStopGeneration={
+                      isGenerating && row.messageIndex === messages.length - 1
+                        ? onStopGeneration
+                        : undefined
+                    }
                     onReply={() => onReply(row.message)}
                     onNavigateToMessage={onNavigateToMessage}
                     onVersionChange={onVersionChange}

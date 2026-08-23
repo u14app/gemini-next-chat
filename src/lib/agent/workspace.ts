@@ -19,6 +19,15 @@ export const WORKSPACE_UPLOADS_DIRECTORY = "uploads";
  * `listWorkspace` and never counted by the workspace quota.
  */
 export const ARCHIVE_OPFS_PREFIX = "chat/archives";
+export const ARTIFACT_OPFS_PREFIX = "chat/artifacts";
+
+export function isAgentWorkspaceAvailable(): boolean {
+  if (typeof window === "undefined") return true;
+  return (
+    typeof navigator !== "undefined" &&
+    typeof navigator.storage?.getDirectory === "function"
+  );
+}
 
 export type WorkspaceErrorCode =
   | "WORKSPACE_UNAVAILABLE"
@@ -29,6 +38,7 @@ export type WorkspaceErrorCode =
   | "WORKSPACE_QUOTA_EXCEEDED"
   | "WORKSPACE_EDIT_NO_MATCH"
   | "WORKSPACE_EDIT_AMBIGUOUS"
+  | "WORKSPACE_REVISION_CONFLICT"
   | "WORKSPACE_READ_FAILED"
   | "WORKSPACE_WRITE_FAILED";
 
@@ -71,6 +81,15 @@ export function getSessionArchiveRoot(sessionId: string): string | null {
   const root = getSessionWorkspaceRoot(sessionId);
   if (!root) return null;
   return `${ARCHIVE_OPFS_PREFIX}/${root.slice(WORKSPACE_OPFS_PREFIX.length + 1)}`;
+}
+
+/** Immutable published-artifact root for a session. */
+export function getSessionArtifactRoot(sessionId: string): string | null {
+  const root = getSessionWorkspaceRoot(sessionId);
+  if (!root) return null;
+  return `${ARTIFACT_OPFS_PREFIX}/${root.slice(
+    WORKSPACE_OPFS_PREFIX.length + 1,
+  )}`;
 }
 
 /**
@@ -411,10 +430,21 @@ function legacyWorkspaceRevision(
   return `legacy-${(hash >>> 0).toString(16).padStart(8, "0")}`;
 }
 
+function getArtifactRevision(url: string): string | null {
+  const prefix = `opfs://${ARTIFACT_OPFS_PREFIX}/`;
+  if (!url.startsWith(prefix)) return null;
+  const segments = url.slice(prefix.length).split("/");
+  if (segments.length !== 2) return null;
+  const artifactRoot = getSessionArtifactRoot(segments[0]);
+  if (!artifactRoot || !url.startsWith(`opfs://${artifactRoot}/`)) return null;
+  const match = /^([a-f0-9]{8}|[a-f0-9]{64})-(.+)$/i.exec(segments[1]);
+  if (!match) return null;
+  return `${match[1].length === 64 ? "sha256" : "fnv1a"}:${match[1].toLowerCase()}`;
+}
+
 /**
- * Validates a persisted workspace file reference. Returns undefined for
- * anything whose URL does not point inside a session workspace, so a tampered
- * or stale block cannot be used to read unrelated OPFS paths.
+ * Validates a persisted scratch-file or immutable published-Artifact
+ * reference. Artifact revisions must agree with the content-addressed URL.
  */
 export function normalizeWorkspaceFilePresentation(
   input: unknown,
@@ -425,10 +455,11 @@ export function normalizeWorkspaceFilePresentation(
   if (!path.ok) return undefined;
 
   const url = typeof input.url === "string" ? input.url : "";
-  if (
-    !url.startsWith(`opfs://${WORKSPACE_OPFS_PREFIX}/`) ||
-    !url.endsWith(`/${path.value}`)
-  ) {
+  const isScratchFile =
+    url.startsWith(`opfs://${WORKSPACE_OPFS_PREFIX}/`) &&
+    url.endsWith(`/${path.value}`);
+  const artifactRevision = getArtifactRevision(url);
+  if (!isScratchFile && !artifactRevision) {
     return undefined;
   }
 
@@ -443,7 +474,8 @@ export function normalizeWorkspaceFilePresentation(
   const revision =
     typeof input.revision === "string" && input.revision.trim()
       ? input.revision.trim().slice(0, 160)
-      : legacyWorkspaceRevision(url, path.value, bytes);
+      : artifactRevision || legacyWorkspaceRevision(url, path.value, bytes);
+  if (artifactRevision && revision !== artifactRevision) return undefined;
 
   return {
     path: path.value,

@@ -1,6 +1,11 @@
 import { v7 as uuidv7 } from "uuid";
 import { MEMORY_LIMITS } from "@/config/limits";
-import type { MemoryRecord, MemorySource, MemoryType } from "./types";
+import type {
+  MemoryRecord,
+  MemoryScope,
+  MemorySource,
+  MemoryType,
+} from "./types";
 
 const MEMORY_TYPES = new Set<MemoryType>([
   "fact",
@@ -13,6 +18,12 @@ const MEMORY_TYPES = new Set<MemoryType>([
 ]);
 
 const MEMORY_SOURCES = new Set<MemorySource>(["manual", "ai", "dream"]);
+const MEMORY_SCOPES = new Set<MemoryScope>([
+  "global",
+  "workspace",
+  "agent",
+  "session",
+]);
 const WORD_RE = /[\p{L}\p{N}]+/gu;
 const DIRECT_CONTEXT_TYPES = new Set<MemoryType>([
   "preference",
@@ -96,6 +107,13 @@ export function normalizeMemoryRecord(
   const sourceMessageIds = normalizeStringList(input.sourceMessageIds, 20, 160);
   const sourceMemoryIds = normalizeStringList(input.sourceMemoryIds, 100, 160);
   const sourceSessionId = normalizeText(input.sourceSessionId, 160);
+  const scope =
+    typeof input.scope === "string" &&
+    MEMORY_SCOPES.has(input.scope as MemoryScope)
+      ? (input.scope as MemoryScope)
+      : "global";
+  const scopeId = normalizeText(input.scopeId, 160);
+  if (scope !== "global" && !scopeId) return null;
 
   return {
     id,
@@ -114,6 +132,8 @@ export function normalizeMemoryRecord(
     ...(sourceSessionId ? { sourceSessionId } : {}),
     ...(sourceMessageIds.length > 0 ? { sourceMessageIds } : {}),
     ...(sourceMemoryIds.length > 0 ? { sourceMemoryIds } : {}),
+    scope,
+    ...(scope !== "global" ? { scopeId } : {}),
   };
 }
 
@@ -188,6 +208,16 @@ export function searchMemoryRecords(
     })
     .slice(0, maxResults)
     .map((item) => item.record);
+}
+
+export function isMemoryVisibleInScopes(
+  record: MemoryRecord,
+  allowedScopes: readonly MemoryScope[],
+  scopeIds: { workspace?: string; agent?: string; session?: string },
+): boolean {
+  const scope = record.scope || "global";
+  if (!allowedScopes.includes(scope)) return false;
+  return scope === "global" || record.scopeId === scopeIds[scope];
 }
 
 export interface DirectMemoryPromptContext {

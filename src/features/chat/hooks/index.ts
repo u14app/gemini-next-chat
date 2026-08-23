@@ -3,6 +3,7 @@ export { useChatGenerationController } from "./useChatGenerationController";
 export { useChatPanelNavigation } from "./useChatPanelNavigation";
 export { useChatRequestPreparation } from "./useChatRequestPreparation";
 export { useToolConfirmationController } from "./useToolConfirmationController";
+export { useAgentUserInputController } from "./useAgentUserInputController";
 export { useChatShellState } from "./useChatShellState";
 export { useChatThemeEffects } from "./useChatThemeEffects";
 export { useComposerAttachments } from "./useComposerAttachments";

@@ -26,8 +26,10 @@ import TaskPlanBlock from "./TaskPlanBlock";
 import LongTextBlock from "./LongTextBlock";
 import WorkspaceFileBlock from "./WorkspaceFileBlock";
 import ArchiveFileBlock from "./ArchiveFileBlock";
+import AgentRunBar from "./AgentRunBar";
 import SafeImage from "../ui/SafeImage";
 import { Button } from "@/components/ui/primitives";
+import { useAgentRunStore } from "@/store/core/agentRunStore";
 
 interface MessageOutputRendererProps {
   message: Message;
@@ -55,6 +57,7 @@ interface MessageOutputRendererProps {
     block: Extract<MessageOutputBlock, { type: "text" }>,
   ) => void;
   onWorkspaceFileOpen?: (file: WorkspaceFilePresentation) => void;
+  onStopAgentRun?: () => void;
 }
 
 const isMemorySearchTool = (name: string | undefined) =>
@@ -195,8 +198,13 @@ const MessageOutputRenderer: React.FC<MessageOutputRendererProps> = ({
   onRevokeToolSessionApproval,
   onLongTextOpen,
   onWorkspaceFileOpen,
+  onStopAgentRun,
 }) => {
   const t = useTranslations("Message");
+  const agentRunId = message.generation?.agentRunId;
+  const agentRun = useAgentRunStore((state) =>
+    agentRunId ? state.runsById[agentRunId] : undefined,
+  );
   const blocks = useMemo(() => {
     const orderedBlocks = getMessageOutputBlocks(message);
     return trimTextBlocksForStreaming(
@@ -208,10 +216,11 @@ const MessageOutputRenderer: React.FC<MessageOutputRendererProps> = ({
   const isLongTextStreaming =
     isTyping || message.generation?.status === "streaming";
 
-  if (blocks.length === 0) return null;
+  if (blocks.length === 0 && !agentRun) return null;
 
   return (
     <div className={isTyping ? "animate-in fade-in duration-500" : ""}>
+      {agentRun ? <AgentRunBar run={agentRun} onStop={onStopAgentRun} /> : null}
       {blocks.map((block, index) => {
         switch (block.type) {
           case "text":

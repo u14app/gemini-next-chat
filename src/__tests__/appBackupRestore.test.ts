@@ -262,6 +262,11 @@ function makeWorkspaceOutputBackup(): Blob {
   const exportedAt = "2026-08-23T00:00:00.000Z";
   const workspaceUrl = "opfs://chat/workspace/new-session/out/report.md";
   const archiveUrl = "opfs://chat/archives/new-session/archive-id.zip";
+  const artifactContent = strToU8("immutable report");
+  const artifactHash = createHash("sha256")
+    .update(artifactContent)
+    .digest("hex");
+  const artifactUrl = `opfs://chat/artifacts/new-session/${artifactHash}-published.md`;
   const workspaceContent = strToU8("restored report");
   const archiveContent = strToU8("zip bytes");
   const files = [
@@ -276,6 +281,12 @@ function makeWorkspaceOutputBackup(): Blob {
       archivePath: "files/000001",
       mimeType: "application/zip",
       content: archiveContent,
+    },
+    {
+      originalUrl: artifactUrl,
+      archivePath: "files/000002",
+      mimeType: "text/markdown",
+      content: artifactContent,
     },
   ];
   const manifest: BackupManifestV3 = {
@@ -327,6 +338,18 @@ function makeWorkspaceOutputBackup(): Blob {
                       bytes: workspaceContent.byteLength,
                       url: workspaceUrl,
                       revision: "revision-before-backup",
+                    },
+                  },
+                  {
+                    id: "published-artifact",
+                    type: "workspace_file",
+                    file: {
+                      path: "out/published.md",
+                      fileName: "published.md",
+                      mimeType: "text/markdown",
+                      bytes: artifactContent.byteLength,
+                      url: artifactUrl,
+                      revision: `sha256:${artifactHash}`,
                     },
                   },
                   {
@@ -521,10 +544,10 @@ describe("browser backup restore", () => {
 
     const result = await restoreBrowserAppBackup(makeWorkspaceOutputBackup());
     const restoredTree = storedItems.get("session_messages_new-session") as any;
-    const [fileBlock, archiveBlock] =
+    const [fileBlock, artifactBlock, archiveBlock] =
       restoredTree.nodesById.message.message.outputBlocks;
 
-    expect(result.restoredFileCount).toBe(2);
+    expect(result.restoredFileCount).toBe(3);
     expect(fileBlock.file.url).toMatch(
       /^opfs:\/\/chat\/workspace\/new-session\/restored-[a-z0-9]+\/000000\/report\.md$/,
     );
@@ -541,9 +564,18 @@ describe("browser backup restore", () => {
       /^opfs:\/\/chat\/archives\/new-session\/[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.zip$/,
     );
     expect(writtenFiles.has(archiveBlock.archive.url)).toBe(true);
+    expect(artifactBlock.file).toMatchObject({
+      fileName: "published.md",
+      revision: expect.stringMatching(/^sha256:/),
+    });
+    expect(artifactBlock.file.url).toMatch(
+      /^opfs:\/\/chat\/artifacts\/new-session\/[a-f0-9]{64}-__restore_[a-z0-9]+_000002__published\.md$/,
+    );
+    expect(writtenFiles.has(artifactBlock.file.url)).toBe(true);
     expect(
       normalizeMessage(restoredTree.nodesById.message.message).outputBlocks,
     ).toEqual([
+      expect.objectContaining({ type: "workspace_file" }),
       expect.objectContaining({ type: "workspace_file" }),
       expect.objectContaining({ type: "workspace_archive" }),
     ]);

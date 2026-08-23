@@ -103,7 +103,11 @@ describe("workspace binary layer", () => {
   });
 
   it("lists a binary file like any other entry", async () => {
-    mocks.statOPFSFileSize.mockResolvedValue(1_024);
+    mocks.listOPFSDirectory.mockResolvedValue([`${ROOT}/uploads/logo.png`]);
+    mocks.statOPFSFileSize.mockImplementation(async (url: string) =>
+      url === `opfs://${ROOT}/uploads/logo.png` ? 1_024 : null,
+    );
+    mocks.resolveOPFSBlob.mockResolvedValue(new Blob([new Uint8Array(1_024)]));
 
     const entry = await getWorkspaceFileEntry(SESSION, "uploads/logo.png");
 
@@ -179,7 +183,10 @@ describe("binary attachment seeding", () => {
       `opfs://${ROOT}/uploads/报告.pdf`,
       blob,
     );
-    expect(mocks.writeToOPFS).not.toHaveBeenCalled();
+    expect(mocks.writeToOPFS).not.toHaveBeenCalledWith(
+      `opfs://${ROOT}/uploads/报告.pdf`,
+      expect.any(String),
+    );
   });
 
   it("skips a binary type that is not on the allowlist", async () => {

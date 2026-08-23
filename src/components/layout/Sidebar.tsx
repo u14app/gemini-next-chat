@@ -1331,8 +1331,8 @@ const Sidebar: React.FC<SidebarProps> = ({
                   aria-current={isSettingsOpen ? "page" : undefined}
                   className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-[color,background-color] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 ${
                     isSettingsOpen
-                      ? "bg-slate-100 text-slate-700 dark:bg-sidebar-accent dark:text-sidebar-accent-foreground"
-                      : "bg-sidebar-accent/70 text-gray-600 hover:bg-sidebar-accent dark:text-muted-foreground"
+                      ? "text-slate-700 dark:bg-sidebar-accent dark:text-sidebar-accent-foreground"
+                      : "text-gray-600 hover:bg-sidebar-accent dark:text-muted-foreground"
                   } ${isOpen ? "w-full" : "w-10 justify-center px-0"}`}
                 >
                   <Settings

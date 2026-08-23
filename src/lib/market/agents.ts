@@ -1,5 +1,6 @@
 import type { LobeAgent } from "@/types";
 import { MARKET_LIMITS } from "@/config/limits";
+import { normalizeAgentProfile } from "@/lib/assistant/profile";
 
 const AGENT_IDENTIFIER_RE = /^[A-Za-z0-9._-]+$/;
 
@@ -49,6 +50,7 @@ export function normalizeMarketAgent(value: unknown): LobeAgent | null {
 
   const title =
     trimString(meta.title, MARKET_LIMITS.maxAgentTitleChars) || identifier;
+  const profile = normalizeAgentProfile(raw.profile);
 
   return {
     identifier,
@@ -69,6 +71,7 @@ export function normalizeMarketAgent(value: unknown): LobeAgent | null {
     createdAt: trimString(raw.createdAt, MARKET_LIMITS.maxAgentCreatedAtChars),
     homepage: trimString(raw.homepage, MARKET_LIMITS.maxAgentHomepageChars),
     author: trimString(raw.author, MARKET_LIMITS.maxAgentAuthorChars),
+    ...(profile ? { profile } : {}),
   };
 }
 
@@ -82,6 +85,8 @@ export function normalizeLocalAgent(value: unknown): LobeAgent | null {
       ? (raw.meta as Record<string, unknown>)
       : {};
 
+  const profile = normalizeAgentProfile(raw.profile) || agent.profile;
+
   return {
     ...agent,
     meta: {
@@ -92,6 +97,7 @@ export function normalizeLocalAgent(value: unknown): LobeAgent | null {
       ),
     },
     isCustom: raw.isCustom === true ? true : undefined,
+    ...(profile ? { profile } : {}),
   };
 }
 

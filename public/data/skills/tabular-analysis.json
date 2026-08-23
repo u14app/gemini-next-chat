@@ -1,0 +1,71 @@
+{
+  "id": "tabular-analysis",
+  "name": "tabular-analysis",
+  "title": "Tabular Analysis",
+  "description": "Inspect, clean, analyze, and report tabular data while preserving source columns, units, assumptions, and reproducible calculations.",
+  "category": "analysis",
+  "tags": ["table", "csv", "xlsx", "analysis", "data"],
+  "audience": "user-facing",
+  "language": "en",
+  "outputFormat": "markdown",
+  "risk": {
+    "level": "medium",
+    "textOnly": true,
+    "scriptRequired": false,
+    "externalToolRequired": true,
+    "networkRequired": false,
+    "reviewRequiredForHighStakes": true
+  },
+  "activation": {
+    "embeddingText": "tabular analysis csv xlsx spreadsheet clean schema missing values statistics calculations",
+    "useWhen": [
+      "The input is structured as rows and columns or should become a table."
+    ],
+    "avoidWhen": [
+      "The source is primarily narrative and no tabular deliverable is useful."
+    ],
+    "exampleQueries": [
+      "Analyze this spreadsheet",
+      "Normalize this CSV and explain anomalies"
+    ]
+  },
+  "builtIn": true,
+  "version": "2.0.0",
+  "publisher": "Neo Chat",
+  "source": "builtin",
+  "contentHash": "sha256:f6130efa65bf16c8adb448fcb1891225765fb30a0ef445bf812f5a81974ca897",
+  "locales": ["en"],
+  "runtime": {
+    "kind": "declarative_text",
+    "supportsScripts": false,
+    "acceptsPlaintextSecrets": false
+  },
+  "requiredCapabilities": ["document_extract", "workspace_read"],
+  "allowedTools": [
+    "inspect_attachment",
+    "extract_document",
+    "stat_workspace_file",
+    "read_workspace_file",
+    "run_javascript",
+    "write_workspace_file",
+    "validate_workspace_file",
+    "publish_artifact"
+  ],
+  "parameters": [],
+  "outputContract": {
+    "format": "markdown",
+    "description": "A findings summary plus a reproducible cleaned table or analysis Artifact when requested."
+  },
+  "evalCases": [
+    {
+      "id": "mixed-units",
+      "input": "Analyze a table containing mixed currencies and missing values.",
+      "expected": [
+        "does not combine incompatible units",
+        "documents missing-value handling"
+      ]
+    }
+  ],
+  "file": "tabular-analysis.json",
+  "content": "# Tabular Analysis\n\nInspect file type, sheets or tables, dimensions, headers, units, types, missing values, duplicates, and obvious sensitive fields before analysis. Preserve an immutable reference to the source. State every cleaning decision and never silently coerce identifiers, dates, currencies, percentages, or missing values. Use bounded JavaScript only for calculations that benefit from code, and save large outputs to the workspace.\n\nValidate formulas with small spot checks and report denominators, filters, time ranges, units, and uncertainty. Separate observed values from interpretations. Produce the smallest useful result: cleaned table, summary statistics, anomalies, and decision-relevant findings. For financial, medical, or safety-critical data, avoid unsupported recommendations and request expert verification."
+}

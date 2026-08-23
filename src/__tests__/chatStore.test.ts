@@ -1,7 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { Attachment, Message, Session, Workspace } from "../types";
+import type {
+  Attachment,
+  Message,
+  Session,
+  SessionMessageTree,
+  Workspace,
+} from "../types";
 import {
   getActiveMessagePath,
+  getAllMessagesFromTree,
   isSessionMessageTree,
   normalizeSessionMessageTree,
 } from "../lib/chat/messageTree";
@@ -25,8 +32,34 @@ const { appDbMock, deleteFromOPFSMock, storedItems } = vi.hoisted(() => {
   return { appDbMock, deleteFromOPFSMock, storedItems };
 });
 
+const artifactMocks = vi.hoisted(() => {
+  const deleteSessionArtifacts = vi.fn<(sessionId: string) => Promise<void>>();
+  const duplicateSessionArtifacts =
+    vi.fn<
+      (
+        sourceId: string,
+        targetId: string,
+        urls: Iterable<string>,
+      ) => Promise<Map<string, string>>
+    >();
+  deleteSessionArtifacts.mockResolvedValue(undefined);
+  duplicateSessionArtifacts.mockResolvedValue(new Map());
+  return { deleteSessionArtifacts, duplicateSessionArtifacts };
+});
+
+const agentRunMocks = vi.hoisted(() => ({
+  clearSessionRuns: vi.fn<(sessionId: string) => Promise<void>>(),
+}));
+
 vi.mock("@/utils/opfs", () => ({
   deleteFromOPFS: deleteFromOPFSMock,
+}));
+
+vi.mock("@/services/workspace/sessionArtifact", () => artifactMocks);
+vi.mock("@/store/core/agentRunStore", () => ({
+  useAgentRunStore: {
+    getState: () => ({ clearSessionRuns: agentRunMocks.clearSessionRuns }),
+  },
 }));
 
 vi.mock("../store/storage/storageConfig", () => ({
@@ -104,6 +137,9 @@ describe("chat store persistence", () => {
       storedItems.delete(key);
       return Promise.resolve();
     });
+    artifactMocks.deleteSessionArtifacts.mockResolvedValue(undefined);
+    artifactMocks.duplicateSessionArtifacts.mockResolvedValue(new Map());
+    agentRunMocks.clearSessionRuns.mockResolvedValue(undefined);
     useChatStore.setState({
       _hasHydrated: true,
       sessions: [],
@@ -785,6 +821,63 @@ describe("chat store persistence", () => {
     );
   });
 
+  it("copies and remaps published artifacts when duplicating a session", async () => {
+    const sourceUrl = "opfs://chat/artifacts/a/hash-report.md";
+    const originalMessage: Message = {
+      ...makeModelMessage("m1", "report"),
+      outputBlocks: [
+        {
+          id: "artifact-block",
+          type: "workspace_file",
+          file: {
+            path: "report.md",
+            fileName: "report.md",
+            mimeType: "text/markdown",
+            bytes: 6,
+            url: sourceUrl,
+            revision: "sha256:hash",
+          },
+        },
+      ],
+    };
+    useChatStore.setState({
+      sessions: [makeSession("a")],
+      currentSessionId: "a",
+      activeMessages: [originalMessage],
+      activeMessageTree: normalizeSessionMessageTree([originalMessage]),
+    });
+    artifactMocks.duplicateSessionArtifacts.mockImplementation(
+      async (_sourceId, targetId, urls) => {
+        expect(Array.from(urls)).toEqual([sourceUrl]);
+        return new Map([
+          [sourceUrl, `opfs://chat/artifacts/${targetId}/hash-report.md`],
+        ]);
+      },
+    );
+
+    await useChatStore.getState().duplicateSession("a");
+
+    const duplicateId = useChatStore.getState().sessions[0].id;
+    const duplicatedTree = storedItems.get(
+      `session_messages_${duplicateId}`,
+    ) as SessionMessageTree;
+    const duplicatedBlock =
+      getAllMessagesFromTree(duplicatedTree)[0]?.outputBlocks?.[0];
+    expect(duplicatedBlock).toMatchObject({
+      type: "workspace_file",
+      file: {
+        url: `opfs://chat/artifacts/${duplicateId}/hash-report.md`,
+      },
+    });
+
+    await useChatStore.getState().deleteSession("a");
+    expect(artifactMocks.deleteSessionArtifacts).toHaveBeenCalledWith("a");
+    expect(agentRunMocks.clearSessionRuns).toHaveBeenCalledWith("a");
+    expect(storedItems.get(`session_messages_${duplicateId}`)).toBe(
+      duplicatedTree,
+    );
+  });
+
   it("does not duplicate stale data when the source pending write fails", async () => {
     let rejectWrite: ((error: Error) => void) | undefined;
     appDbMock.setItem.mockImplementationOnce(
@@ -835,6 +928,10 @@ describe("chat store persistence", () => {
     expect(state.sessions.map((session) => session.id)).toEqual(["a"]);
     expect(state.currentSessionId).toBe("a");
     expect(state.activeMessages).toEqual([originalMessage]);
+    expect(artifactMocks.deleteSessionArtifacts).toHaveBeenCalledTimes(1);
+    expect(artifactMocks.deleteSessionArtifacts.mock.calls[0]?.[0]).not.toBe(
+      "a",
+    );
   });
 
   it("ignores message appends for missing sessions", async () => {

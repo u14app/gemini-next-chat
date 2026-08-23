@@ -16,6 +16,9 @@ import type {
   SkillParameterDefinition,
   SkillParameterInput,
   SkillParameterOption,
+  SkillRuntimeV2,
+  SkillOutputContractV2,
+  SkillEvalCaseV2,
 } from "./types";
 
 export type {
@@ -38,6 +41,9 @@ export type {
   SkillParameterDefinition,
   SkillParameterInput,
   SkillParameterOption,
+  SkillRuntimeV2,
+  SkillOutputContractV2,
+  SkillEvalCaseV2,
 } from "./types";
 
 const SKILL_ID_RE = /^[a-z0-9]+(-[a-z0-9]+)*$/;
@@ -137,6 +143,57 @@ function normalizeActivation(value: unknown): TextSkillActivation {
   };
 }
 
+function normalizeSkillRuntime(value: unknown): SkillRuntimeV2 | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const raw = value as Record<string, unknown>;
+  if (raw.kind !== undefined && raw.kind !== "declarative_text") {
+    return undefined;
+  }
+  if (raw.supportsScripts === true || raw.acceptsPlaintextSecrets === true) {
+    return undefined;
+  }
+  return {
+    kind: "declarative_text",
+    supportsScripts: false,
+    acceptsPlaintextSecrets: false,
+  };
+}
+
+function normalizeOutputContract(
+  value: unknown,
+): SkillOutputContractV2 | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+  const raw = value as Record<string, unknown>;
+  const format = trimString(raw.format, 80);
+  if (!format) return undefined;
+  return {
+    format,
+    ...(trimString(raw.description, 1_000)
+      ? { description: trimString(raw.description, 1_000) }
+      : {}),
+    ...(raw.schema &&
+    typeof raw.schema === "object" &&
+    !Array.isArray(raw.schema)
+      ? { schema: raw.schema as Record<string, unknown> }
+      : {}),
+  };
+}
+
+function normalizeEvalCases(value: unknown): SkillEvalCaseV2[] {
+  if (!Array.isArray(value)) return [];
+  return value.slice(0, 20).flatMap((item) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) return [];
+    const raw = item as Record<string, unknown>;
+    const id = trimString(raw.id, 80);
+    const input = trimString(raw.input, 4_000);
+    if (!id || !input) return [];
+    const expected = toStringArray(raw.expected, 20);
+    return [{ id, input, ...(expected.length ? { expected } : {}) }];
+  });
+}
+
 export function normalizeSkillParameters(
   value: unknown,
   maxCount = 20,
@@ -223,17 +280,20 @@ export function normalizeSkillCatalogEntry(
   if (!title || !description) return null;
 
   const risk = normalizeRisk(raw.risk);
-  if (
-    !risk.textOnly ||
-    risk.scriptRequired ||
-    risk.externalToolRequired ||
-    risk.networkRequired
-  ) {
+  if (!risk.textOnly || risk.scriptRequired) {
     return null;
   }
 
   const file = normalizeSingleLineText(raw.file, 240) || undefined;
   if (file && (file.includes("..") || file.startsWith("/"))) return null;
+
+  const runtime = normalizeSkillRuntime(raw.runtime);
+  if (raw.runtime !== undefined && !runtime) return null;
+  const locales = toStringArray(raw.locales, 12);
+  const requiredCapabilities = toStringArray(raw.requiredCapabilities, 32);
+  const allowedTools = toStringArray(raw.allowedTools, 64);
+  const hasAllowedTools = Array.isArray(raw.allowedTools);
+  const evalCases = normalizeEvalCases(raw.evalCases);
 
   return {
     id,
@@ -256,6 +316,20 @@ export function normalizeSkillCatalogEntry(
     isCustom: raw.isCustom === true || undefined,
     createdAt: trimString(raw.createdAt, 80) || undefined,
     updatedAt: trimString(raw.updatedAt, 80) || undefined,
+    version: trimString(raw.version, 80) || undefined,
+    publisher: trimString(raw.publisher, 160) || undefined,
+    source: trimString(raw.source, 240) || undefined,
+    contentHash: trimString(raw.contentHash, 256) || undefined,
+    locales: locales.length ? locales : undefined,
+    runtime,
+    requiredCapabilities: requiredCapabilities.length
+      ? requiredCapabilities
+      : undefined,
+    // An explicit empty list is meaningful: the Skill may not use any Tool.
+    // Missing means the Skill does not narrow the Profile's current catalog.
+    allowedTools: hasAllowedTools ? allowedTools : undefined,
+    outputContract: normalizeOutputContract(raw.outputContract),
+    evalCases: evalCases.length ? evalCases : undefined,
   };
 }
 

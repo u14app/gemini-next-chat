@@ -230,9 +230,33 @@ describe("run_javascript built-in", () => {
       "session-1",
       "out.json",
       "{}",
-      "overwrite",
+      "create",
+      { expectedRevision: undefined },
     );
     expect(result).toEqual({ output: "ok", writtenFiles: ["out.json"] });
+  });
+
+  it("requires a declared revision before replacing an existing output", async () => {
+    mocks.runInSandbox.mockResolvedValue(
+      sandboxResult("ok", { "out.json": "{}" }),
+    );
+
+    await createJavaScriptBinding().execute(
+      {
+        code: "writeFile('out.json', '{}');",
+        writeFiles: true,
+        expectedRevisions: { "out.json": "revision-1" },
+      },
+      context,
+    );
+
+    expect(mocks.writeWorkspaceText).toHaveBeenCalledWith(
+      "session-1",
+      "out.json",
+      "{}",
+      "overwrite",
+      { expectedRevision: "revision-1" },
+    );
   });
 
   it("leaves the workspace untouched when the run fails", async () => {

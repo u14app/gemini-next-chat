@@ -1,0 +1,58 @@
+{
+  "id": "citation-evidence-audit",
+  "name": "citation-evidence-audit",
+  "title": "Citation Evidence Audit",
+  "description": "Audit whether every material claim is supported by an actually retrieved source and whether each citation matches the claim.",
+  "category": "research",
+  "tags": ["citations", "evidence", "audit", "provenance"],
+  "audience": "system-facing",
+  "language": "en",
+  "outputFormat": "markdown",
+  "risk": {
+    "level": "low",
+    "textOnly": true,
+    "scriptRequired": false,
+    "externalToolRequired": false,
+    "networkRequired": false,
+    "reviewRequiredForHighStakes": true
+  },
+  "activation": {
+    "embeddingText": "citation evidence audit claim source provenance retrieved URL content hash unsupported inference",
+    "useWhen": ["A draft or final answer relies on external evidence."],
+    "avoidWhen": ["The output contains no factual claims requiring citations."],
+    "exampleQueries": [
+      "Audit these citations",
+      "Check every claim against the evidence ledger"
+    ]
+  },
+  "builtIn": true,
+  "version": "2.0.0",
+  "publisher": "Neo Chat",
+  "source": "builtin",
+  "contentHash": "sha256:49d2604cc8d213df176c34f753ffb33ba95f2e0a584e9a519722733122fed95d",
+  "locales": ["en"],
+  "runtime": {
+    "kind": "declarative_text",
+    "supportsScripts": false,
+    "acceptsPlaintextSecrets": false
+  },
+  "requiredCapabilities": ["evidence_ledger"],
+  "allowedTools": ["fetch_urls", "fetch_url", "search_web", "web_search"],
+  "parameters": [],
+  "outputContract": {
+    "format": "markdown",
+    "description": "A claim-by-claim pass, weak, missing, or contradictory evidence report."
+  },
+  "evalCases": [
+    {
+      "id": "invented-citation",
+      "input": "Audit a draft containing a citation that was never fetched.",
+      "expected": [
+        "marks the citation unverified",
+        "does not infer evidence from the URL alone"
+      ]
+    }
+  ],
+  "file": "citation-evidence-audit.json",
+  "content": "# Citation Evidence Audit\n\nExtract each material factual claim from the draft. Match it to evidence ledger entries that were actually retrieved in this run or supplied by the user. For every claim, record verdict: supported, partially supported, contradicted, stale, or unsupported; source IDs; and a short reason. Verify that the cited page supports the precise claim, not merely the topic. Check dates, qualifiers, populations, units, and whether an inference is labeled.\n\nNever manufacture a source, quote, page location, retrieval time, or content hash. A plausible URL is not evidence. Recommend the smallest corrective action: narrow wording, add a live retrieval, replace the source, disclose disagreement, or remove the claim."
+}

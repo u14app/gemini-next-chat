@@ -90,6 +90,7 @@ interface MemoryState {
   setHasHydrated: (state: boolean) => void;
   settings: MemorySettings;
   memories: MemoryRecord[];
+  memoryTrash: MemoryRecord[];
   dreamStatus: MemoryDreamStatus;
   updateMemorySettings: (settings: Partial<MemorySettings>) => void;
   addMemory: (memory: Partial<MemoryRecord>) => MemoryRecord | null;
@@ -99,6 +100,8 @@ interface MemoryState {
     updates: Partial<Omit<MemoryRecord, "id" | "createdAt">>,
   ) => void;
   removeMemory: (id: string) => void;
+  forgetMemory: (id: string) => MemoryRecord | null;
+  restoreMemory: (id: string) => MemoryRecord | null;
   replaceMemories: (memories: Partial<MemoryRecord>[]) => void;
   searchMemories: (query: string, limit?: number) => MemoryRecord[];
   markMemoriesUsed: (ids: string[]) => void;
@@ -116,7 +119,9 @@ function mergeMemoryRecords(
     const duplicate = current.find(
       (item) =>
         item.content.toLowerCase().trim() ===
-        record.content.toLowerCase().trim(),
+          record.content.toLowerCase().trim() &&
+        (item.scope || "global") === (record.scope || "global") &&
+        item.scopeId === record.scopeId,
     );
     if (duplicate) {
       byId.set(duplicate.id, {
@@ -143,6 +148,7 @@ export const useMemoryStore = create<MemoryState>()(
       setHasHydrated: (state) => set({ _hasHydrated: state }),
       settings: { ...DEFAULT_MEMORY_SETTINGS },
       memories: [],
+      memoryTrash: [],
       dreamStatus: { ...DEFAULT_DREAM_STATUS },
 
       updateMemorySettings: (settings) =>
@@ -190,6 +196,33 @@ export const useMemoryStore = create<MemoryState>()(
         set((state) => ({
           memories: state.memories.filter((record) => record.id !== id),
         })),
+
+      forgetMemory: (id) => {
+        const record = get().memories.find((candidate) => candidate.id === id);
+        if (!record) return null;
+        set((state) => ({
+          memories: state.memories.filter((candidate) => candidate.id !== id),
+          memoryTrash: [
+            record,
+            ...state.memoryTrash.filter((candidate) => candidate.id !== id),
+          ].slice(0, MEMORY_LIMITS.maxMemories),
+        }));
+        return record;
+      },
+
+      restoreMemory: (id) => {
+        const record = get().memoryTrash.find(
+          (candidate) => candidate.id === id,
+        );
+        if (!record) return null;
+        set((state) => ({
+          memories: mergeMemoryRecords(state.memories, [record]),
+          memoryTrash: state.memoryTrash.filter(
+            (candidate) => candidate.id !== id,
+          ),
+        }));
+        return record;
+      },
 
       replaceMemories: (memories) =>
         set({
@@ -241,12 +274,14 @@ export const useMemoryStore = create<MemoryState>()(
           ...state,
           settings: normalizeMemorySettings(state.settings),
           memories: normalizeMemoryRecords(state.memories),
+          memoryTrash: normalizeMemoryRecords(state.memoryTrash),
           dreamStatus: normalizeDreamStatus(state.dreamStatus),
         } as MemoryState;
       },
       partialize: (state) => ({
         settings: state.settings,
         memories: state.memories,
+        memoryTrash: state.memoryTrash,
         dreamStatus: state.dreamStatus,
       }),
       onRehydrateStorage: () => (state, error) => {

@@ -52,6 +52,9 @@ export function normalizeToolCall(toolCall: Partial<ToolCall>): ToolCall {
     : toolCall.confirmation
       ? {
           required: toolCall.confirmation.required === true,
+          ...(typeof toolCall.confirmation.canPersist === "boolean"
+            ? { canPersist: toolCall.confirmation.canPersist }
+            : {}),
           state: toolCall.confirmation.state,
           ...(toolCall.confirmation.decision
             ? { decision: toolCall.confirmation.decision }

@@ -3,8 +3,28 @@ import type {
   ToolConfirmationController,
   ToolConfirmationRequest,
 } from "@/types";
+import { normalizeToolResultEnvelope } from "@/lib/agent/toolResult";
 import type { ChatToolDefinition } from "./types";
 import { createAbortError } from "./streamErrors";
+
+function createConfirmationFailureResult(
+  toolName: string,
+  code: string,
+  message: string,
+  recoverable: boolean,
+) {
+  return normalizeToolResultEnvelope(
+    { ok: false, error: { code, message, recoverable } },
+    {
+      trust: "internal",
+      provenance: {
+        origin: "runtime",
+        toolName,
+        retrievedAt: Date.now(),
+      },
+    },
+  );
+}
 
 export function waitForToolConfirmation(
   controller: ToolConfirmationController,
@@ -46,12 +66,18 @@ export function createRejectedToolCall(
     isError: true,
     confirmation: {
       required: true,
+      canPersist: false,
       state: "denied",
       decision: "deny",
       decidedAt: Date.now(),
     },
     errorInfo: { code, message, recoverable },
-    result: { error: { code, message } },
+    result: createConfirmationFailureResult(
+      toolCall.name,
+      code,
+      message,
+      recoverable,
+    ),
   };
 }
 
@@ -67,11 +93,12 @@ export function createConfirmationFailureToolCall(
     isError: true,
     confirmation: {
       required: true,
+      canPersist: false,
       state,
       decidedAt: Date.now(),
     },
     errorInfo: { code, message, recoverable: true },
-    result: { error: { code, message } },
+    result: createConfirmationFailureResult(toolCall.name, code, message, true),
   };
 }
 

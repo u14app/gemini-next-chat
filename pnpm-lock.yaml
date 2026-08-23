@@ -46,6 +46,9 @@ importers:
       '@xiangfa/mindmap':
         specifier: ^0.7.1
         version: 0.7.1(katex@0.18.1)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
+      ajv:
+        specifier: ^8.20.0
+        version: 8.20.0
       aws4fetch:
         specifier: ^1.0.20
         version: 1.0.20

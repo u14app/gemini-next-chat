@@ -71,6 +71,7 @@ export function useSendMessageFlow(deps: ChatFlowDeps) {
     activeStreamCheckpointRef,
     persistLongTextFilesForMessage,
     toolConfirmationController,
+    agentUserInputController,
     prepareComposerSkillParameters,
     processPromptForModel,
     createAgentToolStreamOptions,
@@ -199,9 +200,13 @@ export function useSendMessageFlow(deps: ChatFlowDeps) {
       const currentBotMsgId = botMsg.id;
       botMsgId = currentBotMsgId;
       startTime = botMsg.timestamp;
+      const agentRequestId = uuidv7();
       botMsg.generation = {
         status: "streaming",
-        requestId: uuidv7(),
+        requestId: agentRequestId,
+        ...(processedData.effectiveContext.agentModeEnabled
+          ? { agentRunId: agentRequestId }
+          : {}),
         ownerDeviceId: getSyncDeviceId(),
         model: selectedModel,
         attempt: 0,
@@ -260,7 +265,11 @@ export function useSendMessageFlow(deps: ChatFlowDeps) {
         selectedModel,
         locale,
         installedSkills,
-        activeSkillIds: effectiveContext.activeSkillIds,
+        // Agent mode loads auto Skills through load_skill. Only explicit
+        // slash references are injected directly for the current turn.
+        activeSkillIds: effectiveContext.agentModeEnabled
+          ? []
+          : effectiveContext.activeSkillIds,
         skillBundles,
         activeSkillBundleIds,
         skillParameterValues: resolvedSkillParameters.skillParameterValues,
@@ -430,11 +439,25 @@ export function useSendMessageFlow(deps: ChatFlowDeps) {
             },
             toolConfirmationController,
             {
+              userInputController: agentUserInputController,
               ...createAgentToolStreamOptions({
                 sessionId: targetSessionId!,
                 modelMessageId: currentBotMsgId,
                 knowledgeScope: processedData.knowledgeScope,
                 isActive: () => isGenerationRunActive(generation),
+                allowedSkillIds: effectiveContext.agentSkillIds,
+                allowedToolIds: effectiveContext.agentToolIds,
+                approvalMode: effectiveContext.approvalMode,
+                agentBudget: effectiveContext.agentBudget,
+                memoryScopes: effectiveContext.memoryScopes,
+                memoryScopeIds: effectiveContext.memoryScopeIds,
+                agentRun: botMsg.generation?.agentRunId
+                  ? {
+                      id: botMsg.generation.agentRunId,
+                      userMessageId: userMessage.id,
+                      modelMessageId: currentBotMsgId,
+                    }
+                  : undefined,
               }),
               forcedPluginIds: requestedPluginIds,
             },

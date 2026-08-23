@@ -142,8 +142,9 @@ describe("browser backup export", () => {
     expect(phases).toContain("packing");
   });
 
-  it("bundles shared workspace files and immutable workspace archives", async () => {
+  it("bundles scratch files, immutable Artifacts, and workspace archives", async () => {
     const workspaceUrl = "opfs://chat/workspace/session-1/out/report.md";
+    const artifactUrl = `opfs://chat/artifacts/session-1/${"a".repeat(64)}-published.md`;
     const archiveUrl =
       "opfs://chat/archives/session-1/0192f0a1-2222-7000-8000-abcdefabcdef.zip";
     storedItems.set(
@@ -171,6 +172,18 @@ describe("browser backup export", () => {
                 },
               },
               {
+                id: "published-artifact",
+                type: "workspace_file",
+                file: {
+                  path: "out/published.md",
+                  fileName: "published.md",
+                  mimeType: "text/markdown",
+                  bytes: 9,
+                  url: artifactUrl,
+                  revision: `sha256:${"a".repeat(64)}`,
+                },
+              },
+              {
                 id: "workspace-archive",
                 type: "workspace_archive",
                 archive: {
@@ -188,16 +201,17 @@ describe("browser backup export", () => {
       rootMessageIds: ["message"],
     });
     opfsBlobs.set(workspaceUrl, new Blob(["report"]));
+    opfsBlobs.set(artifactUrl, new Blob(["immutable"]));
     opfsBlobs.set(archiveUrl, new Blob(["zip"]));
 
     const backup = await createBrowserAppBackup();
 
     expect(
       backup.manifest.files.map((file) => file.originalUrl).sort(),
-    ).toEqual([archiveUrl, workspaceUrl].sort());
+    ).toEqual([archiveUrl, artifactUrl, workspaceUrl].sort());
     await expect(inspectBrowserAppBackup(backup.blob)).resolves.toMatchObject({
-      fileCount: 2,
-      totalFileBytes: 9,
+      fileCount: 3,
+      totalFileBytes: 18,
       incomplete: false,
     });
   });

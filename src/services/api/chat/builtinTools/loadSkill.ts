@@ -21,6 +21,7 @@ function errorResult(
   details?: Record<string, string>,
 ) {
   return {
+    ok: false as const,
     error: {
       code,
       message,
@@ -89,6 +90,13 @@ export function createLoadSkillBinding(
       },
     },
     risk: "read",
+    descriptor: {
+      version: 2,
+      effects: ["local_read"],
+      idempotency: "idempotent",
+      sensitivity: "user_data",
+      origin: "builtin",
+    },
     displayKey: "loadSkill",
     agentOnly: true,
     async execute(args, context) {
@@ -187,11 +195,15 @@ export function createLoadSkillBinding(
 
         context.signal?.throwIfAborted();
         context.emit.skillInvocation?.(invocation);
+        if (skill.allowedTools) {
+          context.emit.skillToolRestriction?.(skill.allowedTools);
+        }
         return {
           skill_id: skill.id,
           title: skill.title,
           content,
           truncated: content.length < rendered.length,
+          ...(skill.allowedTools ? { allowedTools: skill.allowedTools } : {}),
         };
       } catch (error) {
         if (

@@ -21,6 +21,24 @@ import { safeFetchText } from "@/lib/security/safeFetch";
 import { safeServerLogError } from "@/lib/utils/safeServerLog";
 import type { Plugin, PluginFunction } from "@/types";
 import { createPluginFunctionFingerprint } from "@/lib/plugin/confirmation";
+import {
+  validateToolArguments,
+  validateToolOutput,
+} from "@/lib/agent/toolSchema";
+
+function createInvalidToolArgumentsResponse(
+  validation: Exclude<ReturnType<typeof validateToolArguments>, { ok: true }>,
+) {
+  return NextResponse.json(
+    {
+      error: validation.error.message,
+      code: validation.error.code,
+      issues: validation.error.issues,
+      statusCode: 400,
+    },
+    { status: 400 },
+  );
+}
 
 function getMcpAuthType(
   plugin: Plugin,
@@ -75,6 +93,14 @@ export async function POST(request: NextRequest) {
           },
           { status: 400 },
         );
+      }
+
+      const argsValidation = validateToolArguments(
+        functionDef.parameters,
+        args,
+      );
+      if (!argsValidation.ok) {
+        return createInvalidToolArgumentsResponse(argsValidation);
       }
 
       if (expectedFingerprint) {
@@ -155,6 +181,29 @@ export async function POST(request: NextRequest) {
           signal: request.signal,
         });
 
+        if (functionDef.outputSchema) {
+          const output =
+            result && typeof result === "object" && !Array.isArray(result)
+              ? ((result as Record<string, unknown>).structuredContent ??
+                result)
+              : result;
+          const outputValidation = validateToolOutput(
+            functionDef.outputSchema,
+            output,
+          );
+          if (!outputValidation.ok) {
+            return NextResponse.json(
+              {
+                error: outputValidation.error.message,
+                code: outputValidation.error.code,
+                issues: outputValidation.error.issues,
+                statusCode: 502,
+              },
+              { status: 502 },
+            );
+          }
+        }
+
         return NextResponse.json({ result });
       }
 
@@ -185,6 +234,23 @@ export async function POST(request: NextRequest) {
 
     const legacyBody = ToolExecutionSchema.parse(rawBody);
     const plugin = legacyBody.plugin as Plugin;
+    const functionDef = legacyBody.functionDef as PluginFunction;
+    // Legacy local-first manifests predate required JSON Schemas. Preserve
+    // them with a bounded object contract; hosted execution never accepts
+    // this payload shape.
+    const legacyParameters =
+      functionDef.parameters &&
+      typeof functionDef.parameters === "object" &&
+      !Array.isArray(functionDef.parameters)
+        ? functionDef.parameters
+        : { type: "object" as const };
+    const legacyArgsValidation = validateToolArguments(
+      legacyParameters,
+      legacyBody.args,
+    );
+    if (!legacyArgsValidation.ok) {
+      return createInvalidToolArgumentsResponse(legacyArgsValidation);
+    }
     try {
       await registerServerPlugin(plugin);
     } catch (error) {
@@ -197,7 +263,7 @@ export async function POST(request: NextRequest) {
     }
     return executePluginFunctionRequest({
       plugin,
-      functionDef: legacyBody.functionDef as PluginFunction,
+      functionDef,
       args: legacyBody.args,
       authConfig: legacyBody.authConfig,
       decryptSecret: decryptOptionalSecret,

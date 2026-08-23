@@ -3,6 +3,12 @@ import {
   AGENT_WORKSPACE_LIMITS,
 } from "@/config/limits";
 import { signedApiFetch } from "@/lib/api/client";
+import { getToolArgumentSensitivity } from "@/lib/plugin/risk";
+import {
+  createEvidenceSource,
+  getEvidenceMetadata,
+} from "@/lib/agent/evidence";
+import { mapWithConcurrency } from "@/lib/utils/concurrency";
 import { writeWorkspaceText } from "@/services/workspace/sessionWorkspace";
 
 import type { BuiltinToolBinding } from "./types";
@@ -19,10 +25,30 @@ interface FetchUrlResponse {
 }
 
 function errorResult(code: string, message: string) {
-  return { error: { code, message, recoverable: true } };
+  return { ok: false as const, error: { code, message, recoverable: true } };
 }
 
-export function createFetchUrlBinding(): BuiltinToolBinding {
+async function fetchReadableUrl(
+  url: string,
+  signal?: AbortSignal,
+): Promise<FetchUrlResponse> {
+  const response = await signedApiFetch("/api/agents/fetch-url", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ url }),
+    signal,
+  });
+  if (!response.ok) {
+    throw new Error(
+      `Could not read ${url} (HTTP ${response.status}). The address may be unreachable or blocked.`,
+    );
+  }
+  return (await response.json()) as FetchUrlResponse;
+}
+
+export function createFetchUrlBinding({
+  workspaceEnabled = true,
+}: { workspaceEnabled?: boolean } = {}): BuiltinToolBinding {
   return {
     definition: {
       type: "function",
@@ -39,18 +65,54 @@ export function createFetchUrlBinding(): BuiltinToolBinding {
               maxLength: 2_048,
               description: "Absolute http(s) URL of the page to read.",
             },
-            saveToPath: {
-              type: "string",
-              maxLength: AGENT_WORKSPACE_LIMITS.maxPathChars,
-              description:
-                'Optional workspace path, e.g. "sources/page.md". When set, the page text is written there and only a short excerpt is returned, which keeps a long page out of the conversation.',
-            },
+            ...(workspaceEnabled
+              ? {
+                  saveToPath: {
+                    type: "string",
+                    maxLength: AGENT_WORKSPACE_LIMITS.maxPathChars,
+                    description:
+                      'Optional workspace path, e.g. "sources/page.md". When set, the page text is written there and only a short excerpt is returned, which keeps a long page out of the conversation.',
+                  },
+                  expectedRevision: {
+                    type: "string",
+                    minLength: 1,
+                    maxLength: 256,
+                    description:
+                      "Required to replace an existing destination. Omit to create a new file and fail if it already exists.",
+                  },
+                }
+              : {}),
           },
           required: ["url"],
         },
       },
     },
     risk: "read",
+    descriptor: {
+      version: 2,
+      effects: ["network_read"],
+      idempotency: "idempotent",
+      sensitivity: "user_data",
+      origin: "builtin",
+    },
+    resolveInvocationPolicy(args, descriptor) {
+      const input =
+        args && typeof args === "object" && !Array.isArray(args)
+          ? (args as Record<string, unknown>)
+          : {};
+      const savesToWorkspace =
+        workspaceEnabled &&
+        typeof input.saveToPath === "string" &&
+        input.saveToPath.trim() !== "";
+      return {
+        effects: savesToWorkspace
+          ? ["network_read", "local_write"]
+          : descriptor.effects,
+        idempotency: descriptor.idempotency,
+        sensitivity: getToolArgumentSensitivity(args),
+        origin: descriptor.origin,
+      };
+    },
     displayKey: "fetchUrl",
     agentOnly: true,
     executionGroup: "workspace",
@@ -69,14 +131,9 @@ export function createFetchUrlBinding(): BuiltinToolBinding {
         );
       }
 
-      let response: Response;
+      let data: FetchUrlResponse;
       try {
-        response = await signedApiFetch("/api/agents/fetch-url", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ url }),
-          signal: context.signal,
-        });
+        data = await fetchReadableUrl(url, context.signal);
       } catch (error) {
         if (context.signal?.aborted) throw error;
         return errorResult(
@@ -85,25 +142,31 @@ export function createFetchUrlBinding(): BuiltinToolBinding {
         );
       }
 
-      if (!response.ok) {
-        return errorResult(
-          "FETCH_URL_FAILED",
-          `Could not read ${url} (HTTP ${response.status}). The address may be unreachable or blocked.`,
-        );
-      }
-
-      const data = (await response.json()) as FetchUrlResponse;
+      const evidence = await createEvidenceSource(
+        {
+          url: data.url,
+          title: data.title || data.url,
+          content: data.content,
+        },
+        { kind: "fetch" },
+      );
+      const evidenceMetadata = getEvidenceMetadata(evidence)!;
       const saveToPath =
         typeof input.saveToPath === "string" && input.saveToPath.trim()
           ? input.saveToPath.trim()
           : undefined;
 
       if (saveToPath) {
+        const expectedRevision =
+          typeof input.expectedRevision === "string"
+            ? input.expectedRevision
+            : undefined;
         const written = await writeWorkspaceText(
           context.sessionId,
           saveToPath,
           data.content,
-          "overwrite",
+          expectedRevision ? "overwrite" : "create",
+          { expectedRevision },
         );
         if (!written.ok) {
           return errorResult(written.error.code, written.error.message);
@@ -117,6 +180,9 @@ export function createFetchUrlBinding(): BuiltinToolBinding {
           bytes: written.value.bytes,
           truncated: data.truncated,
           excerpt: data.content.slice(0, SAVED_EXCERPT_CHARS),
+          sourceId: evidenceMetadata.sourceId,
+          retrievedAt: evidenceMetadata.retrievedAt,
+          contentHash: evidenceMetadata.contentHash,
         };
       }
 
@@ -125,12 +191,173 @@ export function createFetchUrlBinding(): BuiltinToolBinding {
         url: data.url,
         ...(data.title ? { title: data.title } : {}),
         content: data.content,
+        sourceId: evidenceMetadata.sourceId,
+        retrievedAt: evidenceMetadata.retrievedAt,
+        contentHash: evidenceMetadata.contentHash,
         truncated: data.truncated,
         ...(data.truncated
           ? {
               note: `Only the first ${AGENT_FETCH_URL_LIMITS.maxContentChars} characters are shown.`,
             }
           : {}),
+      };
+    },
+  };
+}
+
+export function createFetchUrlsBinding({
+  workspaceEnabled = true,
+}: { workspaceEnabled?: boolean } = {}): BuiltinToolBinding {
+  return {
+    definition: {
+      type: "function",
+      function: {
+        name: "fetch_urls",
+        description:
+          "Fetch up to six public URLs with bounded concurrency. Each successful result includes a stable source ID, retrieval time, and content hash for evidence tracking.",
+        parameters: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            urls: {
+              type: "array",
+              minItems: 1,
+              maxItems: 6,
+              uniqueItems: true,
+              items: { type: "string", minLength: 1, maxLength: 2_048 },
+            },
+            ...(workspaceEnabled
+              ? {
+                  save_to_directory: {
+                    type: "string",
+                    maxLength: AGENT_WORKSPACE_LIMITS.maxPathChars,
+                    description:
+                      "Optional workspace directory. When provided, each full page is saved and only excerpts enter model context.",
+                  },
+                }
+              : {}),
+          },
+          required: ["urls"],
+        },
+      },
+    },
+    risk: "read",
+    descriptor: {
+      version: 2,
+      effects: ["network_read"],
+      idempotency: "idempotent",
+      sensitivity: "user_data",
+      origin: "builtin",
+    },
+    resolveInvocationPolicy(args, descriptor) {
+      const input =
+        args && typeof args === "object" && !Array.isArray(args)
+          ? (args as Record<string, unknown>)
+          : {};
+      return {
+        effects:
+          workspaceEnabled &&
+          typeof input.save_to_directory === "string" &&
+          input.save_to_directory.trim()
+            ? ["network_read", "local_write"]
+            : descriptor.effects,
+        idempotency: descriptor.idempotency,
+        sensitivity: getToolArgumentSensitivity(args),
+        origin: descriptor.origin,
+      };
+    },
+    displayKey: "fetchUrls",
+    agentOnly: true,
+    executionGroup: "workspace",
+    async execute(args, context) {
+      const input =
+        args && typeof args === "object" && !Array.isArray(args)
+          ? (args as Record<string, unknown>)
+          : {};
+      const urls = Array.isArray(input.urls)
+        ? [
+            ...new Set(
+              input.urls
+                .filter((url): url is string => typeof url === "string")
+                .map((url) => url.trim())
+                .filter(Boolean),
+            ),
+          ].slice(0, 6)
+        : [];
+      if (urls.length === 0) {
+        return errorResult(
+          "FETCH_URL_INVALID",
+          "fetch_urls requires between one and six URLs.",
+        );
+      }
+      const directory =
+        typeof input.save_to_directory === "string" &&
+        input.save_to_directory.trim()
+          ? input.save_to_directory.trim().replace(/\/+$/, "")
+          : undefined;
+      context.emit.search?.({ phase: "start" });
+      const results = await mapWithConcurrency(urls, 3, async (url, index) => {
+        try {
+          const data = await fetchReadableUrl(url, context.signal);
+          const evidence = await createEvidenceSource(
+            {
+              url: data.url,
+              title: data.title || data.url,
+              content: data.content,
+            },
+            { kind: "fetch" },
+          );
+          const metadata = getEvidenceMetadata(evidence)!;
+          let savedTo: string | undefined;
+          if (directory) {
+            const written = await writeWorkspaceText(
+              context.sessionId,
+              `${directory}/${String(index + 1).padStart(2, "0")}.md`,
+              data.content,
+              "create",
+            );
+            if (!written.ok) throw new Error(written.error.message);
+            savedTo = written.value.path;
+          }
+          return {
+            ok: true as const,
+            url: data.url,
+            title: data.title,
+            sourceId: metadata.sourceId,
+            retrievedAt: metadata.retrievedAt,
+            contentHash: metadata.contentHash,
+            truncated: data.truncated,
+            ...(savedTo
+              ? {
+                  savedTo,
+                  excerpt: data.content.slice(0, SAVED_EXCERPT_CHARS),
+                }
+              : { content: data.content }),
+            evidence,
+          };
+        } catch (error) {
+          if (context.signal?.aborted) throw error;
+          return {
+            ok: false as const,
+            url,
+            error:
+              error instanceof Error ? error.message : "The request failed.",
+          };
+        }
+      });
+      const sources = results.flatMap((result) =>
+        result.ok && "evidence" in result ? [result.evidence] : [],
+      );
+      context.emit.search?.({ phase: "complete", sources, images: [] });
+      return {
+        results: results.map((result) => {
+          if (!("evidence" in result)) return result;
+          const { evidence, ...visible } = result;
+          void evidence;
+          return visible;
+        }),
+        sourceCount: sources.length,
+        failedCount: results.length - sources.length,
       };
     },
   };

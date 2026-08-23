@@ -69,14 +69,16 @@ const baseSkill: TextSkill = {
 function createContext({
   signal = new AbortController().signal,
   skillInvocation = vi.fn<SkillInvocationEmitter>(),
+  skillToolRestriction,
 }: {
   signal?: AbortSignal;
   skillInvocation?: SkillInvocationEmitter;
+  skillToolRestriction?: (allowedTools: readonly string[]) => void;
 } = {}): BuiltinToolContext {
   return {
     signal,
     sessionId: "session-1",
-    emit: { skillInvocation },
+    emit: { skillInvocation, skillToolRestriction },
   };
 }
 
@@ -214,6 +216,27 @@ describe("load_skill binding", () => {
       PROMPT_CONTEXT_LIMITS.maxSingleFileContentChars,
     );
     expect(result.truncated).toBe(true);
+  });
+
+  it("applies an explicit empty Tool restriction", async () => {
+    const noToolSkill: TextSkill = {
+      ...baseSkill,
+      allowedTools: [],
+    };
+    mocks.settingsState = { installedSkills: [noToolSkill] };
+    const skillToolRestriction =
+      vi.fn<(allowedTools: readonly string[]) => void>();
+
+    await expect(
+      createLoadSkillBinding([noToolSkill]).execute(
+        {
+          skill_id: "brief-writer",
+          parameters: { audience: "operators" },
+        },
+        createContext({ skillToolRestriction }),
+      ),
+    ).resolves.toMatchObject({ allowedTools: [] });
+    expect(skillToolRestriction).toHaveBeenCalledWith([]);
   });
 
   it("fails closed when execution starts aborted", async () => {

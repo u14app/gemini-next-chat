@@ -116,6 +116,7 @@ interface MessageItemProps {
   availableModels?: ModelInfo[];
   onRegenerate?: (model?: string) => void;
   onContinue?: () => void;
+  onStopGeneration?: () => void;
   onReply?: () => void;
   onNavigateToMessage?: (messageId: string) => void;
   onRetract?: () => void;
@@ -324,6 +325,7 @@ const MessageItem: React.FC<MessageItemProps> = ({
   availableModels = [],
   onRegenerate,
   onContinue,
+  onStopGeneration,
   onReply,
   onNavigateToMessage,
   onRetract,
@@ -1638,6 +1640,7 @@ const MessageItem: React.FC<MessageItemProps> = ({
                 onImageCached={persistCachedOutputImage}
                 onLongTextOpen={handleLongTextOpen}
                 onWorkspaceFileOpen={handleWorkspaceFileOpen}
+                onStopAgentRun={isTyping ? onStopGeneration : undefined}
                 onToolConfirmationDecision={
                   confirmationActionsDisabled
                     ? undefined

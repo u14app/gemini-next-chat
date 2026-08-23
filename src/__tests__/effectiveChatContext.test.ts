@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { resolveEffectiveChatContext } from "../lib/chat/effectiveChatContext";
 
 describe("effective chat context", () => {
-  it("uses global plugins as request truth while preserving session skills", () => {
+  it("filters unavailable session plugins while surfacing missing authentication", () => {
     const context = resolveEffectiveChatContext({
       session: {
         id: "session-1",
@@ -97,7 +97,7 @@ describe("effective chat context", () => {
     expect(statusCodes).toEqual(
       expect.arrayContaining(["search_unavailable", "rag_unavailable"]),
     );
-    expect(statusCodes).not.toContain("plugin_auth_missing");
+    expect(statusCodes).toContain("plugin_auth_missing");
   });
 
   it("uses workspace skills when the session does not override them", () => {
@@ -149,6 +149,59 @@ describe("effective chat context", () => {
     });
 
     expect(context.activeSkillIds).toEqual(["workspace-skill"]);
+  });
+
+  it("keeps manual Profile Skills discoverable to people but unavailable to Agent auto-use", () => {
+    const context = resolveEffectiveChatContext({
+      session: {
+        id: "session-1",
+        title: "New Chat",
+        updatedAt: 1,
+        model: "openai:gpt-test",
+        messageCount: 0,
+        config: {
+          activeSkills: ["manual-skill", "auto-skill"],
+          skillPolicies: [
+            { skillId: "manual-skill", mode: "manual" },
+            { skillId: "auto-skill", mode: "auto" },
+            { skillId: "disabled-skill", mode: "disabled" },
+          ],
+        },
+      },
+      selectedModel: "openai:gpt-test",
+      provider: { type: "OpenAI" },
+      modelMetadata: {},
+      customModelMetadata: {},
+      chatConfig: {
+        useSearch: false,
+        useReasoning: false,
+        reasoningMode: "off",
+        temperature: 0.7,
+        useRAG: false,
+      },
+      search: { provider: "google", configs: {} },
+      rag: {
+        enabled: false,
+        url: "",
+        token: "",
+        topK: 10,
+        chunkSize: 512,
+        documentParseProvider: "mineru",
+        mineruApiToken: "",
+        llamaParseApiKey: "",
+      },
+      installedPlugins: [],
+      installedSkills: [
+        { id: "manual-skill" },
+        { id: "auto-skill" },
+        { id: "disabled-skill" },
+      ] as any,
+      pluginConfigs: {},
+      activePlugins: [],
+    });
+
+    expect(context.activeSkillIds).toEqual(["manual-skill", "auto-skill"]);
+    expect(context.agentSkillIds).toEqual(["auto-skill"]);
   });
 
   it("appends safe inline HTML guidance when the visual prompt setting is enabled", () => {

@@ -8,6 +8,7 @@ export type MemoryType =
   | "context";
 
 export type MemorySource = "manual" | "ai" | "dream";
+export type MemoryScope = "global" | "workspace" | "agent" | "session";
 
 export interface MemoryRecord {
   id: string;
@@ -22,6 +23,8 @@ export interface MemoryRecord {
   sourceSessionId?: string;
   sourceMessageIds?: string[];
   sourceMemoryIds?: string[];
+  scope?: MemoryScope;
+  scopeId?: string;
 }
 
 export interface MemorySettings {

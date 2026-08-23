@@ -46,6 +46,13 @@ export function createTaskPlanBinding(): BuiltinToolBinding {
       },
     },
     risk: "read",
+    descriptor: {
+      version: 2,
+      effects: ["local_write"],
+      idempotency: "idempotent",
+      sensitivity: "user_data",
+      origin: "builtin",
+    },
     displayKey: "taskPlan",
     agentOnly: true,
     async execute(args, context) {
@@ -53,6 +60,7 @@ export function createTaskPlanBinding(): BuiltinToolBinding {
       const parsed = parseTaskPlan(args);
       if (!parsed.ok) {
         return {
+          ok: false,
           error: {
             ...parsed.error,
             recoverable: true,

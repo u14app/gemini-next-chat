@@ -10,6 +10,11 @@ import {
   type ActiveGenerationSyncSnapshot,
 } from "@/lib/chat/generationLifecycle";
 import { useChatStore } from "@/store/core/chatStore";
+import { useAgentRunStore } from "@/store/core/agentRunStore";
+import {
+  recoverInterruptedToolExecutions,
+  transitionAgentRunStatus,
+} from "@/lib/agent";
 
 export interface ActiveGenerationRun {
   runId: number;
@@ -65,6 +70,40 @@ export function useChatGenerationController({
     const streamingMessage = [...state.activeMessages]
       .reverse()
       .find((message) => message.generation?.status === "streaming");
+    const agentRunId = streamingMessage?.generation?.agentRunId;
+    if (agentRunId) {
+      const run = useAgentRunStore.getState().runsById[agentRunId];
+      if (
+        run &&
+        run.status !== "completed" &&
+        run.status !== "failed" &&
+        run.status !== "cancelled"
+      ) {
+        const recovered = recoverInterruptedToolExecutions(run);
+        const hasUnknownEffect = recovered.toolExecutions.some(
+          (record) => record.status === "effect_unknown",
+        );
+        await useAgentRunStore.getState().upsertRun(
+          transitionAgentRunStatus(
+            recovered,
+            hasUnknownEffect ? "failed" : "cancelled",
+            hasUnknownEffect
+              ? {
+                  stop: {
+                    reason: "effect_unknown",
+                    error: {
+                      code: "TOOL_EFFECT_UNKNOWN",
+                      message:
+                        "A tool may have produced a side effect before it was stopped.",
+                      recoverable: false,
+                    },
+                  },
+                }
+              : { stop: { reason: "user_stopped" } },
+          ),
+        );
+      }
+    }
     if (state.currentSessionId && streamingMessage?.generation) {
       state.updateMessage(
         state.currentSessionId,

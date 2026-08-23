@@ -16,6 +16,9 @@ import { writeWorkspaceBlob, writeWorkspaceText } from "./sessionWorkspace";
 const BINARY_SEED_MIME_TYPES = new Set([
   "application/pdf",
   "application/zip",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation",
   "image/png",
   "image/jpeg",
   "image/webp",

@@ -86,7 +86,7 @@ describe("chat entity normalization", () => {
     });
   });
 
-  it("omits empty session plugin presets", () => {
+  it("preserves explicit empty capability overrides", () => {
     expect(
       normalizeSession({
         id: "s1",
@@ -113,7 +113,7 @@ describe("chat entity normalization", () => {
           activeSkills: [],
         },
       } as Session).config,
-    ).toEqual({});
+    ).toEqual({ activePlugins: [], activeSkills: [] });
 
     expect(
       normalizeSession({
