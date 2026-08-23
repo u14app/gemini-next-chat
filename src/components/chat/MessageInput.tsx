@@ -33,7 +33,13 @@ import {
   Bot,
 } from "lucide-react";
 import { useTranslations } from "next-intl";
-import type { Attachment, MessageReplyReference, ReasoningMode } from "@/types";
+import type {
+  Attachment,
+  Message,
+  MessageReplyReference,
+  ReasoningMode,
+  SessionMessageTree,
+} from "@/types";
 import { localizePluginMeta } from "@/lib/plugin/localizedMeta";
 import type { ModelInfo } from "@/services/api/chatService";
 import Tooltip from "../ui/Tooltip";
@@ -41,6 +47,8 @@ import RemoteFileModal from "../modals/RemoteFileModal";
 import KnowledgeSelectionModal from "../knowledge/KnowledgeSelectionModal";
 import SafeImage from "../ui/SafeImage";
 import MessageInputAttachmentTray from "./MessageInputAttachmentTray";
+import ComposerCommandMenu from "./ComposerCommandMenu";
+import ComposerReferenceChips from "./ComposerReferenceChips";
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -53,29 +61,19 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useChatStore } from "@/store/core/chatStore";
+import { appDb } from "@/store/storage/storageConfig";
+import {
+  getActiveMessagePath,
+  normalizeSessionMessageTree,
+} from "@/lib/chat/messageTree";
 import { getTaskModel, useSettingsStore } from "@/store/core/settingsStore";
 import { useCoreSettingsStore } from "@/store/core/coreSettingsStore";
-import {
-  transcribeAudio,
-  startBrowserSpeechRecognition,
-} from "@/services/api/voiceService";
-import {
-  ATTACHMENT_LIMITS,
-  IMAGE_ATTACHMENT_LIMITS,
-  formatBytes,
-  getAttachmentPayloadChars,
-  getAttachmentsPayloadChars,
-} from "@/config/limits";
+import { ATTACHMENT_LIMITS } from "@/config/limits";
 import { parseModelString } from "@/lib/utils/model";
-import { stopMediaStreamTracks } from "@/lib/utils/mediaRecording";
 import { logDevError } from "@/lib/utils/devLogger";
-import { saveToOPFS } from "@/utils/opfs";
 import {
   extractChatAttachmentFilesFromClipboard,
   extractChatAttachmentFilesFromDrop,
-  getChatAttachmentFileSelectionMessage,
-  isChatImageFileCandidate,
-  selectChatAttachmentFiles,
 } from "@/lib/utils/chatAttachmentFiles";
 import {
   resolveEffectiveSearchCapability,
@@ -85,21 +83,21 @@ import {
 import { hasPluginAuthValue } from "@/lib/security/localSecretResolvers";
 import { isPluginAuthRequired } from "@/lib/plugin/config";
 import { isKnowledgeAttachment } from "@/lib/utils/knowledgeAttachments";
-import { createChatDocumentAttachment } from "@/lib/utils/documentAttachments";
-import {
-  getImageCompressionConfig,
-  ImageAttachmentPreparationError,
-  prepareImageFileForAttachment,
-  type ImagePreparationStage,
-} from "@/lib/utils/imageCompression";
+import { encodeTextToBase64 } from "@/lib/utils/documentAttachments";
 import { polishTextContent } from "@/services/artifactService";
 import { normalizeSkillIdRefs } from "@/lib/skills";
 import {
   formatRecordingTime as formatTime,
-  isNativeMediaFile,
   shouldSubmitOnEnter,
   truncateMiddle,
 } from "@/lib/utils/messageInputHelpers";
+import {
+  buildConversationFileName,
+  buildConversationTranscript,
+  CONVERSATION_REFERENCE_MAX_CHARS,
+  detectComposerTrigger,
+} from "@/lib/utils/composerCommands";
+import { buildCompressionSource } from "@/lib/utils/contextCompression";
 import {
   isReasoningEnabled,
   normalizeReasoningMode,
@@ -110,8 +108,11 @@ import {
   writeComposerDraft,
 } from "@/lib/chat/composerDrafts";
 import {
+  useComposerAttachments,
   useComposerCapabilityState,
+  useComposerCommandMenu,
   useComposerMenuState,
+  useComposerRecording,
 } from "@/features/chat";
 import type { ComposerSkillParameterValues } from "@/components/skill/SkillParameterDialog";
 import {
@@ -121,8 +122,12 @@ import {
 import { Button } from "@/components/ui/primitives";
 
 type MessageInputVariant = "default" | "hero";
-type AttachmentProcessingStage =
-  ImagePreparationStage | "preparing" | "parsing";
+
+/** Skills and plugins pulled in with `/` and `@`, forced onto the next send. */
+export interface ComposerForcedInvocations {
+  skillIds: string[];
+  pluginIds: string[];
+}
 
 interface MessageInputProps {
   onSend: (
@@ -130,8 +135,11 @@ interface MessageInputProps {
     attachments: Attachment[],
     replyTo?: MessageReplyReference,
     skillParameters?: ComposerSkillParameterValues,
+    forced?: ComposerForcedInvocations,
   ) => void;
-  onPrepareSend?: () => Promise<ComposerSkillParameterValues | null>;
+  onPrepareSend?: (
+    forced?: ComposerForcedInvocations,
+  ) => Promise<ComposerSkillParameterValues | null>;
   onStop?: () => void;
   disabled: boolean;
   offline?: boolean;
@@ -144,6 +152,8 @@ interface MessageInputProps {
   replyTo?: MessageReplyReference;
   onCancelReply?: () => void;
   onNavigateReply?: (messageId: string) => void;
+  onNewChat?: () => void;
+  onCompressContext?: () => void | Promise<void>;
 }
 
 export interface MessageInputRef {
@@ -179,6 +189,8 @@ const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
       replyTo,
       onCancelReply,
       onNavigateReply,
+      onNewChat,
+      onCompressContext,
     },
     ref,
   ) => {
@@ -194,10 +206,6 @@ const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
         return value;
       });
     }, []);
-    const [attachments, setAttachments] = useState<Attachment[]>([]);
-    const [isRecording, setIsRecording] = useState(false);
-    const [isTranscribing, setIsTranscribing] = useState(false);
-    const [recordingSeconds, setRecordingSeconds] = useState(0);
     const {
       showAttachMenu,
       showSkillSelect,
@@ -215,10 +223,9 @@ const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
     const [errorMsg, setErrorMsg] = useState<string | null>(null);
     const [isDragUploadActive, setIsDragUploadActive] = useState(false);
     const [isPolishingInput, setIsPolishingInput] = useState(false);
-    const [isParsingAttachments, setIsParsingAttachments] = useState(false);
-    const [attachmentProcessingStage, setAttachmentProcessingStage] =
-      useState<AttachmentProcessingStage>("preparing");
     const [isPreparingSend, setIsPreparingSend] = useState(false);
+    const [forcedSkillIds, setForcedSkillIds] = useState<string[]>([]);
+    const [forcedPluginIds, setForcedPluginIds] = useState<string[]>([]);
 
     const t = useTranslations("MessageInput");
     const tConfig = useTranslations("Config");
@@ -249,11 +256,13 @@ const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
     const { providers } = useCoreSettingsStore();
 
     const textareaRef = useRef<HTMLTextAreaElement>(null);
+    const composerRootRef = useRef<HTMLDivElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const imageInputRef = useRef<HTMLInputElement>(null);
     const textFallbackInputRef = useRef<HTMLInputElement>(null);
     const messageInputId = useId();
     const errorMessageId = useId();
+    const commandListboxId = useId();
     const attachFileInputId = useId();
     const attachImageInputId = useId();
     const attachTextFallbackInputId = useId();
@@ -292,145 +301,11 @@ const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
       [],
     );
 
-    // Browser Speech Rec
-    const recognitionRef = useRef<any>(null);
-    // MediaRecorder Audio Capture
-    const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-    const mediaStreamRef = useRef<MediaStream | null>(null);
-    const audioChunksRef = useRef<Blob[]>([]);
-    const recordingKindRef = useRef<"browser" | "media" | null>(null);
-
-    const timerRef = useRef<any>(null);
     const isMountedRef = useRef(true);
-    const recordingSessionRef = useRef(0);
     const fileSelectionRunRef = useRef(0);
     const fileSelectionAbortRef = useRef<AbortController | null>(null);
     const polishRunRef = useRef(0);
     const dragDepthRef = useRef(0);
-
-    const clearRecordingTimer = useCallback(() => {
-      if (timerRef.current) {
-        clearInterval(timerRef.current);
-        timerRef.current = null;
-      }
-    }, []);
-
-    const releaseMediaStream = useCallback(
-      (stream = mediaStreamRef.current) => {
-        stopMediaStreamTracks(stream);
-        if (!stream || mediaStreamRef.current === stream) {
-          mediaStreamRef.current = null;
-        }
-      },
-      [],
-    );
-
-    useEffect(() => {
-      isMountedRef.current = true;
-
-      return () => {
-        isMountedRef.current = false;
-        recordingSessionRef.current += 1;
-        fileSelectionRunRef.current += 1;
-        fileSelectionAbortRef.current?.abort();
-        fileSelectionAbortRef.current = null;
-        polishRunRef.current += 1;
-        clearRecordingTimer();
-
-        if (recognitionRef.current) {
-          try {
-            recognitionRef.current.stop();
-          } catch {
-            // The browser may throw if recognition has already ended.
-          }
-          recognitionRef.current = null;
-        }
-
-        const recorder = mediaRecorderRef.current;
-        if (recorder) {
-          recorder.ondataavailable = null;
-          recorder.onstop = null;
-          if (recorder.state !== "inactive") {
-            try {
-              recorder.stop();
-            } catch {
-              // Ignore stale recorder state during component teardown.
-            }
-          }
-          mediaRecorderRef.current = null;
-        }
-
-        audioChunksRef.current = [];
-        recordingKindRef.current = null;
-        releaseMediaStream();
-      };
-    }, [clearRecordingTimer, releaseMediaStream]);
-
-    const appendAttachments = (incoming: Attachment[]) => {
-      if (incoming.length === 0) return;
-
-      const accepted: Attachment[] = [];
-      let totalPayloadChars = getAttachmentsPayloadChars(attachments);
-      let rejectedByCount = 0;
-      let rejectedBySize = 0;
-
-      for (const attachment of incoming) {
-        if (
-          attachments.length + accepted.length >=
-          ATTACHMENT_LIMITS.maxCount
-        ) {
-          rejectedByCount += 1;
-          continue;
-        }
-
-        const payloadChars = getAttachmentPayloadChars(attachment);
-        if (
-          totalPayloadChars + payloadChars >
-          ATTACHMENT_LIMITS.maxTotalBase64Chars
-        ) {
-          rejectedBySize += 1;
-          continue;
-        }
-
-        totalPayloadChars += payloadChars;
-        accepted.push(attachment);
-      }
-
-      if (rejectedByCount > 0) {
-        setErrorMsg(
-          t("attachmentLimitReached", { max: ATTACHMENT_LIMITS.maxCount }),
-        );
-      } else if (rejectedBySize > 0) {
-        setErrorMsg(
-          t("attachmentsExceedSize", {
-            size: formatBytes(ATTACHMENT_LIMITS.maxTotalBase64Chars),
-          }),
-        );
-      }
-
-      if (accepted.length > 0) {
-        setAttachments((prev) => [...prev, ...accepted]);
-      }
-    };
-
-    useImperativeHandle(ref, () => ({
-      setValue: (value: string) => {
-        setInput(value);
-        requestAnimationFrame(() => {
-          if (textareaRef.current) {
-            textareaRef.current.style.height = "auto";
-            textareaRef.current.style.height =
-              textareaRef.current.scrollHeight + "px";
-          }
-        });
-      },
-      focus: () => {
-        textareaRef.current?.focus();
-      },
-      setAttachments: (atts: Attachment[]) => {
-        setAttachments(atts);
-      },
-    }));
 
     // Clear error after 3 seconds
     useEffect(() => {
@@ -563,9 +438,6 @@ const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
       return groups;
     }, [availableModels]);
 
-    const maxAttachmentFileBytes =
-      serverConfig?.limits?.attachments?.maxFileBytes ??
-      ATTACHMENT_LIMITS.maxFileBytes;
     const reasoningOptionLabels = useMemo<
       Record<ReasoningMode, { label: string; description: string }>
     >(
@@ -610,6 +482,67 @@ const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
       useAgentMode: chatConfig.useAgentMode ?? false,
       reasoningOptionLabels,
     });
+    const maxAttachmentFileBytes =
+      serverConfig?.limits?.attachments?.maxFileBytes ??
+      ATTACHMENT_LIMITS.maxFileBytes;
+
+    const {
+      attachments,
+      setAttachments,
+      isParsingAttachments,
+      setIsParsingAttachments,
+      attachmentProcessingStage,
+      setAttachmentProcessingStage,
+      appendAttachments,
+      processSelectedFiles,
+      handleFileSelect,
+      handleTextFallbackSelect,
+      removeAttachment,
+      handleKBSelect,
+    } = useComposerAttachments({
+      offline,
+      system,
+      rag,
+      modelCapabilities,
+      maxAttachmentFileBytes,
+      t,
+      isMountedRef,
+      fileSelectionRunRef,
+      fileSelectionAbortRef,
+      setErrorMsg,
+      setShowAttachMenu,
+    });
+
+    const {
+      isRecording,
+      isTranscribing,
+      recordingSeconds,
+      toggleRecording,
+      teardownRecording,
+    } = useComposerRecording({
+      offline,
+      voice,
+      maxAttachmentFileBytes,
+      t,
+      isMountedRef,
+      appendTranscript: (text) =>
+        setInput((prev) => prev + (prev ? " " : "") + text),
+      appendAttachments,
+      setErrorMsg,
+    });
+
+    useEffect(() => {
+      isMountedRef.current = true;
+
+      return () => {
+        isMountedRef.current = false;
+        fileSelectionRunRef.current += 1;
+        fileSelectionAbortRef.current?.abort();
+        fileSelectionAbortRef.current = null;
+        polishRunRef.current += 1;
+        teardownRecording();
+      };
+    }, [teardownRecording]);
     const agentModeTooltip = !modelCapabilities.toolCall
       ? t("agentModeUnavailable")
       : agentModeEnabled
@@ -674,7 +607,189 @@ const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
       return groups;
     }, [validPlugins]);
 
+    const isInputBusy =
+      disabled || isTranscribing || isParsingAttachments || isPreparingSend;
+
+    const conversationsForMenu = useMemo(
+      () =>
+        sessions
+          .filter((session) => session.id !== currentSessionId)
+          .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0)),
+      [currentSessionId, sessions],
+    );
+
+    const forcedSkills = useMemo(
+      () =>
+        forcedSkillIds
+          .map((id) => installedSkills.find((skill) => skill.id === id))
+          .filter((skill): skill is (typeof installedSkills)[number] =>
+            Boolean(skill),
+          )
+          .map((skill) => ({ id: skill.id, title: skill.title })),
+      [forcedSkillIds, installedSkills],
+    );
+    const forcedPlugins = useMemo(
+      () =>
+        forcedPluginIds
+          .map((id) => validPlugins.find((plugin) => plugin.id === id))
+          .filter((plugin): plugin is (typeof validPlugins)[number] =>
+            Boolean(plugin),
+          )
+          .map((plugin) => ({ id: plugin.id, title: plugin.title })),
+      [forcedPluginIds, validPlugins],
+    );
+
+    const attachConversation = async (sessionId: string, title: string) => {
+      setIsParsingAttachments(true);
+      setAttachmentProcessingStage("conversation");
+      try {
+        const state = useChatStore.getState();
+        const messages =
+          state.currentSessionId === sessionId
+            ? state.activeMessages
+            : getActiveMessagePath(
+                normalizeSessionMessageTree(
+                  await appDb.getItem<Message[] | SessionMessageTree>(
+                    `session_messages_${sessionId}`,
+                  ),
+                ),
+              );
+
+        if (messages.length === 0) {
+          setErrorMsg(t("conversationEmpty", { title }));
+          return;
+        }
+
+        const transcript = buildConversationTranscript(
+          title,
+          buildCompressionSource(messages).text,
+        ).slice(0, CONVERSATION_REFERENCE_MAX_CHARS);
+
+        if (!isMountedRef.current) return;
+        // Reuses the shared budget checks and error toasts of manual uploads.
+        appendAttachments([
+          {
+            id: uuidv7(),
+            mimeType: "text/markdown",
+            fileName: buildConversationFileName(title),
+            data: encodeTextToBase64(transcript),
+          },
+        ]);
+      } catch (error) {
+        logInputError("Failed to attach referenced conversation", error);
+        if (isMountedRef.current) {
+          setErrorMsg(t("conversationAttachFailed", { title }));
+        }
+      } finally {
+        if (isMountedRef.current) setIsParsingAttachments(false);
+      }
+    };
+
+    const {
+      commandMatch,
+      setCommandMatch,
+      highlightedCommandId,
+      setHighlightedCommandId,
+      commandSections,
+      isCommandMenuOpen,
+      getCommandOptionId,
+      closeCommandMenu,
+      handleSelectCommand,
+      handleCommandMenuKeyDown,
+    } = useComposerCommandMenu({
+      t,
+      modelCapabilities,
+      ragEnabled: rag.enabled,
+      isInputBusy,
+      commandListboxId,
+      skillsForMenu,
+      pluginSourceGroups,
+      conversationsForMenu,
+      inputValueRef,
+      textareaRef,
+      setInput,
+      setErrorMsg,
+      actions: {
+        attachFile: () =>
+          (modelCapabilities.attachment ||
+          modelCapabilities.audio ||
+          modelCapabilities.video
+            ? fileInputRef
+            : textFallbackInputRef
+          ).current?.click(),
+        attachImage: () => imageInputRef.current?.click(),
+        openKnowledgeBase: () => setShowKBModal(true),
+        openRemoteFile: () => setShowRemoteModal(true),
+        newChat: onNewChat,
+        compressContext: onCompressContext,
+        // Mirrors the 4-skill ceiling `resolveSkillsForMessage` enforces.
+        forceSkill: (skillId) =>
+          setForcedSkillIds((prev) =>
+            prev.includes(skillId) || prev.length >= 4
+              ? prev
+              : [...prev, skillId],
+          ),
+        forcePlugin: (pluginId) =>
+          setForcedPluginIds((prev) =>
+            prev.includes(pluginId) ? prev : [...prev, pluginId],
+          ),
+        attachConversation: (sessionId, title) => {
+          void attachConversation(sessionId, title);
+        },
+      },
+    });
+
+    useImperativeHandle(ref, () => ({
+      setValue: (value: string) => {
+        setInput(value);
+        // The stale match indexes into the replaced text, so drop it.
+        setCommandMatch(null);
+        setHighlightedCommandId(null);
+        requestAnimationFrame(() => {
+          if (textareaRef.current) {
+            textareaRef.current.style.height = "auto";
+            textareaRef.current.style.height =
+              textareaRef.current.scrollHeight + "px";
+          }
+        });
+      },
+      focus: () => {
+        textareaRef.current?.focus();
+      },
+      setAttachments: (atts: Attachment[]) => {
+        setAttachments(atts);
+      },
+    }));
+
+    const handleComposerChange = (
+      e: React.ChangeEvent<HTMLTextAreaElement>,
+    ) => {
+      const value = e.target.value;
+      setInput(value);
+      setCommandMatch(
+        detectComposerTrigger(value, e.target.selectionStart ?? value.length),
+      );
+    };
+
+    /**
+     * Caret moves (click, arrow keys while the menu is closed) can leave the
+     * trigger token behind, so re-derive the match from the new caret.
+     */
+    const handleComposerSelect = (
+      e: React.SyntheticEvent<HTMLTextAreaElement>,
+    ) => {
+      const textarea = e.currentTarget;
+      setCommandMatch(
+        detectComposerTrigger(
+          textarea.value,
+          textarea.selectionStart ?? textarea.value.length,
+        ),
+      );
+    };
+
     const handleKeyDown = (e: React.KeyboardEvent) => {
+      if (handleCommandMenuKeyDown(e)) return;
+
       const requiresExplicitSend = window.matchMedia(
         "(pointer: coarse), (max-width: 1023px)",
       ).matches;
@@ -706,14 +821,30 @@ const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
       setIsPreparingSend(true);
       setErrorMsg(null);
       try {
+        // Forced refs are per-message: they never survive past this send.
+        const forced: ComposerForcedInvocations = {
+          skillIds: forcedSkills.map((skill) => skill.id),
+          pluginIds: modelCapabilities.toolCall
+            ? forcedPlugins.map((plugin) => plugin.id)
+            : [],
+        };
         const skillParameters = onPrepareSend
-          ? await onPrepareSend()
+          ? await onPrepareSend(forced)
           : undefined;
         if (onPrepareSend && !skillParameters) return;
-        onSend(input, attachments, replyTo, skillParameters || undefined);
+        onSend(
+          input,
+          attachments,
+          replyTo,
+          skillParameters || undefined,
+          forced,
+        );
         setInput("");
         if (currentSessionId) clearComposerDraft(currentSessionId);
         setAttachments([]);
+        setForcedSkillIds([]);
+        setForcedPluginIds([]);
+        closeCommandMenu();
         if (textareaRef.current) {
           textareaRef.current.style.height = "auto";
         }
@@ -774,496 +905,6 @@ const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
       }
     };
 
-    const startRecording = async () => {
-      if (offline) return;
-      setErrorMsg(null);
-      if (voice.autoTranscribe && voice.sttProvider === "browser") {
-        const sessionId = recordingSessionRef.current + 1;
-        recordingSessionRef.current = sessionId;
-        try {
-          recognitionRef.current = startBrowserSpeechRecognition(
-            voice.sttLanguage,
-            {
-              onTranscript: (text) => {
-                if (
-                  !isMountedRef.current ||
-                  recordingSessionRef.current !== sessionId
-                ) {
-                  return;
-                }
-                setInput((prev) => prev + (prev ? " " : "") + text);
-              },
-              onError: (err) => {
-                if (
-                  !isMountedRef.current ||
-                  recordingSessionRef.current !== sessionId
-                ) {
-                  return;
-                }
-                logInputError("Speech recognition error", err);
-                stopRecording();
-              },
-              onEnd: () => {
-                if (
-                  !isMountedRef.current ||
-                  recordingSessionRef.current !== sessionId
-                ) {
-                  return;
-                }
-                recordingSessionRef.current += 1;
-                recognitionRef.current = null;
-                recordingKindRef.current = null;
-                clearRecordingTimer();
-                setIsRecording(false);
-              },
-            },
-          );
-
-          recordingKindRef.current = "browser";
-          setIsRecording(true);
-          setRecordingSeconds(0);
-          clearRecordingTimer();
-          timerRef.current = setInterval(() => {
-            setRecordingSeconds((prev) => prev + 1);
-          }, 1000);
-        } catch (e) {
-          logInputError("Failed to start browser recording", e);
-          recognitionRef.current = null;
-          recordingKindRef.current = null;
-          if (
-            isMountedRef.current &&
-            recordingSessionRef.current === sessionId
-          ) {
-            setErrorMsg(
-              e instanceof Error ? e.message : t("failedToStartRecognition"),
-            );
-          }
-        }
-      } else {
-        const sessionId = recordingSessionRef.current + 1;
-        recordingSessionRef.current = sessionId;
-        let stream: MediaStream | null = null;
-        try {
-          stream = await navigator.mediaDevices.getUserMedia({
-            audio: true,
-          });
-          if (
-            !isMountedRef.current ||
-            recordingSessionRef.current !== sessionId
-          ) {
-            releaseMediaStream(stream);
-            return;
-          }
-          mediaStreamRef.current = stream;
-
-          let mimeType = "audio/webm";
-          if (!MediaRecorder.isTypeSupported("audio/webm")) {
-            if (MediaRecorder.isTypeSupported("audio/mp4")) {
-              mimeType = "audio/mp4";
-            } else {
-              mimeType = ""; // Let browser decide default
-            }
-          }
-
-          const mediaRecorder = mimeType
-            ? new MediaRecorder(stream, { mimeType })
-            : new MediaRecorder(stream);
-          mediaRecorderRef.current = mediaRecorder;
-          audioChunksRef.current = [];
-
-          mediaRecorder.ondataavailable = (event) => {
-            if (recordingSessionRef.current !== sessionId) return;
-            if (event.data.size > 0) {
-              audioChunksRef.current.push(event.data);
-            }
-          };
-
-          mediaRecorder.onstop = async () => {
-            const recordedType = mediaRecorder.mimeType || "audio/webm";
-            const audioChunks = audioChunksRef.current;
-            audioChunksRef.current = [];
-            releaseMediaStream(stream);
-            if (mediaRecorderRef.current === mediaRecorder) {
-              mediaRecorderRef.current = null;
-            }
-            if (recordingKindRef.current === "media") {
-              recordingKindRef.current = null;
-            }
-            clearRecordingTimer();
-
-            if (
-              !isMountedRef.current ||
-              recordingSessionRef.current !== sessionId
-            ) {
-              return;
-            }
-            setIsRecording(false);
-
-            const audioBlob = new Blob(audioChunks, {
-              type: recordedType,
-            });
-
-            if (voice.autoTranscribe) {
-              setIsTranscribing(true);
-              try {
-                const text = await transcribeAudio(audioBlob, voice);
-                if (
-                  text &&
-                  isMountedRef.current &&
-                  recordingSessionRef.current === sessionId
-                ) {
-                  setInput((prev) => prev + (prev ? " " : "") + text);
-                }
-              } catch (e) {
-                logInputError("Transcription failed", e);
-                if (
-                  isMountedRef.current &&
-                  recordingSessionRef.current === sessionId
-                ) {
-                  setErrorMsg(
-                    e instanceof Error ? e.message : t("transcriptionFailed"),
-                  );
-                }
-              } finally {
-                if (
-                  isMountedRef.current &&
-                  recordingSessionRef.current === sessionId
-                ) {
-                  setIsTranscribing(false);
-                }
-              }
-            } else {
-              try {
-                if (
-                  !isMountedRef.current ||
-                  recordingSessionRef.current !== sessionId
-                ) {
-                  return;
-                }
-                let extension = "webm";
-                if (recordedType.includes("mp4")) extension = "mp4";
-                else if (recordedType.includes("aac")) extension = "aac";
-                else if (recordedType.includes("ogg")) extension = "ogg";
-                else if (recordedType.includes("wav")) extension = "wav";
-                const fileName = `Voice Note ${new Date().toLocaleTimeString().replace(/:/g, "-")}.${extension}`;
-
-                if (audioBlob.size > maxAttachmentFileBytes) {
-                  setErrorMsg(
-                    t("attachmentsExceedSize", {
-                      size: formatBytes(maxAttachmentFileBytes),
-                    }),
-                  );
-                  return;
-                }
-
-                const audioFile = new File([audioBlob], fileName, {
-                  type: recordedType,
-                });
-                const url = await saveToOPFS(audioFile, "chat/audio");
-
-                const newAtt: Attachment = {
-                  id: uuidv7(),
-                  mimeType: recordedType,
-                  url,
-                  fileName,
-                };
-                appendAttachments([newAtt]);
-              } catch (e) {
-                logInputError("Failed to process audio attachment", e);
-                if (
-                  isMountedRef.current &&
-                  recordingSessionRef.current === sessionId
-                ) {
-                  setErrorMsg(t("failedToProcessAudio"));
-                }
-              }
-            }
-          };
-
-          mediaRecorder.start();
-          recordingKindRef.current = "media";
-          setIsRecording(true);
-          setRecordingSeconds(0);
-          clearRecordingTimer();
-          timerRef.current = setInterval(() => {
-            setRecordingSeconds((prev) => prev + 1);
-          }, 1000);
-        } catch (e) {
-          logInputError("Failed to access microphone", e);
-          releaseMediaStream(stream);
-          mediaRecorderRef.current = null;
-          recordingKindRef.current = null;
-          if (
-            isMountedRef.current &&
-            recordingSessionRef.current === sessionId
-          ) {
-            setErrorMsg(t("failedToAccessMicrophone"));
-          }
-        }
-      }
-    };
-
-    const stopRecording = () => {
-      if (recordingKindRef.current === "browser") {
-        recordingSessionRef.current += 1;
-        if (recognitionRef.current) {
-          try {
-            recognitionRef.current.stop();
-          } catch {
-            // Recognition can already be inactive by the time the UI stops it.
-          }
-          recognitionRef.current = null;
-        }
-      } else if (recordingKindRef.current === "media") {
-        if (
-          mediaRecorderRef.current &&
-          mediaRecorderRef.current.state !== "inactive"
-        ) {
-          try {
-            mediaRecorderRef.current.stop();
-          } catch {
-            releaseMediaStream();
-            mediaRecorderRef.current = null;
-          }
-        } else {
-          releaseMediaStream();
-          mediaRecorderRef.current = null;
-        }
-      }
-      recordingKindRef.current = null;
-      if (isMountedRef.current) {
-        setIsRecording(false);
-      }
-      clearRecordingTimer();
-    };
-
-    const toggleRecording = () => {
-      if (isRecording) {
-        stopRecording();
-      } else {
-        startRecording();
-      }
-    };
-
-    const canAttachFileNatively = (file: File): boolean => {
-      if (!isNativeMediaFile(file)) return false;
-      if (modelCapabilities.attachment) return true;
-      if (isChatImageFileCandidate(file)) return modelCapabilities.vision;
-      if (file.type.startsWith("audio/")) return modelCapabilities.audio;
-      if (file.type.startsWith("video/")) return modelCapabilities.video;
-      return false;
-    };
-
-    const getNativeMediaOPFSPrefix = (file: File): string => {
-      if (file.type.startsWith("audio/")) return "chat/audio";
-      if (file.type.startsWith("video/")) return "chat/video";
-      return "chat/files";
-    };
-
-    const processSelectedFiles = async (
-      files: File[],
-      {
-        documentsOnly = false,
-        closeAttachMenu = false,
-      }: { documentsOnly?: boolean; closeAttachMenu?: boolean } = {},
-    ) => {
-      if (offline || files.length === 0) return;
-
-      const runId = fileSelectionRunRef.current + 1;
-      fileSelectionRunRef.current = runId;
-      fileSelectionAbortRef.current?.abort();
-      const abortController = new AbortController();
-      fileSelectionAbortRef.current = abortController;
-      const selection = selectChatAttachmentFiles(attachments.length, files, {
-        maxFileBytes: maxAttachmentFileBytes,
-        maxImageFileBytes: IMAGE_ATTACHMENT_LIMITS.maxSourceBytes,
-      });
-      let deferredError = getChatAttachmentFileSelectionMessage(selection, {
-        maxFileBytes: maxAttachmentFileBytes,
-        maxImageFileBytes: IMAGE_ATTACHMENT_LIMITS.maxSourceBytes,
-      });
-      if (
-        selection.rejectedByCount.length === 0 &&
-        selection.rejectedBySize.length > 0 &&
-        selection.rejectedBySize.every(isChatImageFileCandidate)
-      ) {
-        deferredError = t("imageTooLarge", {
-          size: formatBytes(IMAGE_ATTACHMENT_LIMITS.maxSourceBytes),
-        });
-      }
-      if (selection.accepted.length === 0) {
-        if (deferredError) setErrorMsg(deferredError);
-        if (closeAttachMenu) setShowAttachMenu(false);
-        if (fileSelectionAbortRef.current === abortController) {
-          fileSelectionAbortRef.current = null;
-        }
-        return;
-      }
-      const newAttachments: Attachment[] = [];
-
-      setErrorMsg(null);
-      setAttachmentProcessingStage("preparing");
-      setIsParsingAttachments(true);
-      try {
-        for (const file of selection.accepted) {
-          const useNativeAttachment =
-            !documentsOnly && canAttachFileNatively(file);
-          try {
-            abortController.signal.throwIfAborted();
-            if (useNativeAttachment) {
-              if (isChatImageFileCandidate(file)) {
-                const preparedFile = await prepareImageFileForAttachment(
-                  file,
-                  getImageCompressionConfig(system),
-                  {
-                    signal: abortController.signal,
-                    maxOutputBytes: maxAttachmentFileBytes,
-                    onStage: (stage) => {
-                      if (
-                        isMountedRef.current &&
-                        fileSelectionRunRef.current === runId
-                      ) {
-                        setAttachmentProcessingStage(stage);
-                      }
-                    },
-                  },
-                );
-                const url = await saveToOPFS(preparedFile, "chat/images");
-                if (
-                  !isMountedRef.current ||
-                  fileSelectionRunRef.current !== runId
-                ) {
-                  return;
-                }
-                newAttachments.push({
-                  id: uuidv7(),
-                  mimeType: preparedFile.type,
-                  url,
-                  fileName: preparedFile.name,
-                });
-                continue;
-              }
-
-              setAttachmentProcessingStage("preparing");
-              if (
-                file.type.startsWith("audio/") ||
-                file.type.startsWith("video/")
-              ) {
-                const url = await saveToOPFS(
-                  file,
-                  getNativeMediaOPFSPrefix(file),
-                );
-                if (
-                  !isMountedRef.current ||
-                  fileSelectionRunRef.current !== runId
-                ) {
-                  return;
-                }
-                newAttachments.push({
-                  id: uuidv7(),
-                  mimeType: file.type || "application/octet-stream",
-                  url,
-                  fileName: file.name,
-                });
-                continue;
-              }
-            }
-
-            setAttachmentProcessingStage("parsing");
-            const result = await createChatDocumentAttachment(file, {
-              id: uuidv7(),
-              rag,
-              saveOriginalFile: saveToOPFS,
-            });
-            if (
-              !isMountedRef.current ||
-              fileSelectionRunRef.current !== runId
-            ) {
-              return;
-            }
-            newAttachments.push(result.attachment);
-          } catch (err) {
-            if (
-              !isMountedRef.current ||
-              fileSelectionRunRef.current !== runId
-            ) {
-              return;
-            }
-            if (err instanceof Error && err.name === "AbortError") return;
-            logInputError(
-              useNativeAttachment
-                ? "Error reading file"
-                : "Error parsing document attachment",
-              err,
-            );
-            if (err instanceof ImageAttachmentPreparationError) {
-              deferredError = t(
-                err.code === "compressed-too-large"
-                  ? "imageStillTooLarge"
-                  : "imageTooLarge",
-                { size: formatBytes(err.limitBytes) },
-              );
-            } else if (isChatImageFileCandidate(file)) {
-              deferredError = t("failedToProcessImage", {
-                fileName: file.name,
-              });
-            } else {
-              deferredError = t(
-                useNativeAttachment
-                  ? "failedToReadFile"
-                  : "failedToParseDocument",
-                { fileName: file.name },
-              );
-            }
-          }
-        }
-
-        if (isMountedRef.current && fileSelectionRunRef.current === runId) {
-          appendAttachments(newAttachments);
-          if (closeAttachMenu) setShowAttachMenu(false);
-          if (deferredError) setErrorMsg(deferredError);
-        }
-      } finally {
-        if (isMountedRef.current && fileSelectionRunRef.current === runId) {
-          setIsParsingAttachments(false);
-          setAttachmentProcessingStage("preparing");
-          if (fileSelectionAbortRef.current === abortController) {
-            fileSelectionAbortRef.current = null;
-          }
-        }
-      }
-    };
-
-    const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
-      const inputEl = e.currentTarget;
-      if (inputEl.files && inputEl.files.length > 0) {
-        await processSelectedFiles(Array.from(inputEl.files) as File[], {
-          closeAttachMenu: true,
-        });
-        if (inputEl.value) inputEl.value = "";
-      }
-    };
-
-    const handleTextFallbackSelect = async (
-      e: React.ChangeEvent<HTMLInputElement>,
-    ) => {
-      const inputEl = e.currentTarget;
-      if (inputEl.files && inputEl.files.length > 0) {
-        await processSelectedFiles(Array.from(inputEl.files) as File[], {
-          documentsOnly: true,
-        });
-        if (inputEl.value) inputEl.value = "";
-      }
-    };
-
-    const removeAttachment = (id: string) => {
-      setAttachments((prev) => prev.filter((a) => a.id !== id));
-    };
-
-    const handleKBSelect = (selectedAttachments: Attachment[]) => {
-      appendAttachments(selectedAttachments);
-    };
-
     // Adjust textarea height
     useEffect(() => {
       if (textareaRef.current) {
@@ -1278,8 +919,6 @@ const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
       selectedModel ||
       t("noModelSelected");
     const hasKnowledgeAttachments = attachments.some(isKnowledgeAttachment);
-    const isInputBusy =
-      disabled || isTranscribing || isParsingAttachments || isPreparingSend;
     const attachmentProcessingLabel =
       attachmentProcessingStage === "converting"
         ? t("convertingImage")
@@ -1287,7 +926,9 @@ const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
           ? t("compressingImage")
           : attachmentProcessingStage === "parsing"
             ? t("parsingDocument")
-            : t("preparingAttachment");
+            : attachmentProcessingStage === "conversation"
+              ? t("attachingConversation")
+              : t("preparingAttachment");
     const attachmentActionsDisabled = isInputBusy || offline;
     const textareaMinHeightClass = isHeroVariant
       ? "min-h-[5em]"
@@ -1350,6 +991,7 @@ const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
 
     return (
       <div
+        ref={composerRootRef}
         className={`glass-shell relative flex w-full flex-col rounded-xl border focus-within:ring-2 focus-within:ring-blue-100/50 dark:focus-within:ring-blue-900/30 focus-within:border-blue-400/50 transition-[background-color,border-color,box-shadow] duration-200 ${composerPaddingClass}`}
         aria-busy={isInputBusy}
         onDragEnter={handleComposerDragEnter}
@@ -1451,10 +1093,44 @@ const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
           </div>
         ) : null}
 
+        <ComposerReferenceChips
+          skills={forcedSkills}
+          plugins={forcedPlugins}
+          onRemoveSkill={(id) =>
+            setForcedSkillIds((prev) => prev.filter((item) => item !== id))
+          }
+          onRemovePlugin={(id) =>
+            setForcedPluginIds((prev) => prev.filter((item) => item !== id))
+          }
+          skillsLabel={t("referencedSkills")}
+          pluginsLabel={t("referencedPlugins")}
+          removeSkillLabel={(title) => t("removeReferencedSkill", { title })}
+          removePluginLabel={(title) => t("removeReferencedPlugin", { title })}
+        />
+
         <MessageInputAttachmentTray
           attachments={attachments}
           onRemove={removeAttachment}
           ariaLabel={t("attachedFiles")}
+        />
+
+        <ComposerCommandMenu
+          anchorRef={composerRootRef}
+          open={isCommandMenuOpen}
+          onClose={closeCommandMenu}
+          sections={commandSections}
+          highlightedId={highlightedCommandId}
+          onHighlight={setHighlightedCommandId}
+          onSelect={handleSelectCommand}
+          listboxId={commandListboxId}
+          getOptionId={getCommandOptionId}
+          ariaLabel={t("commandMenuAria")}
+          emptyLabel={
+            commandMatch?.trigger === "@" && conversationsForMenu.length === 0
+              ? t("noConversationsAvailable")
+              : t("commandNoMatches")
+          }
+          hintLabel={t("commandHint")}
         />
 
         {/* Text Input */}
@@ -1478,8 +1154,17 @@ const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
             errorMsg && !isParsingAttachments ? errorMessageId : undefined
           }
           aria-keyshortcuts={focusComposerShortcut.ariaKeyShortcuts}
+          role={isCommandMenuOpen ? "combobox" : undefined}
+          aria-expanded={isCommandMenuOpen || undefined}
+          aria-controls={isCommandMenuOpen ? commandListboxId : undefined}
+          aria-activedescendant={
+            isCommandMenuOpen && highlightedCommandId
+              ? getCommandOptionId(highlightedCommandId)
+              : undefined
+          }
           value={input}
-          onChange={(e) => setInput(e.target.value)}
+          onChange={handleComposerChange}
+          onSelect={handleComposerSelect}
           onKeyDown={handleKeyDown}
           onPaste={handleComposerPaste}
           disabled={isInputBusy}

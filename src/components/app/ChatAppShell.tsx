@@ -6,7 +6,10 @@ import { useTranslations } from "next-intl";
 import { MessageSquarePlus, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 
 import Sidebar from "@/components/layout/Sidebar";
-import MessageInput, { MessageInputRef } from "@/components/chat/MessageInput";
+import MessageInput, {
+  type ComposerForcedInvocations,
+  type MessageInputRef,
+} from "@/components/chat/MessageInput";
 import type { ComposerSkillParameterValues } from "@/components/skill/SkillParameterDialog";
 import VirtualizedMessageTimeline, {
   type VirtualizedMessageTimelineRef,
@@ -84,6 +87,7 @@ type MessageInputVariant = "default" | "hero";
 
 interface ChatAppShellProps {
   actionError: string | null;
+  actionNotice: string | null;
   sessions: Session[];
   currentSessionId: string | null;
   currentSession?: Session;
@@ -140,8 +144,12 @@ interface ChatAppShellProps {
     attachments: Attachment[],
     replyTo?: MessageReplyReference,
     skillParameters?: ComposerSkillParameterValues,
+    forced?: ComposerForcedInvocations,
   ) => Promise<void>;
-  prepareComposerSkillParameters: () => Promise<ComposerSkillParameterValues | null>;
+  prepareComposerSkillParameters: (
+    forced?: ComposerForcedInvocations,
+  ) => Promise<ComposerSkillParameterValues | null>;
+  handleCompressContext: () => void | Promise<void>;
   handleSuggestionClick: (question: string) => void;
   handleStopGeneration: () => void;
   setModel: (model: string) => void;
@@ -156,6 +164,7 @@ interface ChatAppShellProps {
 
 const ChatAppShell = ({
   actionError,
+  actionNotice,
   sessions,
   currentSessionId,
   currentSession,
@@ -201,6 +210,7 @@ const ChatAppShell = ({
   handleVersionSelect,
   handleSendMessage,
   prepareComposerSkillParameters,
+  handleCompressContext,
   handleSuggestionClick,
   handleStopGeneration,
   setModel,
@@ -609,6 +619,17 @@ const ChatAppShell = ({
             </div>
           </div>
         )}
+        {actionNotice && !actionError && (
+          <div
+            role="status"
+            aria-live="polite"
+            className="absolute top-16 left-4 right-4 z-30 pointer-events-none"
+          >
+            <div className="mx-auto max-w-3xl rounded-md border border-border bg-popover px-3 py-2 text-sm text-popover-foreground shadow-sm">
+              {actionNotice}
+            </div>
+          </div>
+        )}
         {shouldShowPendingToolBanner && pendingToolConfirmation ? (
           <div className="absolute inset-x-4 top-3 z-40 mx-auto flex max-w-3xl items-center gap-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950 shadow-lg dark:border-amber-800 dark:bg-amber-950 dark:text-amber-100">
             <div className="min-w-0 flex-1">
@@ -866,12 +887,19 @@ const ChatAppShell = ({
                 <MessageInput
                   ref={messageInputRef}
                   variant={messageInputVariant}
-                  onSend={(text, attachments, replyTo, skillParameters) => {
+                  onSend={(
+                    text,
+                    attachments,
+                    replyTo,
+                    skillParameters,
+                    forced,
+                  ) => {
                     void handleSendMessage(
                       text,
                       attachments,
                       replyTo,
                       skillParameters,
+                      forced,
                     );
                     setReplyTarget(undefined);
                   }}
@@ -892,6 +920,8 @@ const ChatAppShell = ({
                   replyTo={replyTarget}
                   onCancelReply={() => setReplyTarget(undefined)}
                   onNavigateReply={focusMessage}
+                  onNewChat={handleNewChat}
+                  onCompressContext={handleCompressContext}
                 />
               </div>
             </div>

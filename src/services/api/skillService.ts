@@ -298,6 +298,7 @@ export async function resolveSkillsForMessage({
   installedSkills,
   customSkills = [],
   activeSkillIds,
+  forcedSkillIds = [],
   skillBundles = [],
   activeSkillBundleIds = [],
   skillParameterValues = {},
@@ -311,6 +312,8 @@ export async function resolveSkillsForMessage({
   installedSkills?: readonly TextSkill[];
   customSkills?: readonly TextSkill[];
   activeSkillIds: readonly string[];
+  /** Skills referenced with a `/` slash command; always applied in manual mode. */
+  forcedSkillIds?: readonly string[];
   skillBundles?: readonly SkillBundle[];
   activeSkillBundleIds?: readonly string[];
   skillParameterValues?: Readonly<Record<string, Record<string, string>>>;
@@ -337,6 +340,21 @@ export async function resolveSkillsForMessage({
   const activeSkills = activeIds
     .map((id) => skillsById.get(id))
     .filter((skill): skill is TextSkill => Boolean(skill));
+  // Slash-referenced skills apply even when they are not active on the session.
+  const forcedSkills: AppliedSkill[] = normalizeSkillIdRefs(
+    forcedSkillIds,
+    skills,
+  )
+    .map((id) => skillsById.get(id))
+    .filter((skill): skill is TextSkill => Boolean(skill))
+    .map((skill) => ({
+      skill,
+      mode: "manual" as const,
+      parameters: resolveSkillParameterValues(
+        skill,
+        skillParameterValues[skill.id],
+      ),
+    }));
   const bundlesById = new Map(
     skillBundles.map((bundle) => [bundle.id, bundle]),
   );
@@ -354,7 +372,11 @@ export async function resolveSkillsForMessage({
     if (bundleSkills.length >= 4) break;
   }
 
-  if (activeSkills.length === 0 && bundleSkills.length === 0) {
+  if (
+    activeSkills.length === 0 &&
+    bundleSkills.length === 0 &&
+    forcedSkills.length === 0
+  ) {
     return {
       appliedSkills: [],
       invocations: [],
@@ -366,6 +388,7 @@ export async function resolveSkillsForMessage({
   let appliedSkills: AppliedSkill[] = [];
   if (!autoSelect) {
     appliedSkills = [
+      ...forcedSkills,
       ...bundleSkills,
       ...activeSkills.map((skill) => ({
         skill,
@@ -467,7 +490,7 @@ export async function resolveSkillsForMessage({
   }
 
   const autoSeen = new Set<string>();
-  appliedSkills = [...bundleSkills, ...appliedSkills]
+  appliedSkills = [...forcedSkills, ...bundleSkills, ...appliedSkills]
     .filter(({ skill }) => {
       if (autoSeen.has(skill.id)) return false;
       autoSeen.add(skill.id);
@@ -475,12 +498,13 @@ export async function resolveSkillsForMessage({
     })
     .slice(0, 4);
 
+  const forcedIds = new Set(forcedSkills.map(({ skill }) => skill.id));
   const context = buildSkillPromptContext({ skills: appliedSkills });
   return {
     appliedSkills,
     invocations: createSkillInvocations(appliedSkills),
     context,
-    skippedSkillIds,
+    skippedSkillIds: skippedSkillIds.filter((id) => !forcedIds.has(id)),
   };
 }
 

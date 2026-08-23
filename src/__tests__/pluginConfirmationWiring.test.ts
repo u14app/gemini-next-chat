@@ -7,10 +7,15 @@ import zh from "../i18n/locales/zh";
 
 describe("plugin confirmation UI wiring", () => {
   it("wires runtime tool confirmation into ChatApp streaming calls", () => {
-    const chatApp = readFileSync(
-      resolve(process.cwd(), "src/components/app/ChatApp.tsx"),
-      "utf8",
-    );
+    // The streaming calls moved into ChatApp's extracted flow hooks.
+    const chatApp = [
+      "src/components/app/ChatApp.tsx",
+      "src/features/chat/hooks/useSendMessageFlow.ts",
+      "src/features/chat/hooks/useResponseBranchFlow.ts",
+      "src/features/chat/hooks/useMessageEditFlow.ts",
+    ]
+      .map((path) => readFileSync(resolve(process.cwd(), path), "utf8"))
+      .join("\n");
 
     expect(chatApp).toContain("useToolConfirmationController");
     expect(chatApp).toContain("pendingToolConfirmations");

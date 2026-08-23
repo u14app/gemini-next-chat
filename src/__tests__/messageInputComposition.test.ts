@@ -39,10 +39,14 @@ describe("MessageInput composition", () => {
   });
 
   it("keeps attachment tray presentation outside the composer container", () => {
-    const messageInput = readFileSync(
-      resolve(process.cwd(), "src/components/chat/MessageInput.tsx"),
-      "utf8",
-    );
+    // The composer's attachment logic lives in the extracted hook; read both
+    // halves so this stays an assertion about the surface, not about layout.
+    const messageInput = [
+      "src/components/chat/MessageInput.tsx",
+      "src/features/chat/hooks/useComposerAttachments.ts",
+    ]
+      .map((path) => readFileSync(resolve(process.cwd(), path), "utf8"))
+      .join("\n");
     const attachmentTray = readFileSync(
       resolve(
         process.cwd(),
@@ -181,5 +185,77 @@ describe("MessageInput composition", () => {
     expect(attachmentTray).toContain("markdown-file-card-icon");
     expect(attachmentTray).toContain("markdown-file-card-action");
     expect(attachmentTray).not.toContain("h-16 w-16");
+  });
+
+  it("wires the slash and at-sign composer commands", () => {
+    // The command menu logic lives in the extracted hook; read the composer
+    // first so the keydown-ordering assertions below still hold.
+    const messageInput = [
+      "src/components/chat/MessageInput.tsx",
+      "src/features/chat/hooks/useComposerCommandMenu.ts",
+    ]
+      .map((path) => readFileSync(resolve(process.cwd(), path), "utf8"))
+      .join("\n");
+    const commandMenu = readFileSync(
+      resolve(process.cwd(), "src/components/chat/ComposerCommandMenu.tsx"),
+      "utf8",
+    );
+    const referenceChips = readFileSync(
+      resolve(process.cwd(), "src/components/chat/ComposerReferenceChips.tsx"),
+      "utf8",
+    );
+
+    // Parsing lives in the pure helper module, not in the component.
+    expect(messageInput).toContain("detectComposerTrigger");
+    expect(messageInput).toContain("consumeComposerTrigger");
+    expect(messageInput).toContain("filterComposerItems");
+    expect(messageInput).not.toContain("text.slice(match.start");
+
+    // The menu commits before the send check so Enter selects, not sends.
+    expect(
+      messageInput.indexOf("if (handleCommandMenuKeyDown(e)) return;"),
+    ).toBeLessThan(messageInput.indexOf("shouldSubmitOnEnter({"));
+    expect(messageInput).toContain("e.nativeEvent.isComposing) return false");
+    expect(messageInput).toContain("getNextMenuItemIndex");
+
+    // Combobox semantics on the textarea, listbox semantics on the popup.
+    expect(messageInput).toContain('role={isCommandMenuOpen ? "combobox"');
+    expect(messageInput).toContain("aria-activedescendant");
+    expect(messageInput).toContain("aria-controls={isCommandMenuOpen");
+    expect(commandMenu).toContain('role="listbox"');
+    expect(commandMenu).toContain('role="option"');
+    expect(commandMenu).toContain('role="group"');
+    expect(commandMenu).not.toContain('role="menu"');
+    expect(commandMenu).toContain("AnchoredPortal");
+    expect(commandMenu).toContain('placement="top-start"');
+
+    // Forced references are per-message state surfaced as dismissible chips.
+    expect(messageInput).toContain("forcedSkillIds");
+    expect(messageInput).toContain("forcedPluginIds");
+    expect(messageInput).toContain("ComposerReferenceChips");
+    expect(messageInput).toContain("setForcedSkillIds([]);");
+    expect(messageInput).toContain("setForcedPluginIds([]);");
+    expect(messageInput).toContain('t("forcedPluginNeedsToolSupport")');
+    expect(referenceChips).toContain("removeSkillLabel");
+    expect(referenceChips).toContain("removePluginLabel");
+    // Referenced conversations become real attachments, never chips.
+    expect(referenceChips).not.toContain("conversations:");
+    expect(referenceChips).not.toContain("onRemoveConversation");
+
+    // Action commands reuse the handlers the toolbar already dispatches to.
+    expect(messageInput).toContain("imageInputRef.current?.click()");
+    expect(messageInput).toContain("setShowKBModal(true)");
+    expect(messageInput).toContain("setShowRemoteModal(true)");
+    expect(messageInput).toContain("newChat: onNewChat");
+    expect(messageInput).toContain("compressContext: onCompressContext");
+    expect(messageInput).toContain("newChat?.()");
+    expect(messageInput).toContain("void compressContext?.()");
+
+    // Referenced conversations flow through the shared attachment budget.
+    expect(messageInput).toContain("buildCompressionSource");
+    expect(messageInput).toContain("buildConversationTranscript");
+    expect(messageInput).toContain("CONVERSATION_REFERENCE_MAX_CHARS");
+    expect(messageInput).toContain("appendAttachments([");
+    expect(messageInput).toContain('mimeType: "text/markdown"');
   });
 });

@@ -2,19 +2,15 @@ import {
   Message,
   Attachment,
   ChatConfig,
-  Session,
   MessageOutputBlock,
   ToolCall,
   ToolConfirmationController,
   ToolConfirmationDecision,
-  ToolConfirmationRequest,
   Source,
-  ImageSource,
   AppliedSkillInvocation,
 } from "@/types";
 import { useSettingsStore, getTaskModel } from "@/store/core/settingsStore";
 import { useCoreSettingsStore } from "@/store/core/coreSettingsStore";
-import { useMemoryStore } from "@/store/core/memoryStore";
 import { v7 as uuidv7 } from "uuid";
 import { executePluginFunction } from "@/utils/pluginUtils";
 import {
@@ -22,6 +18,11 @@ import {
   resolveEnabledPluginFunction,
 } from "@/lib/plugin/resolve";
 import { getPluginFunctionRisk } from "@/lib/plugin/risk";
+import type { Plugin } from "@/lib/plugin/types";
+import {
+  buildForcedToolDirective,
+  mergeForcedPluginIds,
+} from "@/lib/chat/forcedInvocation";
 import {
   createPluginFunctionFingerprint,
   normalizeToolConfirmationDecision,
@@ -30,7 +31,6 @@ import {
 } from "@/lib/plugin/confirmation";
 import {
   parseModelString,
-  resolveProviderModelMetadata,
   supportsImageGeneration,
   supportsTextOutput,
   supportsToolCalls,
@@ -39,7 +39,6 @@ import {
   isGoogleProviderType,
   isOpenAIProviderType,
 } from "@/lib/providers/providerTypes";
-import { normalizeSessionTitle } from "@/lib/chat/entities";
 import { appendContextToChatInput } from "@/lib/utils/chatInput";
 import {
   compressImageAttachments,
@@ -59,19 +58,7 @@ import {
 import { createMessageOutputBlockBuilder } from "@/lib/chat/messageOutputBlocks";
 import { LONG_TEXT_TOOL_NAME } from "@/lib/chat/longText";
 import { resolveImageGenerationOptions } from "@/lib/chat/imageGenerationOptions";
-import {
-  buildCompressionSource,
-  createContextCompressionSummaryPrompt,
-  mergeCompressedContentWithMemoryIds,
-  normalizeCompressedContent,
-  normalizeCompressedContentWithMemoryIds,
-  textToBase64,
-} from "@/lib/utils/contextCompression";
-import {
-  getResponseErrorMessage,
-  readJsonResponseOrThrow,
-  signedApiFetch,
-} from "@/lib/api/client";
+import { getResponseErrorMessage, signedApiFetch } from "@/lib/api/client";
 import { createChatRequestBody } from "@/lib/api/chatImageRequestBody";
 import {
   buildProviderRuntimeConfig,
@@ -79,39 +66,16 @@ import {
 } from "@/lib/byok/client";
 import {
   buildDirectProviderConfig,
-  getBrowserImageRuntime,
   describeDirectCallError,
-  directSimpleGenerator,
   getBrowserProviderRuntime,
   hydrateDirectProviderImageFiles,
   shouldUseDirectCall,
 } from "./chat/transport";
-import {
-  parseMemoryDreamToolCall,
-  parseMemoryRecordToolCall,
-} from "@/lib/memory/entities";
-import {
-  createMemoryDreamPrompt,
-  createMemoryExtractionPrompt,
-  MEMORY_DREAM_TOOL,
-  MEMORY_DREAM_TOOL_NAME,
-  MEMORY_RECORD_TOOL,
-  MEMORY_RECORD_TOOL_NAME,
-} from "@/lib/memory/tools";
-import { logDevError, logDevWarn } from "@/lib/utils/devLogger";
-import {
-  ATTACHMENT_LIMITS,
-  MEMORY_LIMITS,
-  PLUGIN_EXECUTION_LIMITS,
-  RAG_LIMITS,
-  SEARCH_RESULT_LIMITS,
-} from "@/config/limits";
+import { ATTACHMENT_LIMITS, PLUGIN_EXECUTION_LIMITS } from "@/config/limits";
 import {
   collectBuiltinTools,
   type BuiltinKnowledgeScope,
-  type BuiltinSearchEvent,
 } from "./chat/builtinTools";
-import { isBrowserMemoryStorePendingHydration } from "./chat/builtinTools/memorySearch";
 import {
   runExternalSearchPreflight,
   type SearchStatusResults,
@@ -122,52 +86,72 @@ import {
   extractPluginImageAttachments,
 } from "./chat/pluginImageResults";
 import type { ChatToolDefinition } from "./chat/types";
+import {
+  createBuiltinKnowledgeAggregator,
+  createBuiltinSearchAggregator,
+} from "./chat/builtinResultAggregators";
 import { mapWithConcurrency } from "@/lib/utils/concurrency";
 import { boundHistoryForRequest } from "@/lib/chat/requestContextBudget";
-import { mergeImages, mergeSources } from "@/lib/chat/searchUpdate";
 import {
   appendAgentSystemInstruction,
   buildAgentSystemInstruction,
 } from "@/lib/agent/systemPrompt";
 import type { RagQueryError } from "@/lib/knowledge/retrieveKnowledgeSources";
 import { buildSkillMetadataContext } from "@/lib/skills";
+import {
+  ChatStreamEventError,
+  ChatStreamSizeLimitError,
+  ChatStreamTimeoutError,
+  IncompleteChatStreamError,
+  createAbortError,
+  createChatStreamEventError,
+  isAbortError,
+} from "./chat/streamErrors";
+import {
+  createConfirmationFailureToolCall,
+  createRejectedToolCall,
+  waitForToolConfirmation,
+} from "./chat/toolConfirmation";
+import {
+  streamGenerateContent,
+  streamGenerateToolCall,
+} from "./chat/simpleGeneration";
+import {
+  performBackgroundMemoryExtraction,
+  performMemoryDream,
+} from "./chat/memoryProcessing";
+import {
+  performBackgroundCompression,
+  prepareHistoryForLLM,
+} from "./chat/compression";
+import {
+  executeCode,
+  generateChatTitle,
+  generateImage,
+  generateRAGSearchQueries,
+  generateRelatedQuestions,
+} from "./chat/auxiliaryRequests";
 
 type ChatUsagePayload = { usage?: unknown; usageMetadata?: unknown };
 const MAX_CHAT_TOOLS_PER_REQUEST = 64;
 
-export class IncompleteChatStreamError extends Error {
-  readonly code = "INCOMPLETE_CHAT_STREAM";
-  readonly recoverable = true;
-
-  constructor() {
-    super("The response stream ended before completion. Please retry.");
-    this.name = "IncompleteChatStreamError";
-  }
-}
-
-export class ChatStreamEventError extends Error {
-  constructor(
-    message: string,
-    readonly code = "CHAT_STREAM_ERROR",
-  ) {
-    super(message);
-    this.name = "ChatStreamEventError";
-  }
-}
-
-export class ChatStreamTimeoutError extends ChatStreamEventError {
-  constructor(message: string) {
-    super(message, "RESPONSE_TIMEOUT");
-    this.name = "ChatStreamTimeoutError";
-  }
-}
-
-export class ChatStreamSizeLimitError extends ChatStreamEventError {
-  constructor(message: string) {
-    super(message, "RESPONSE_SIZE_LIMIT");
-    this.name = "ChatStreamSizeLimitError";
-  }
-}
+export {
+  ChatStreamEventError,
+  ChatStreamSizeLimitError,
+  ChatStreamTimeoutError,
+  IncompleteChatStreamError,
+  streamGenerateContent,
+  streamGenerateToolCall,
+  performBackgroundMemoryExtraction,
+  performMemoryDream,
+  performBackgroundCompression,
+  prepareHistoryForLLM,
+  executeCode,
+  generateChatTitle,
+  generateImage,
+  generateRAGSearchQueries,
+  generateRelatedQuestions,
+};
 
 type ChatStreamRoundPayload = {
   content: string;
@@ -184,511 +168,6 @@ type ChatStreamRoundResult =
       error: IncompleteChatStreamError;
     });
 
-function isAbortError(error: unknown, signal?: AbortSignal): boolean {
-  return (
-    signal?.aborted === true ||
-    (error instanceof Error && error.name === "AbortError")
-  );
-}
-
-function createAbortError(signal?: AbortSignal): Error {
-  if (signal?.reason instanceof Error) return signal.reason;
-  if (typeof DOMException !== "undefined") {
-    return new DOMException("The operation was aborted", "AbortError");
-  }
-  const error = new Error("The operation was aborted");
-  error.name = "AbortError";
-  return error;
-}
-
-function waitForToolConfirmation(
-  controller: ToolConfirmationController,
-  request: ToolConfirmationRequest,
-  signal?: AbortSignal,
-) {
-  if (signal?.aborted) return Promise.reject(createAbortError(signal));
-
-  return new Promise<
-    Awaited<ReturnType<ToolConfirmationController["requestConfirmation"]>>
-  >((resolve, reject) => {
-    const onAbort = () => reject(createAbortError(signal));
-    signal?.addEventListener("abort", onAbort, { once: true });
-
-    Promise.resolve()
-      .then(() => controller.requestConfirmation(request, signal))
-      .then(
-        (decision) => {
-          signal?.removeEventListener("abort", onAbort);
-          resolve(decision);
-        },
-        (error) => {
-          signal?.removeEventListener("abort", onAbort);
-          reject(error);
-        },
-      );
-  });
-}
-
-function createRejectedToolCall(
-  toolCall: ToolCall,
-  code: string,
-  message: string,
-  recoverable: boolean,
-): ToolCall {
-  return {
-    ...toolCall,
-    status: "denied",
-    isError: true,
-    confirmation: {
-      required: true,
-      state: "denied",
-      decision: "deny",
-      decidedAt: Date.now(),
-    },
-    errorInfo: { code, message, recoverable },
-    result: { error: { code, message } },
-  };
-}
-
-function createConfirmationFailureToolCall(
-  toolCall: ToolCall,
-  code: string,
-  message: string,
-  state: "interrupted" | "error",
-): ToolCall {
-  return {
-    ...toolCall,
-    status: "error",
-    isError: true,
-    confirmation: {
-      required: true,
-      state,
-      decidedAt: Date.now(),
-    },
-    errorInfo: { code, message, recoverable: true },
-    result: { error: { code, message } },
-  };
-}
-
-function createChatStreamEventError(event: {
-  error?: string;
-  code?: string;
-}): ChatStreamEventError {
-  const message = event.error || "The response stream failed.";
-  if (event.code === "INCOMPLETE_PROVIDER_STREAM") {
-    return new IncompleteChatStreamError();
-  }
-  if (event.code === "RESPONSE_TIMEOUT") {
-    return new ChatStreamTimeoutError(message);
-  }
-  if (event.code === "RESPONSE_SIZE_LIMIT") {
-    return new ChatStreamSizeLimitError(message);
-  }
-  return new ChatStreamEventError(message, event.code);
-}
-
-function coerceToolDefinition(tool: unknown): ChatToolDefinition {
-  return tool as ChatToolDefinition;
-}
-
-export const executeCode = async (
-  modelString: string,
-  code: string,
-): Promise<string> => {
-  const { providerId, modelName } = parseModelString(modelString);
-
-  const { providers } = useCoreSettingsStore.getState();
-  const provider = providerId
-    ? providers.find((p) => p.id === providerId)
-    : providers.find((p) => p.enabled);
-
-  if (!provider) throw new Error("No provider found");
-
-  if (shouldUseDirectCall(provider)) {
-    try {
-      const [{ simulateCode }, runtime, directProvider] = await Promise.all([
-        import("@/lib/chat/simulateCode"),
-        getBrowserProviderRuntime(),
-        buildDirectProviderConfig(provider),
-      ]);
-      const result = await simulateCode(
-        directProvider,
-        modelName,
-        code,
-        runtime,
-      );
-      if (!result.ok) throw new Error(result.error);
-      return result.output;
-    } catch (error) {
-      throw describeDirectCallError(error, provider);
-    }
-  }
-
-  try {
-    const response = await fetchWithByokRetry(async () =>
-      signedApiFetch("/api/chat/execute-code", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          provider: await buildProviderRuntimeConfig(provider),
-          modelName,
-          code,
-        }),
-      }),
-    );
-
-    if (!response.ok) {
-      throw new Error(
-        await getResponseErrorMessage(response, "Code execution failed"),
-      );
-    }
-
-    const data = await readJsonResponseOrThrow<{
-      output?: string;
-      error?: string;
-    }>(response, "Code execution failed");
-    return data.output || data.error || "No output.";
-  } catch (error) {
-    logDevError("Code execution error:", error);
-    return `Error: ${error instanceof Error ? error.message : String(error)}`;
-  }
-};
-
-export const generateChatTitle = async (
-  history: Message[],
-  signal?: AbortSignal,
-): Promise<string> => {
-  const fallbackTitle = () =>
-    normalizeSessionTitle(history.find((m) => m.role === "user")?.content);
-  const { providers } = useCoreSettingsStore.getState();
-  const provider = providers.find((p) => p.enabled);
-
-  if (!provider) return fallbackTitle();
-
-  // Get task model from settings using helper function
-  const modelString = getTaskModel("titleGeneration");
-
-  const { providerId, modelName } = parseModelString(modelString);
-
-  const targetProvider = providerId
-    ? providers.find((p) => p.id === providerId)
-    : provider;
-
-  if (!targetProvider) return fallbackTitle();
-
-  try {
-    if (shouldUseDirectCall(targetProvider)) {
-      const [{ generateTitleWith }, generate, directProvider] =
-        await Promise.all([
-          import("@/lib/chat/auxiliaryGeneration"),
-          directSimpleGenerator(),
-          buildDirectProviderConfig(targetProvider),
-        ]);
-      return await generateTitleWith(
-        generate,
-        directProvider,
-        modelName,
-        history,
-        signal,
-      );
-    }
-
-    const response = await fetchWithByokRetry(async () =>
-      signedApiFetch("/api/chat/generate-title", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          provider: await buildProviderRuntimeConfig(targetProvider, signal),
-          modelName,
-          history,
-        }),
-        signal,
-      }),
-    );
-
-    if (!response.ok) {
-      throw new Error(
-        await getResponseErrorMessage(response, "Title generation failed"),
-      );
-    }
-
-    const data = await readJsonResponseOrThrow<{ title?: string }>(
-      response,
-      "Title generation failed",
-    );
-    return normalizeSessionTitle(data.title);
-  } catch (error) {
-    if (isAbortError(error, signal)) throw error;
-    logDevError("Title generation error:", error);
-    return fallbackTitle();
-  }
-};
-
-export const generateRelatedQuestions = async (
-  history: Message[],
-  signal?: AbortSignal,
-): Promise<string[]> => {
-  const { providers } = useCoreSettingsStore.getState();
-  const provider = providers.find((p) => p.enabled);
-
-  if (!provider) return [];
-
-  // Get task model from settings using helper function
-  const modelString = getTaskModel("relatedQuestions");
-
-  const { providerId, modelName } = parseModelString(modelString);
-
-  const targetProvider = providerId
-    ? providers.find((p) => p.id === providerId)
-    : provider;
-
-  if (!targetProvider) return [];
-
-  try {
-    if (shouldUseDirectCall(targetProvider)) {
-      const [{ generateRelatedQuestionsWith }, generate, directProvider] =
-        await Promise.all([
-          import("@/lib/chat/auxiliaryGeneration"),
-          directSimpleGenerator(),
-          buildDirectProviderConfig(targetProvider),
-        ]);
-      return await generateRelatedQuestionsWith(
-        generate,
-        directProvider,
-        modelName,
-        history,
-        signal,
-      );
-    }
-
-    const response = await fetchWithByokRetry(async () =>
-      signedApiFetch("/api/chat/related-questions", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          provider: await buildProviderRuntimeConfig(targetProvider, signal),
-          modelName,
-          history,
-        }),
-        signal,
-      }),
-    );
-
-    if (!response.ok) {
-      throw new Error(
-        await getResponseErrorMessage(
-          response,
-          "Related questions generation failed",
-        ),
-      );
-    }
-
-    const data = await readJsonResponseOrThrow<{ questions?: string[] }>(
-      response,
-      "Related questions generation failed",
-    );
-    return data.questions || [];
-  } catch (error) {
-    if (isAbortError(error, signal)) throw error;
-    logDevError("Related questions error:", error);
-    return [];
-  }
-};
-
-export const generateRAGSearchQueries = async (
-  userPrompt: string,
-  signal?: AbortSignal,
-): Promise<string[]> => {
-  const { providers } = useCoreSettingsStore.getState();
-  const provider = providers.find((p) => p.enabled);
-
-  if (!provider) return [userPrompt];
-
-  // Get task model from settings using helper function
-  const modelString = getTaskModel("ragQuery");
-
-  const { providerId, modelName } = parseModelString(modelString);
-
-  const targetProvider = providerId
-    ? providers.find((p) => p.id === providerId)
-    : provider;
-
-  if (!targetProvider) return [userPrompt];
-
-  try {
-    if (shouldUseDirectCall(targetProvider)) {
-      const [{ generateRAGQueriesWith }, generate, directProvider] =
-        await Promise.all([
-          import("@/lib/chat/auxiliaryGeneration"),
-          directSimpleGenerator(),
-          buildDirectProviderConfig(targetProvider),
-        ]);
-      return await generateRAGQueriesWith(
-        generate,
-        directProvider,
-        modelName,
-        userPrompt,
-        signal,
-      );
-    }
-
-    const response = await fetchWithByokRetry(async () =>
-      signedApiFetch("/api/chat/rag-queries", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          provider: await buildProviderRuntimeConfig(targetProvider, signal),
-          modelName,
-          userMessage: userPrompt,
-        }),
-        signal,
-      }),
-    );
-
-    if (!response.ok) {
-      throw new Error(
-        await getResponseErrorMessage(
-          response,
-          "RAG queries generation failed",
-        ),
-      );
-    }
-
-    const data = await readJsonResponseOrThrow<{ queries?: string[] }>(
-      response,
-      "RAG queries generation failed",
-    );
-    return data.queries || [userPrompt];
-  } catch (error) {
-    if (isAbortError(error, signal)) throw error;
-    logDevError("RAG queries error:", error);
-    return [userPrompt];
-  }
-};
-
-export const generateImage = async (
-  modelString: string,
-  prompt: string,
-  options: { imageCount?: number; attachments?: Attachment[] } = {},
-  signal?: AbortSignal,
-): Promise<{ images: Attachment[]; message: string }> => {
-  const { providerId, modelName } = parseModelString(modelString);
-
-  const { providers } = useCoreSettingsStore.getState();
-  const provider = providerId
-    ? providers.find((p) => p.id === providerId)
-    : providers.find((p) => p.enabled);
-
-  if (!provider) throw new Error("No provider found");
-
-  try {
-    const imageCompressionConfig = getImageCompressionConfig(
-      useSettingsStore.getState().system,
-    );
-    const preparedAttachments = options.attachments
-      ? await compressImageAttachments(
-          options.attachments,
-          imageCompressionConfig,
-          { signal },
-        )
-      : undefined;
-    const requestAttachments = preparedAttachments
-      ? await stripAttachmentsDisplayCacheForModel(preparedAttachments)
-      : undefined;
-    if (shouldUseDirectCall(provider)) {
-      const [{ generateImage }, runtime, directProvider] = await Promise.all([
-        import("@/lib/chat/generateImage"),
-        getBrowserImageRuntime(),
-        buildDirectProviderConfig(provider),
-      ]);
-      const directImages = await hydrateDirectProviderImageFiles(
-        [],
-        requestAttachments || [],
-        { signal },
-      );
-
-      let result;
-      try {
-        result = await generateImage(
-          {
-            provider: directProvider,
-            modelName,
-            prompt,
-            imageCount: options.imageCount,
-            attachments: directImages.attachments,
-            signal,
-          },
-          runtime,
-        );
-      } catch (error) {
-        throw describeDirectCallError(error, provider);
-      }
-
-      if (!result.ok) throw new Error(result.error);
-
-      return {
-        images: await prepareGeneratedImageAttachments(
-          result.images,
-          imageCompressionConfig,
-          { signal },
-        ),
-        message: result.message,
-      };
-    }
-
-    const response = await fetchWithByokRetry(async () => {
-      const request = await createChatRequestBody(
-        {
-          provider: await buildProviderRuntimeConfig(provider, signal),
-          modelName,
-          prompt,
-          imageCount: options.imageCount,
-          attachments: requestAttachments,
-        },
-        { signal },
-      );
-      return signedApiFetch("/api/chat/generate-image", {
-        method: "POST",
-        headers: request.headers,
-        body: request.body,
-        signal,
-      });
-    });
-
-    if (!response.ok) {
-      throw new Error(
-        await getResponseErrorMessage(response, "Image generation failed"),
-      );
-    }
-
-    const data = await readJsonResponseOrThrow<{
-      images?: Attachment[];
-      message?: string;
-    }>(response, "Image generation failed");
-    const images = await prepareGeneratedImageAttachments(
-      data.images || [],
-      imageCompressionConfig,
-      { signal },
-    );
-    return {
-      images,
-      message: data.message || "No images generated.",
-    };
-  } catch (error) {
-    if (isAbortError(error, signal)) throw createAbortError(signal);
-    logDevError("Image generation error:", error);
-    throw error;
-  }
-};
-
 // Export types
 export interface ModelInfo {
   name: string;
@@ -704,6 +183,8 @@ export interface StreamChatResponseOptions {
   knowledgeScope?: BuiltinKnowledgeScope;
   onKnowledgeSources?: (sources: Source[], ragError?: RagQueryError) => void;
   onSkillInvocation?: (invocation: AppliedSkillInvocation) => void;
+  /** Plugins referenced with `@`; their tools are registered and required. */
+  forcedPluginIds?: string[];
 }
 
 // Stream chat response from backend API
@@ -771,107 +252,14 @@ export const streamChatResponse = async (
   const emitOutputBlocks = () => {
     onOutputBlocks?.(outputBlockBuilder.getBlocks());
   };
-  const builtinSearchStates = new Map<
-    string,
-    {
-      order: number;
-      phase: BuiltinSearchEvent["phase"];
-      sources: Source[];
-      images: ImageSource[];
-      error?: string;
-    }
-  >();
-  const emitBuiltinSearch = (
-    toolCallId: string,
-    order: number,
-    event: BuiltinSearchEvent,
-  ) => {
-    const previous = builtinSearchStates.get(toolCallId);
-    builtinSearchStates.set(toolCallId, {
-      order,
-      phase: event.phase,
-      sources:
-        event.phase === "complete" ? event.sources : previous?.sources || [],
-      images:
-        event.phase === "complete" ? event.images : previous?.images || [],
-      ...(event.phase === "error" ? { error: event.message } : {}),
-    });
-
-    const orderedStates = [...builtinSearchStates.values()].sort(
-      (left, right) => left.order - right.order,
-    );
-    const activeBuiltinSearches = orderedStates.filter(
-      (state) => state.phase === "start",
-    ).length;
-    let builtinSearchSources: Source[] = [];
-    let builtinSearchImages: ImageSource[] = [];
-    for (const state of orderedStates) {
-      if (state.phase !== "complete") continue;
-      builtinSearchSources = mergeSources(
-        builtinSearchSources,
-        state.sources,
-      ).slice(0, SEARCH_RESULT_LIMITS.maxSources);
-      builtinSearchImages = mergeImages(
-        builtinSearchImages,
-        state.images,
-      ).slice(0, SEARCH_RESULT_LIMITS.maxImages);
-    }
-    const latestSuccessOrder = orderedStates.reduce(
-      (latest, state) =>
-        state.phase === "complete" ? Math.max(latest, state.order) : latest,
-      -1,
-    );
-    const latestError = orderedStates
-      .filter(
-        (state) => state.phase === "error" && state.order > latestSuccessOrder,
-      )
-      .at(-1)?.error;
-    const results = {
-      sources: builtinSearchSources,
-      images: builtinSearchImages,
-    };
-    outputBlockBuilder.upsertSearch({
-      isSearching: activeBuiltinSearches > 0,
-      ...(latestError ? { error: latestError } : {}),
-      results,
-    });
-    emitOutputBlocks();
-    onSearchStatus?.(activeBuiltinSearches > 0, results);
-  };
-  const builtinKnowledgeStates = new Map<
-    string,
-    {
-      order: number;
-      sources: Source[];
-      ragError?: RagQueryError;
-    }
-  >();
-  const emitBuiltinKnowledgeSources = (
-    toolCallId: string,
-    order: number,
-    sources: Source[],
-    ragError?: RagQueryError,
-  ) => {
-    builtinKnowledgeStates.set(toolCallId, {
-      order,
-      sources,
-      ragError,
-    });
-    const orderedStates = [...builtinKnowledgeStates.values()].sort(
-      (left, right) => left.order - right.order,
-    );
-    let aggregatedSources: Source[] = [];
-    for (const state of orderedStates) {
-      aggregatedSources = mergeSources(aggregatedSources, state.sources).slice(
-        0,
-        RAG_LIMITS.maxTopK,
-      );
-    }
-    const latestRagError = orderedStates
-      .filter((state) => state.ragError)
-      .at(-1)?.ragError;
-    options?.onKnowledgeSources?.(aggregatedSources, latestRagError);
-  };
+  const emitBuiltinSearch = createBuiltinSearchAggregator({
+    upsertSearch: outputBlockBuilder.upsertSearch,
+    emitOutputBlocks,
+    onSearchStatus,
+  });
+  const emitBuiltinKnowledgeSources = createBuiltinKnowledgeAggregator({
+    onKnowledgeSources: options?.onKnowledgeSources,
+  });
 
   if (config?.useSearch && !searchCompatibility.enabled) {
     onSearchStatus?.(false, { sources: [], images: [] });
@@ -903,6 +291,12 @@ export const streamChatResponse = async (
   // Get plugin tools if activePlugins is provided
   const { installedPlugins, pluginConfigs, installedSkills } =
     useSettingsStore.getState();
+  // Plugins referenced with `@` are registered and executable for this request
+  // even when they are toggled off for the session.
+  const effectiveActivePlugins = mergeForcedPluginIds(
+    activePlugins,
+    options?.forcedPluginIds,
+  );
   const tools: ChatToolDefinition[] = [];
   const toolNames = new Set<string>();
   const collectedBuiltinTools = collectBuiltinTools({
@@ -922,10 +316,9 @@ export const streamChatResponse = async (
   if (
     !options?.disableTools &&
     toolCallsSupported &&
-    activePlugins &&
-    activePlugins.length > 0
+    effectiveActivePlugins.length > 0
   ) {
-    activePlugins.forEach((pluginId) => {
+    effectiveActivePlugins.forEach((pluginId) => {
       const plugin = installedPlugins.find((p) => p.id === pluginId);
       const pluginConfig = pluginConfigs[pluginId];
 
@@ -954,7 +347,7 @@ export const streamChatResponse = async (
   const hasAgentBuiltin = [
     ...collectedBuiltinTools.bindingsByName.values(),
   ].some((binding) => binding.agentOnly);
-  const effectiveSystemInstruction =
+  const agentSystemInstruction =
     agentModeEnabled && hasAgentBuiltin
       ? appendAgentSystemInstruction(
           userSystemInstruction,
@@ -971,6 +364,29 @@ export const streamChatResponse = async (
           }),
         )
       : userSystemInstruction;
+
+  // There is no `tool_choice` field in any provider request built here, so a
+  // forced `@plugin` invocation is expressed as a system-instruction directive.
+  const forcedToolDirective =
+    !options?.disableTools && toolCallsSupported
+      ? buildForcedToolDirective(
+          (options?.forcedPluginIds || [])
+            .map((pluginId) =>
+              installedPlugins.find((plugin) => plugin.id === pluginId),
+            )
+            .filter((plugin): plugin is Plugin => Boolean(plugin))
+            .map((plugin) => ({
+              title: plugin.title,
+              functions: getEnabledPluginFunctions(
+                plugin,
+                pluginConfigs[plugin.id],
+              ).filter((fn) => toolNames.has(fn.name)),
+            })),
+        )
+      : "";
+  const effectiveSystemInstruction = forcedToolDirective
+    ? appendAgentSystemInstruction(agentSystemInstruction, forcedToolDirective)
+    : agentSystemInstruction;
 
   try {
     const allToolCalls: ToolCall[] = [];
@@ -1607,7 +1023,7 @@ export const streamChatResponse = async (
         const resolved = resolveEnabledPluginFunction(
           installedPlugins,
           toolCall.name,
-          activePlugins,
+          effectiveActivePlugins,
           pluginConfigs,
         );
         if (!resolved) {
@@ -1825,7 +1241,9 @@ export const streamChatResponse = async (
                   toolCall.name,
                   toolCall.args,
                   toolCall.auth,
-                  toolCall.pluginId ? [toolCall.pluginId] : activePlugins,
+                  toolCall.pluginId
+                    ? [toolCall.pluginId]
+                    : effectiveActivePlugins,
                   signal,
                   toolCall.pluginId &&
                     toolCall.functionFingerprint &&
@@ -1991,653 +1409,5 @@ export const streamChatResponse = async (
     return committedContent;
   } catch (error) {
     throw error;
-  }
-};
-
-// Helper functions for history preparation and compression
-// These remain client-side as they need access to local state
-
-// Helper to get compression config from store
-const getCompressionConfig = () => {
-  const { system } = useSettingsStore.getState();
-  // Use stored values or defaults if something is wrong (though state should be init)
-  // Turns to Messages: 1 Turn = 2 Messages
-  return {
-    thresholdMessages: (system.compressionThreshold || 12) * 2,
-    keepMessages: (system.historyKeepCount || 4) * 2,
-  };
-};
-
-// Generate summary using backend API
-const generateSummary = async (
-  text: string,
-  signal?: AbortSignal,
-): Promise<string> => {
-  try {
-    // Use configured task model
-    const summaryModel = getTaskModel("contextCompression");
-
-    const prompt = createContextCompressionSummaryPrompt(text);
-
-    const response = await streamGenerateContent(
-      summaryModel,
-      prompt,
-      () => {},
-      signal,
-    );
-    return response;
-  } catch (e) {
-    if (isAbortError(e, signal)) throw e;
-    logDevWarn("Summary generation failed, returning raw truncation", e);
-    return normalizeCompressedContent(
-      `${text.slice(0, 1000)}... [Summary Failed]`,
-    );
-  }
-};
-
-// Reconstruct history for the LLM based on stored compression state + uncompressed tail
-export const prepareHistoryForLLM = async (
-  allMessages: Message[],
-  compression: Session["compression"],
-  model: string,
-): Promise<Message[]> => {
-  // Filter out empty model messages (can happen after retract/delete operations)
-  const validMessages = allMessages.filter(
-    (m) =>
-      m.role === "user" ||
-      (m.role === "model" &&
-        (m.content.trim() !== "" ||
-          m.attachments?.length ||
-          m.reasoning ||
-          m.searchSources?.length ||
-          m.toolCalls?.length ||
-          m.outputBlocks?.length)),
-  );
-
-  // If no compression state exists, return filtered history
-  if (!compression) return validMessages;
-
-  // 1. Identify uncompressed tail
-  const lastCompressedIndex = validMessages.findIndex(
-    (m) => m.id === compression.lastCompressedMessageId,
-  );
-  let uncompressedTail: Message[] = [];
-
-  if (lastCompressedIndex !== -1) {
-    uncompressedTail = validMessages.slice(lastCompressedIndex + 1);
-  } else {
-    // If ID not found (maybe message deleted?), fallback to full history or handle error.
-    // Safer to return full history if state is invalid.
-    return validMessages;
-  }
-
-  // 2. Identify First User Message (Requirement: Preserve user's first question)
-  const firstUserMsg = validMessages.find((m) => m.role === "user");
-
-  // 3. Construct Compressed Message Placeholder
-  // Check model capability for attachment
-  const { modelMetadata, customModelMetadata } = useSettingsStore.getState();
-  const { providerId, modelName } = parseModelString(model);
-  const meta = resolveProviderModelMetadata({
-    providerId,
-    modelName,
-    modelMetadata,
-    customModelMetadata,
-  });
-  const supportAttachment = meta ? (meta.attachment ?? false) : true;
-
-  let compressedMsg: Message;
-  const placeholderId = uuidv7();
-  const compressedContent = normalizeCompressedContent(
-    compression.compressedContent,
-  );
-
-  if (supportAttachment) {
-    compressedMsg = {
-      id: placeholderId,
-      role: "model",
-      timestamp: Date.now(),
-      content:
-        "The context has been compressed. If you need to view the previous conversation, please read the attached content.",
-      attachments: [
-        {
-          id: uuidv7(),
-          mimeType: "text/plain",
-          fileName: "conversation_history.txt",
-          data: textToBase64(compressedContent),
-        },
-      ],
-    };
-  } else {
-    compressedMsg = {
-      id: placeholderId,
-      role: "model",
-      timestamp: Date.now(),
-      content: `The context has been compressed. To retrieve previous conversation content, please read the following conversation summary:\n\n${compressedContent}`,
-    };
-  }
-
-  // 4. Assemble Final Array
-  // [First User] -> [Compressed Placeholder] -> [Uncompressed Tail]
-  // Note: If firstUserMsg is actually part of the tail (unlikely if compression exists), we shouldn't duplicate it.
-  // Since compression usually happens after 12 turns, firstUserMsg is definitely compressed.
-
-  const result: Message[] = [];
-  if (firstUserMsg) {
-    result.push(firstUserMsg);
-  }
-  result.push(compressedMsg);
-  result.push(...uncompressedTail);
-
-  return result;
-};
-
-// Background task to calculate new compression if needed
-export const performBackgroundCompression = async (
-  allMessages: Message[],
-  currentCompression: Session["compression"],
-  model: string,
-  signal?: AbortSignal,
-): Promise<Session["compression"] | null> => {
-  const { thresholdMessages, keepMessages } = getCompressionConfig();
-
-  // 1. Identify Uncompressed Segment
-  let startIndex = 0;
-  let oldContent = "";
-  let oldIncludedMemoryIds: string[] = [];
-
-  if (currentCompression) {
-    const lastIdx = allMessages.findIndex(
-      (m) => m.id === currentCompression.lastCompressedMessageId,
-    );
-    if (lastIdx !== -1) {
-      startIndex = lastIdx + 1;
-      const normalizedPrevious = normalizeCompressedContentWithMemoryIds({
-        content: currentCompression.compressedContent,
-        memoryIds: currentCompression.includedMemoryIds || [],
-      });
-      oldContent = normalizedPrevious.content;
-      oldIncludedMemoryIds = normalizedPrevious.representedMemoryIds;
-    }
-  } else {
-    // If no previous compression, start from index 1 (keeping index 0 User safe)
-    startIndex = 1;
-  }
-
-  const uncompressedMessages = allMessages.slice(startIndex);
-
-  // 2. Check Threshold
-  if (uncompressedMessages.length < thresholdMessages + keepMessages) {
-    return null; // No new compression needed
-  }
-
-  // 3. Define chunk to compress
-  // We keep the last 'keepMessages' raw. Compress everything else in the uncompressed segment.
-  const splitIndex = uncompressedMessages.length - keepMessages;
-  const messagesToCompress = uncompressedMessages.slice(0, splitIndex);
-  if (messagesToCompress.length === 0) return null;
-
-  // 4. Generate Content
-  const compressionSource = buildCompressionSource(messagesToCompress);
-  if (!compressionSource.lastIncludedMessageId) return null;
-  const textToCompress = compressionSource.text;
-
-  const { modelMetadata, customModelMetadata } = useSettingsStore.getState();
-  const { providerId, modelName } = parseModelString(model);
-  const meta = resolveProviderModelMetadata({
-    providerId,
-    modelName,
-    modelMetadata,
-    customModelMetadata,
-  });
-  const supportAttachment = meta ? (meta.attachment ?? false) : true;
-
-  let nextCompressedContent = textToCompress;
-
-  if (!supportAttachment) {
-    // Generate Summary
-    const summary = await generateSummary(textToCompress, signal);
-    nextCompressedContent = oldContent
-      ? `[New Summary Segment]:\n${summary}`
-      : summary;
-  }
-
-  const mergedCompression = mergeCompressedContentWithMemoryIds({
-    previousContent: oldContent,
-    previousMemoryIds: oldIncludedMemoryIds,
-    nextContent: nextCompressedContent,
-    nextMemoryIds: compressionSource.includedMemoryIds,
-  });
-
-  return {
-    compressedContent: mergedCompression.content,
-    lastCompressedMessageId: compressionSource.lastIncludedMessageId,
-    includedMemoryIds: mergedCompression.representedMemoryIds,
-  };
-};
-
-// Simple streaming text generation (for prompts without complex history)
-export const streamGenerateContent = async (
-  model: string,
-  prompt: string,
-  onChunk: (text: string) => void,
-  signal?: AbortSignal,
-): Promise<string> => {
-  const { providerId, modelName } = parseModelString(model);
-
-  const { providers } = useCoreSettingsStore.getState();
-  const provider = providerId
-    ? providers.find((p) => p.id === providerId)
-    : providers.find((p) => p.enabled);
-
-  if (!provider) throw new Error("No provider found");
-
-  if (shouldUseDirectCall(provider)) {
-    let fullText = "";
-    try {
-      const [{ runChatStream }, runtime, directProvider] = await Promise.all([
-        import("@/lib/chat/runChatStream"),
-        getBrowserProviderRuntime(),
-        buildDirectProviderConfig(provider),
-      ]);
-
-      await runChatStream({
-        provider: directProvider,
-        modelName,
-        history: [],
-        newMessage: prompt,
-        attachments: [],
-        config: { temperature: 0.7 },
-        signal,
-        runtime,
-        send: (message) => {
-          if (message.type === "content") {
-            fullText += message.content;
-            onChunk(fullText);
-          }
-        },
-      });
-
-      if (signal?.aborted) throw createAbortError(signal);
-      return fullText;
-    } catch (error) {
-      if (isAbortError(error, signal)) throw createAbortError(signal);
-      const normalizedError = describeDirectCallError(error, provider);
-      logDevError("Stream generate error:", normalizedError);
-      throw normalizedError;
-    }
-  }
-
-  let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
-  try {
-    const response = await fetchWithByokRetry(async () =>
-      signedApiFetch("/api/chat/generate", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          provider: await buildProviderRuntimeConfig(provider, signal),
-          modelName,
-          prompt,
-        }),
-        signal,
-      }),
-    );
-
-    if (!response.ok) {
-      throw new Error(
-        await getResponseErrorMessage(response, "Generate request failed"),
-      );
-    }
-
-    reader = response.body?.getReader();
-    if (!reader) throw new Error("No response body");
-
-    const decoder = new TextDecoder();
-    let fullText = "";
-    let buffer = "";
-
-    const processEvent = (event: string): boolean => {
-      const data = event
-        .split("\n")
-        .filter((line) => line.startsWith("data: "))
-        .map((line) => line.slice(6))
-        .join("\n");
-
-      if (!data) return false;
-      if (data === "[DONE]") return true;
-
-      let parsed: any;
-      try {
-        parsed = JSON.parse(data);
-      } catch {
-        throw new ChatStreamEventError(
-          "The response stream contained malformed data.",
-          "MALFORMED_CHAT_STREAM",
-        );
-      }
-
-      switch (parsed.type) {
-        case "content":
-          fullText += parsed.content;
-          onChunk(fullText);
-          return false;
-        case "error":
-          throw createChatStreamEventError(parsed);
-        case "done":
-          return true;
-        default:
-          return false;
-      }
-    };
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-
-      buffer += decoder.decode(value, { stream: true });
-      const events = buffer.split("\n\n");
-      buffer = events.pop() || "";
-
-      for (const event of events) {
-        if (processEvent(event)) {
-          await reader.cancel().catch(() => undefined);
-          return fullText;
-        }
-      }
-    }
-
-    if (buffer.trim() && processEvent(buffer)) return fullText;
-    if (signal?.aborted) throw createAbortError(signal);
-    throw new IncompleteChatStreamError();
-  } catch (error) {
-    await reader?.cancel().catch(() => undefined);
-    if (isAbortError(error, signal)) throw createAbortError(signal);
-    logDevError("Stream generate error:", error);
-    throw error;
-  }
-};
-
-export const streamGenerateToolCall = async (
-  model: string,
-  prompt: string,
-  tools: ChatToolDefinition[],
-  signal?: AbortSignal,
-): Promise<ToolCall | null> => {
-  if (tools.length === 0) return null;
-
-  const { providerId, modelName } = parseModelString(model);
-
-  const { providers } = useCoreSettingsStore.getState();
-  const provider = providerId
-    ? providers.find((p) => p.id === providerId)
-    : providers.find((p) => p.enabled);
-
-  if (!provider) {
-    logDevWarn("Skill tool selection skipped: no provider found.");
-    return null;
-  }
-
-  if (shouldUseDirectCall(provider)) {
-    let pendingToolCall: ToolCall | null = null;
-    try {
-      const [{ runChatStream }, runtime, directProvider] = await Promise.all([
-        import("@/lib/chat/runChatStream"),
-        getBrowserProviderRuntime(),
-        buildDirectProviderConfig(provider),
-      ]);
-
-      await runChatStream({
-        provider: directProvider,
-        modelName,
-        history: [],
-        newMessage: prompt,
-        attachments: [],
-        config: { temperature: 0 },
-        tools,
-        signal,
-        runtime,
-        send: (message) => {
-          if (message.type === "tool_call") {
-            pendingToolCall = message.toolCall || null;
-          }
-        },
-      });
-
-      if (signal?.aborted) throw createAbortError(signal);
-      return pendingToolCall;
-    } catch (error) {
-      if (isAbortError(error, signal)) throw createAbortError(signal);
-      logDevWarn(
-        "Skill tool selection failed:",
-        describeDirectCallError(error, provider),
-      );
-      return null;
-    }
-  }
-
-  try {
-    const response = await fetchWithByokRetry(async () =>
-      signedApiFetch("/api/chat", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          provider: await buildProviderRuntimeConfig(provider, signal),
-          modelName,
-          history: [],
-          newMessage: prompt,
-          attachments: [],
-          config: { temperature: 0 },
-          tools,
-        }),
-        signal,
-      }),
-    );
-
-    if (!response.ok) {
-      throw new Error(
-        await getResponseErrorMessage(response, "Tool selection failed"),
-      );
-    }
-
-    const reader = response.body?.getReader();
-    if (!reader) throw new Error("No response body");
-
-    const decoder = new TextDecoder();
-    let buffer = "";
-    let pendingToolCall: ToolCall | null = null;
-
-    const readEvent = (event: string): "done" | "continue" => {
-      const data = event
-        .split("\n")
-        .filter((line) => line.startsWith("data: "))
-        .map((line) => line.slice(6))
-        .join("\n");
-
-      if (!data) return "continue";
-      if (data === "[DONE]") return "done";
-
-      let parsed: any;
-      try {
-        parsed = JSON.parse(data);
-      } catch {
-        throw new ChatStreamEventError(
-          "The response stream contained malformed data.",
-          "MALFORMED_CHAT_STREAM",
-        );
-      }
-      switch (parsed.type) {
-        case "tool_call":
-          pendingToolCall = parsed.toolCall || null;
-          return "continue";
-        case "error":
-          throw createChatStreamEventError(parsed);
-        case "done":
-          return "done";
-        default:
-          return "continue";
-      }
-    };
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-
-      buffer += decoder.decode(value, { stream: true });
-      const events = buffer.split("\n\n");
-      buffer = events.pop() || "";
-
-      for (const event of events) {
-        if (readEvent(event) === "done") {
-          await reader.cancel().catch(() => undefined);
-          return pendingToolCall;
-        }
-      }
-    }
-
-    if (buffer.trim()) {
-      if (readEvent(buffer) === "done") return pendingToolCall;
-    }
-
-    if (signal?.aborted) throw createAbortError(signal);
-    throw new IncompleteChatStreamError();
-  } catch (error) {
-    if (isAbortError(error, signal)) throw createAbortError(signal);
-    if (
-      error instanceof IncompleteChatStreamError ||
-      error instanceof ChatStreamEventError
-    ) {
-      throw error;
-    }
-    logDevWarn("Skill tool selection failed:", error);
-    return null;
-  }
-};
-
-export const performBackgroundMemoryExtraction = async ({
-  sessionId,
-  userMessage,
-  assistantMessage,
-  signal,
-}: {
-  sessionId: string;
-  userMessage: Pick<Message, "id" | "content">;
-  assistantMessage: Pick<Message, "id" | "content">;
-  signal?: AbortSignal;
-}) => {
-  if (signal?.aborted) throw createAbortError(signal);
-  const state = useMemoryStore.getState();
-  const { _hasHydrated, settings } = state;
-  if (
-    isBrowserMemoryStorePendingHydration(_hasHydrated) ||
-    !settings.enabled ||
-    !settings.autoRecordEnabled
-  ) {
-    return [];
-  }
-  if (!userMessage.content.trim() || !assistantMessage.content.trim()) {
-    return [];
-  }
-
-  const toolCall = await streamGenerateToolCall(
-    getTaskModel("memory"),
-    createMemoryExtractionPrompt({
-      userMessage: userMessage.content,
-      assistantMessage: assistantMessage.content,
-    }),
-    [coerceToolDefinition(MEMORY_RECORD_TOOL)],
-    signal,
-  );
-  if (signal?.aborted) throw createAbortError(signal);
-
-  if (!toolCall || toolCall.name !== MEMORY_RECORD_TOOL_NAME) return [];
-
-  const memories = parseMemoryRecordToolCall(toolCall.args, {
-    source: "ai",
-    sourceSessionId: sessionId,
-    sourceMessageIds: [userMessage.id, assistantMessage.id],
-  });
-  if (memories.length === 0) return [];
-  if (signal?.aborted) throw createAbortError(signal);
-
-  const saved = useMemoryStore.getState().upsertMemories(memories);
-  const nextState = useMemoryStore.getState();
-  if (
-    nextState.settings.enabled &&
-    nextState.settings.dreamEnabled &&
-    nextState.memories.length > nextState.settings.triggerCount
-  ) {
-    void performMemoryDream({ force: false, signal }).catch((error) => {
-      if (!isAbortError(error, signal)) {
-        logDevWarn("Memory dream failed:", error);
-      }
-    });
-  }
-
-  return saved;
-};
-
-export const performMemoryDream = async ({
-  force = false,
-  signal,
-}: {
-  force?: boolean;
-  signal?: AbortSignal;
-} = {}) => {
-  if (signal?.aborted) throw createAbortError(signal);
-  const state = useMemoryStore.getState();
-  const { _hasHydrated, settings, memories, dreamStatus } = state;
-  if (
-    isBrowserMemoryStorePendingHydration(_hasHydrated) ||
-    !settings.enabled ||
-    !settings.dreamEnabled ||
-    dreamStatus.isRunning
-  ) {
-    return null;
-  }
-  if (memories.length <= settings.targetCount) return null;
-  if (!force && memories.length <= settings.triggerCount) return null;
-
-  state.startDream();
-  try {
-    const targetCount = Math.min(
-      settings.targetCount,
-      MEMORY_LIMITS.targetCount,
-    );
-    const toolCall = await streamGenerateToolCall(
-      getTaskModel("memory"),
-      createMemoryDreamPrompt({ memories, targetCount }),
-      [coerceToolDefinition(MEMORY_DREAM_TOOL)],
-      signal,
-    );
-
-    if (!toolCall || toolCall.name !== MEMORY_DREAM_TOOL_NAME) {
-      throw new Error("Memory dream did not return a valid tool call.");
-    }
-
-    const dreamed = parseMemoryDreamToolCall(toolCall.args, {
-      targetCount,
-    });
-
-    if (dreamed.length === 0 || dreamed.length > targetCount) {
-      throw new Error("Memory dream returned an invalid memory set.");
-    }
-
-    if (signal?.aborted) throw createAbortError(signal);
-    useMemoryStore.getState().replaceMemories(dreamed);
-    useMemoryStore.getState().finishDream();
-    return dreamed;
-  } catch (error) {
-    if (isAbortError(error, signal)) {
-      useMemoryStore.getState().finishDream();
-      throw createAbortError(signal);
-    }
-    const message = error instanceof Error ? error.message : String(error);
-    useMemoryStore.getState().finishDream(message);
-    logDevWarn("Memory dream failed:", error);
-    return null;
   }
 };

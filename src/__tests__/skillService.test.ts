@@ -470,10 +470,80 @@ describe("skill service", () => {
     expect(chatServiceMock.streamGenerateToolCall).not.toHaveBeenCalled();
   });
 
-  it("skips metadata and tool selection when no skills are active", async () => {
+  it("applies a slash-referenced skill without asking the model to select", async () => {
     vi.spyOn(globalThis, "fetch").mockRejectedValue(
       new Error("skill resolution should not fetch"),
     );
+    const { resolveSkillsForMessage } =
+      await import("../services/api/skillService");
+
+    const result = await resolveSkillsForMessage({
+      message: "请翻译成英文",
+      selectedModel: "openai:gpt-4",
+      locale: "zh",
+      installedSkills: [zhDefinition, inactiveDefinition],
+      activeSkillIds: [],
+      autoSelect: true,
+      forcedSkillIds: ["inactive-summary"],
+    });
+
+    expect(result.appliedSkills).toMatchObject([
+      { mode: "manual", skill: { id: "inactive-summary" } },
+    ]);
+    expect(result.context).toContain("# Inactive Summary");
+    expect(chatServiceMock.streamGenerateToolCall).not.toHaveBeenCalled();
+  });
+
+  it("keeps a slash-referenced skill ahead of auto-selected ones in the four-skill cap", async () => {
+    chatServiceMock.streamGenerateToolCall.mockResolvedValue({
+      id: "call_forced",
+      name: "select_text_skills",
+      args: {
+        skill_ids: [
+          "translation-localization",
+          "email-draft",
+          "tone-adapter",
+          "privacy-redaction",
+        ],
+        reason: "several skills apply",
+      },
+      status: "pending",
+    });
+    const { resolveSkillsForMessage } =
+      await import("../services/api/skillService");
+
+    const result = await resolveSkillsForMessage({
+      message: "请翻译成英文",
+      selectedModel: "openai:gpt-4",
+      locale: "zh",
+      installedSkills: [
+        zhDefinition,
+        inactiveDefinition,
+        emailDefinition,
+        toneDefinition,
+        privacyDefinition,
+      ],
+      activeSkillIds: [
+        "translation-localization",
+        "email-draft",
+        "tone-adapter",
+        "privacy-redaction",
+      ],
+      autoSelect: true,
+      forcedSkillIds: ["inactive-summary"],
+    });
+
+    expect(result.appliedSkills).toHaveLength(4);
+    expect(result.appliedSkills[0]).toMatchObject({
+      mode: "manual",
+      skill: { id: "inactive-summary" },
+    });
+    expect(result.appliedSkills.map(({ skill }) => skill.id)).not.toContain(
+      "privacy-redaction",
+    );
+  });
+
+  it("skips metadata and tool selection when no skills are active", async () => {
     const { resolveSkillsForMessage } =
       await import("../services/api/skillService");
 

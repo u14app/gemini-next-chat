@@ -9,9 +9,12 @@ function readProjectFile(path: string): string {
 describe("image compression wiring", () => {
   it("prepares selected, dropped, and pasted images as OPFS-backed files", () => {
     const source = readProjectFile("src/components/chat/MessageInput.tsx");
-    const pipeline = source.slice(
-      source.indexOf("const processSelectedFiles"),
-      source.indexOf("const handleFileSelect"),
+    const attachmentsHook = readProjectFile(
+      "src/features/chat/hooks/useComposerAttachments.ts",
+    );
+    const pipeline = attachmentsHook.slice(
+      attachmentsHook.indexOf("const processSelectedFiles"),
+      attachmentsHook.indexOf("const handleFileSelect"),
     );
 
     expect(pipeline.indexOf("selectChatAttachmentFiles")).toBeLessThan(
@@ -55,7 +58,9 @@ describe("image compression wiring", () => {
   });
 
   it("uses the same prepared attachments for message persistence and model processing", () => {
-    const source = readProjectFile("src/components/app/ChatApp.tsx");
+    const source = readProjectFile(
+      "src/features/chat/hooks/useChatRequestPreparation.ts",
+    );
     const pipeline = source.slice(
       source.indexOf("const processPromptForModel"),
       source.indexOf("const createAgentToolStreamOptions"),
@@ -68,10 +73,12 @@ describe("image compression wiring", () => {
   });
 
   it("prepares direct, streamed, and plugin inline images before storing them", () => {
+    const auxiliary = readProjectFile(
+      "src/services/api/chat/auxiliaryRequests.ts",
+    );
     const source = readProjectFile("src/services/api/chatService.ts");
-    const direct = source.slice(
-      source.indexOf("export const generateImage"),
-      source.indexOf("// Export types"),
+    const direct = auxiliary.slice(
+      auxiliary.indexOf("export const generateImage"),
     );
     const streamed = source.slice(
       source.indexOf('case "image":'),

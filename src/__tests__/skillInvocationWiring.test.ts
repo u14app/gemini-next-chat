@@ -8,10 +8,16 @@ function countOccurrences(source: string, needle: string) {
 
 describe("skill invocation wiring", () => {
   it("passes skills context through every ChatApp response generation path", () => {
-    const chatApp = readFileSync(
-      resolve(process.cwd(), "src/components/app/ChatApp.tsx"),
-      "utf8",
-    );
+    // The generation paths live in ChatApp's extracted flow hooks; read them
+    // together so the per-path counts below still cover every path.
+    const chatApp = [
+      "src/components/app/ChatApp.tsx",
+      "src/features/chat/hooks/useSendMessageFlow.ts",
+      "src/features/chat/hooks/useResponseBranchFlow.ts",
+      "src/features/chat/hooks/useMessageEditFlow.ts",
+    ]
+      .map((path) => readFileSync(resolve(process.cwd(), path), "utf8"))
+      .join("\n");
 
     const streamCallCount = countOccurrences(chatApp, "streamChatResponse(");
 
@@ -35,8 +41,16 @@ describe("skill invocation wiring", () => {
     expect(countOccurrences(chatApp, "createAgentToolStreamOptions({")).toBe(
       streamCallCount - 1,
     );
-    expect(chatApp).toContain("onKnowledgeSources:");
-    expect(chatApp).toContain("onSkillInvocation:");
+    // The stream-option callbacks moved into the shared preparation hook.
+    const requestPreparation = readFileSync(
+      resolve(
+        process.cwd(),
+        "src/features/chat/hooks/useChatRequestPreparation.ts",
+      ),
+      "utf8",
+    );
+    expect(requestPreparation).toContain("onKnowledgeSources:");
+    expect(requestPreparation).toContain("onSkillInvocation:");
     expect(chatApp).toContain("processedData.knowledgeScope");
   });
 });

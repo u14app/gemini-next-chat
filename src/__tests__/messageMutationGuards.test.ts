@@ -24,25 +24,6 @@ describe("message mutation guards", () => {
     );
   });
 
-  it("guards edit, delete, retract, and branch switching handlers", () => {
-    const chatApp = readFileSync(
-      resolve(process.cwd(), "src/components/app/ChatApp.tsx"),
-      "utf8",
-    );
-
-    for (const handlerName of [
-      "handleVersionChange",
-      "handleEditMessage",
-      "handleDeleteMessage",
-      "handleRetractMessage",
-    ]) {
-      const start = chatApp.indexOf(`const ${handlerName}`);
-      const end = chatApp.indexOf("\n  const ", start + 1);
-      const handler = chatApp.slice(start, end);
-
-      expect(start).toBeGreaterThan(-1);
-      expect(handler).toContain("isGenerating");
-      expect(handler).toContain("isActiveSessionLoading");
-    }
-  });
+  // The handler-level guards are asserted behaviorally in
+  // messageMutationFlows.test.tsx.
 });

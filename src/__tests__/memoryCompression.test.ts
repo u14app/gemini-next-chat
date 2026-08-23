@@ -77,7 +77,7 @@ describe("memory suppression across compression", () => {
 
   it("wires represented memory ids into persisted compression state", () => {
     const source = readFileSync(
-      resolve(process.cwd(), "src/services/api/chatService.ts"),
+      resolve(process.cwd(), "src/services/api/chat/compression.ts"),
       "utf8",
     );
 
