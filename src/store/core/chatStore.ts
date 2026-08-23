@@ -36,6 +36,8 @@ import {
 } from "@/lib/chat/reasoning";
 import { deleteFromOPFS } from "@/utils/opfs";
 import { logDevError } from "@/lib/utils/devLogger";
+import { deleteSessionArchives } from "@/services/workspace/sessionArchive";
+import { deleteSessionWorkspace } from "@/services/workspace/sessionWorkspace";
 import { reportAppRestoreHydration } from "@/lib/data/appRestoreJournal";
 import {
   appendMessageToActivePath,
@@ -655,6 +657,15 @@ export const useChatStore = create<ChatState>()(
           }
 
           throw error;
+        }
+
+        // The agent workspace is scoped to this session, so nothing else can
+        // reference it once the session is gone.
+        try {
+          await deleteSessionWorkspace(id);
+          await deleteSessionArchives(id);
+        } catch (error) {
+          logDevError("Failed to delete the session agent workspace", error);
         }
 
         const removedFileUrls = deletedMessages

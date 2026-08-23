@@ -5,6 +5,8 @@ import type {
   MessageOutputBlock,
   Source,
   ToolCall,
+  WorkspaceFilePresentation,
+  ArchivePresentation,
 } from "@/types";
 import type { TaskPlanSnapshot } from "@/lib/agent/taskPlan";
 import {
@@ -72,6 +74,10 @@ const cloneBlock = (block: MessageOutputBlock): MessageOutputBlock => {
         ...block,
         steps: block.steps.map((step) => ({ ...step })),
       };
+    case "workspace_file":
+      return { ...block, file: { ...block.file } };
+    case "workspace_archive":
+      return { ...block, archive: { ...block.archive } };
     case "tool_group":
       return {
         ...block,
@@ -403,6 +409,60 @@ export function createMessageOutputBlockBuilder(
       };
       blocks.push(block);
       taskPlanBlockId = block.id;
+    },
+
+    /**
+     * Shows a workspace file in the transcript. Re-sharing the same path
+     * refreshes the existing card instead of stacking duplicates.
+     */
+    upsertWorkspaceFile(file: WorkspaceFilePresentation) {
+      finalizeActiveReasoning();
+      const existing = blocks.find(
+        (
+          block,
+        ): block is Extract<MessageOutputBlock, { type: "workspace_file" }> =>
+          block.type === "workspace_file" && block.file.path === file.path,
+      );
+
+      if (existing) {
+        existing.file = { ...file };
+        return;
+      }
+
+      blocks.push({
+        id: createId(),
+        type: "workspace_file",
+        file: { ...file },
+      });
+    },
+
+    /**
+     * Shows an archive download in the transcript. Rebuilding the same archive
+     * name refreshes the existing card instead of stacking duplicates.
+     */
+    upsertArchiveFile(archive: ArchivePresentation) {
+      finalizeActiveReasoning();
+      const existing = blocks.find(
+        (
+          block,
+        ): block is Extract<
+          MessageOutputBlock,
+          { type: "workspace_archive" }
+        > =>
+          block.type === "workspace_archive" &&
+          block.archive.fileName === archive.fileName,
+      );
+
+      if (existing) {
+        existing.archive = { ...archive };
+        return;
+      }
+
+      blocks.push({
+        id: createId(),
+        type: "workspace_archive",
+        archive: { ...archive },
+      });
     },
 
     appendToolCall(toolCall: ToolCall) {

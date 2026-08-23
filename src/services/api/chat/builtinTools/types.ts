@@ -33,11 +33,31 @@ export type BuiltinSearchEvent =
     }
   | { phase: "error"; message: string };
 
+export interface WorkspaceFileShare {
+  path: string;
+  url: string;
+  fileName: string;
+  mimeType: string;
+  bytes: number;
+  revision: string;
+  title?: string;
+}
+
+export interface ArchiveFileShare {
+  fileName: string;
+  url: string;
+  bytes: number;
+  entryCount: number;
+  title?: string;
+}
+
 export interface BuiltinToolEmitters {
   search?: (event: BuiltinSearchEvent) => void;
   knowledgeSources?: (sources: Source[], ragError?: RagQueryError) => void;
   skillInvocation?: (invocation: AppliedSkillInvocation) => void;
   taskPlan?: (plan: TaskPlanSnapshot) => void;
+  workspaceFile?: (file: WorkspaceFileShare) => void;
+  archiveFile?: (archive: ArchiveFileShare) => void;
   longText?: (request: LongTextOutputRequest) =>
     | { ok: true }
     | {
@@ -58,6 +78,8 @@ export interface BuiltinToolBinding {
   risk: BuiltinToolRisk;
   displayKey: string;
   agentOnly?: boolean;
+  /** Built-ins in the same group execute in provider tool-call order. */
+  executionGroup?: "workspace";
   execute: (args: unknown, context: BuiltinToolContext) => Promise<unknown>;
 }
 

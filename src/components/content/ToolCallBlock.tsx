@@ -3,8 +3,11 @@ import React, { useEffect, useId, useMemo, useState } from "react";
 import { useTranslations } from "next-intl";
 import type { Attachment, ToolCall, ToolConfirmationDecision } from "@/types";
 import {
+  FileArchive,
   BookOpen,
   ChevronDown,
+  FolderInput,
+  FolderSearch,
   ImageOff,
   LoaderCircle,
   ListChecks,
@@ -15,6 +18,12 @@ import {
   CheckCircle2,
   AlertCircle,
   FileText,
+  FilePen,
+  FilePlus2,
+  FileX2,
+  FolderOpen,
+  Globe,
+  Share2,
   ShieldAlert,
 } from "lucide-react";
 import { Blocks } from "lucide-react";
@@ -44,11 +53,27 @@ const BUILTIN_TOOL_PRESENTATIONS = {
   search_knowledge: { labelKey: "toolKnowledgeSearch", icon: BookOpen },
   load_skill: { labelKey: "toolLoadSkill", icon: Sparkles },
   run_javascript: { labelKey: "toolRunJavaScript", icon: SquareCode },
+  fetch_url: { labelKey: "toolFetchUrl", icon: Globe },
   update_task_plan: { labelKey: "toolUpdateTaskPlan", icon: ListChecks },
   start_long_text_output: {
     labelKey: "toolStartLongTextOutput",
     icon: FileText,
   },
+  list_workspace_files: {
+    labelKey: "toolListWorkspaceFiles",
+    icon: FolderOpen,
+  },
+  read_workspace_file: { labelKey: "toolReadWorkspaceFile", icon: FileText },
+  write_workspace_file: { labelKey: "toolWriteWorkspaceFile", icon: FilePlus2 },
+  edit_workspace_file: { labelKey: "toolEditWorkspaceFile", icon: FilePen },
+  delete_workspace_file: { labelKey: "toolDeleteWorkspaceFile", icon: FileX2 },
+  share_workspace_file: { labelKey: "toolShareWorkspaceFile", icon: Share2 },
+  search_workspace_files: {
+    labelKey: "toolSearchWorkspaceFiles",
+    icon: FolderSearch,
+  },
+  move_workspace_file: { labelKey: "toolMoveWorkspaceFile", icon: FolderInput },
+  create_archive: { labelKey: "toolCreateArchive", icon: FileArchive },
 } as const;
 
 type BuiltinToolName = keyof typeof BUILTIN_TOOL_PRESENTATIONS;

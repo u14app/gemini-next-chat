@@ -171,6 +171,36 @@ export async function listOPFSDirectory(path: string): Promise<string[]> {
 }
 
 /**
+ * Reads the byte size of an app-owned OPFS URL without loading its content.
+ * Returns null when the URL is invalid or the file does not exist.
+ */
+export async function statOPFSFileSize(url: string): Promise<number | null> {
+  const filePath = getSafeOPFSPath(url);
+  if (!filePath) return null;
+
+  try {
+    const target = read(filePath);
+    if (!(await target.exists())) return null;
+    return await target.getSize();
+  } catch (error) {
+    logDevError(`Failed to stat OPFS file: ${filePath}`, error);
+    return null;
+  }
+}
+
+/**
+ * Reads an opfs:// URL as UTF-8 text. Returns null when the file is missing.
+ */
+export async function readTextFromOPFS(url: string): Promise<string | null> {
+  const filePath = getSafeOPFSPath(url);
+  if (!filePath) return null;
+
+  const target = read(filePath);
+  if (!(await target.exists())) return null;
+  return await target.text();
+}
+
+/**
  * Resolves an opfs:// URL to a local ObjectURL (blob:).
  * Remember to revoke the URL when no longer needed to prevent memory leaks.
  */

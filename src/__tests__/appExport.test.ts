@@ -431,6 +431,25 @@ describe("app export helpers", () => {
                       },
                     },
                   },
+                  {
+                    type: "workspace_file",
+                    file: {
+                      path: "out/report.md",
+                      fileName: "report.md",
+                      mimeType: "text/markdown",
+                      bytes: 12,
+                      url: "opfs://chat/workspace/s1/out/report.md",
+                    },
+                  },
+                  {
+                    type: "workspace_archive",
+                    archive: {
+                      fileName: "bundle.zip",
+                      bytes: 24,
+                      entryCount: 1,
+                      url: "opfs://chat/archives/s1/archive-id.zip",
+                    },
+                  },
                 ],
               },
             ],
@@ -453,8 +472,10 @@ describe("app export helpers", () => {
     });
 
     expect([...referenced].sort()).toEqual([
+      "opfs://chat/archives/s1/archive-id.zip",
       "opfs://chat/long-text/document.md",
       "opfs://chat/s1/attachment.txt",
+      "opfs://chat/workspace/s1/out/report.md",
       "opfs://knowledge-base/c1/local.md",
       "opfs://workspaces/w1/preset.txt",
     ]);

@@ -86,5 +86,14 @@
   "reply": "Reply",
   "openReplySource": "Open replied-to message",
   "replySourceUnavailable": "Original message unavailable",
-  "regenerateWithModel": "Regenerate with model"
+  "regenerateWithModel": "Regenerate with model",
+  "workspaceFileAria": "Workspace file: {title}",
+  "workspaceFileDownloadAria": "Download workspace file {title}",
+  "workspaceFileOpenAria": "Open workspace file {title} in full screen",
+  "workspaceFilePreviewLoading": "Loading file preview",
+  "workspaceFileMissing": "This file is no longer available in the workspace.",
+  "archiveAria": "Archive: {title}",
+  "archiveDownloadAria": "Download archive {title}",
+  "archiveEntryCount": "{count, plural, one {# file} other {# files}}",
+  "archiveMissing": "This archive is no longer available."
 }

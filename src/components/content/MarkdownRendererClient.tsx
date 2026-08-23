@@ -761,7 +761,7 @@ const ArtifactBlock = ({
       if (isPython) {
         output = await executeCode(selectedModel, rawCode);
       } else if (isJS) {
-        output = await runInSandbox(rawCode);
+        output = (await runInSandbox(rawCode)).output;
       }
       if (!isMountedRef.current) return;
       setConsoleOutput(output);

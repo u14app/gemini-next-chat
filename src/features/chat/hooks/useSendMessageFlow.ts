@@ -220,6 +220,19 @@ export function useSendMessageFlow(deps: ChatFlowDeps) {
       if (!freshSession) throw new Error("Session not found");
       const effectiveContext = processedData.effectiveContext;
 
+      // Give the agent real files to work on: text attachments are copied into
+      // the session workspace so run_javascript and the workspace tools can
+      // reach them. Seeding must never block the message from being sent.
+      if (effectiveContext.agentModeEnabled && finalAttachments.length > 0) {
+        try {
+          const { seedWorkspaceAttachments } =
+            await import("@/services/workspace/seedAttachments");
+          await seedWorkspaceAttachments(targetSessionId, finalAttachments);
+        } catch (error) {
+          logDevError("Failed to seed workspace attachments", error);
+        }
+      }
+
       // Prepare History for LLM (excluding the just-added user message)
       // Filter out the user message we just added since it will be sent separately
       const historyWithoutCurrentUser = historyMessages.filter(

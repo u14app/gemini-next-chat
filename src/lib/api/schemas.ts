@@ -551,6 +551,12 @@ export const SearchRequestSchema = z
   })
   .strict();
 
+export const FetchUrlRequestSchema = z
+  .object({
+    url: z.string().max(2_048).url(),
+  })
+  .strict();
+
 export const MessageImageProxyRequestSchema = z
   .object({
     url: z.string().max(2_048).url(),

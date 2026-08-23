@@ -1,5 +1,7 @@
 import type { TextSkill } from "@/types";
 
+import { createArchiveBinding } from "./archive";
+import { createFetchUrlBinding } from "./fetchUrl";
 import { createJavaScriptBinding } from "./javascript";
 import { createKnowledgeSearchBinding } from "./knowledgeSearch";
 import { createLoadSkillBinding } from "./loadSkill";
@@ -12,6 +14,7 @@ import type {
 import { createWebSearchBinding } from "./webSearch";
 import { createTaskPlanBinding } from "./taskPlan";
 import { createLongTextOutputBinding } from "./longText";
+import { createWorkspaceBindings } from "./workspace";
 
 export function collectBuiltinTools({
   message,
@@ -43,13 +46,19 @@ export function collectBuiltinTools({
     if (useSearch && searchMode === "external") {
       candidates.push(createWebSearchBinding());
     }
-    if (knowledgeScope?.attachments.length) {
+    if (
+      knowledgeScope?.attachments.length ||
+      knowledgeScope?.collections.length
+    ) {
       candidates.push(createKnowledgeSearchBinding());
     }
     if (installedSkills.length > 0) {
       candidates.push(createLoadSkillBinding(installedSkills));
     }
     candidates.push(createJavaScriptBinding());
+    candidates.push(createFetchUrlBinding());
+    candidates.push(...createWorkspaceBindings());
+    candidates.push(createArchiveBinding());
   }
   for (const binding of candidates) {
     if (!binding) continue;
@@ -74,4 +83,6 @@ export type {
   BuiltinKnowledgeScope,
   BuiltinSearchEvent,
   CollectedBuiltinTools,
+  WorkspaceFileShare,
+  ArchiveFileShare,
 } from "./types";

@@ -9,6 +9,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import ToolCallBlock from "@/components/content/ToolCallBlock";
 import type { ToolCall } from "@/types";
 import contentMessages from "@/i18n/locales/en/Content.json";
+import japaneseContentMessages from "@/i18n/locales/ja/Content.json";
+import chineseContentMessages from "@/i18n/locales/zh/Content.json";
 
 afterEach(cleanup);
 
@@ -28,9 +30,11 @@ function renderBlocks(
     onDecision?: (toolCallId: string, decision: string) => void;
     onRevoke?: (toolCall: ToolCall) => void;
   } = {},
+  locale = "en",
+  messages: Record<string, string> = contentMessages,
 ) {
   return render(
-    <NextIntlClientProvider locale="en" messages={{ Content: contentMessages }}>
+    <NextIntlClientProvider locale={locale} messages={{ Content: messages }}>
       <ToolCallBlock
         toolCalls={toolCalls}
         onConfirmationDecision={handlers.onDecision}
@@ -161,7 +165,18 @@ describe("ToolCallBlock built-in tool presentation", () => {
         ["knowledge-search", "search_knowledge"],
         ["load-skill", "load_skill"],
         ["run-javascript", "run_javascript"],
+        ["fetch-url", "fetch_url"],
         ["task-plan", "update_task_plan"],
+        ["long-text", "start_long_text_output"],
+        ["list-workspace", "list_workspace_files"],
+        ["search-workspace", "search_workspace_files"],
+        ["read-workspace", "read_workspace_file"],
+        ["write-workspace", "write_workspace_file"],
+        ["edit-workspace", "edit_workspace_file"],
+        ["move-workspace", "move_workspace_file"],
+        ["delete-workspace", "delete_workspace_file"],
+        ["share-workspace", "share_workspace_file"],
+        ["create-archive", "create_archive"],
       ].map(([id, name]) => ({
         id,
         name,
@@ -171,23 +186,91 @@ describe("ToolCallBlock built-in tool presentation", () => {
       })),
     );
 
-    await userEvent.click(screen.getByRole("button", { name: "Used 5 Tools" }));
+    await userEvent.click(
+      screen.getByRole("button", { name: "Used 16 Tools" }),
+    );
 
     [
       "Web search",
       "Knowledge search",
       "Load skill",
       "Run JavaScript",
+      "Read web page",
       "Update task plan",
+      "Start long text document",
+      "List workspace files",
+      "Search workspace files",
+      "Read workspace file",
+      "Write workspace file",
+      "Edit workspace file",
+      "Move workspace file",
+      "Delete workspace file",
+      "Share workspace file",
+      "Create archive",
     ].forEach((label) => expect(screen.getByText(label)).toBeTruthy());
     [
       "lucide-search",
       "lucide-book-open",
       "lucide-sparkles",
       "lucide-square-code",
+      "lucide-globe",
       "lucide-list-checks",
+      "lucide-folder-open",
+      "lucide-folder-search",
+      "lucide-file-plus-corner",
+      "lucide-file-pen",
+      "lucide-folder-input",
+      "lucide-file-x-corner",
+      "lucide-share-2",
+      "lucide-file-archive",
     ].forEach((className) =>
       expect(container.querySelector(`.${className}`)).toBeTruthy(),
+    );
+  });
+
+  it.each([
+    {
+      locale: "en",
+      messages: contentMessages,
+      labels: [
+        "Search workspace files",
+        "Move workspace file",
+        "Create archive",
+      ],
+    },
+    {
+      locale: "ja",
+      messages: japaneseContentMessages,
+      labels: [
+        "ワークスペースファイルを検索",
+        "ワークスペースファイルを移動",
+        "アーカイブを作成",
+      ],
+    },
+    {
+      locale: "zh",
+      messages: chineseContentMessages,
+      labels: ["搜索工作区文件", "移动工作区文件", "创建压缩包"],
+    },
+  ])("localizes the missing workspace tools in $locale", async (variant) => {
+    renderBlocks(
+      ["search_workspace_files", "move_workspace_file", "create_archive"].map(
+        (name, index) => ({
+          id: `workspace-tool-${index}`,
+          name,
+          args: {},
+          result: { ok: true },
+          status: "success" as const,
+        }),
+      ),
+      {},
+      variant.locale,
+      variant.messages,
+    );
+
+    await userEvent.click(screen.getByRole("button"));
+    variant.labels.forEach((label) =>
+      expect(screen.getByText(label)).toBeTruthy(),
     );
   });
 

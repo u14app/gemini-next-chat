@@ -23,6 +23,7 @@ export type OutboundContext =
   | "docs"
   | "voice"
   | "agent"
+  | "webFetch"
   | "metadata"
   | "image"
   | "sync"
@@ -34,6 +35,7 @@ export interface SafeUrlPolicy {
   allowedHosts?: string[];
   maxRedirects?: number;
   requireDnsResolution?: boolean;
+  requirePublicAddress?: boolean;
   profile?: OutboundPolicyProfile;
 }
 
@@ -373,6 +375,17 @@ export function getSafeUrlPolicy(context: OutboundContext): SafeUrlPolicy {
         allowedHosts: ["registry.npmmirror.com"],
         profile,
       };
+    case "webFetch":
+      // Arbitrary model-chosen URLs. No host allowlist is possible, so the
+      // private-range and DNS checks are the whole defence here.
+      return {
+        context,
+        allowedProtocols: ["https:", "http:"],
+        requireDnsResolution: true,
+        requirePublicAddress: true,
+        maxRedirects: 3,
+        profile,
+      };
     case "metadata":
       return {
         context,
@@ -421,6 +434,13 @@ export function validateOutboundUrl(
   }
 
   const hostname = url.hostname.toLowerCase();
+  if (
+    policy.requirePublicAddress &&
+    (isLocalhostName(hostname) || isPrivateIpAddress(hostname))
+  ) {
+    throw new Error("Outbound requests must target public network addresses");
+  }
+
   if (policy.allowedHosts?.length) {
     const isAllowedHost = policy.allowedHosts.some((host) => {
       const expected = host.toLowerCase();

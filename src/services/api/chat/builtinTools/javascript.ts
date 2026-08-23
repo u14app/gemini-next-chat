@@ -1,7 +1,15 @@
-import { BROWSER_SANDBOX_LIMITS } from "@/config/limits";
+import {
+  AGENT_WORKSPACE_LIMITS,
+  BROWSER_SANDBOX_LIMITS,
+} from "@/config/limits";
+import { isTextWorkspaceFile } from "@/lib/agent/workspace";
 import { runInSandbox } from "@/utils/sandbox";
+import {
+  readWorkspaceBlob,
+  writeWorkspaceText,
+} from "@/services/workspace/sessionWorkspace";
 
-import type { BuiltinToolBinding } from "./types";
+import type { BuiltinToolBinding, BuiltinToolContext } from "./types";
 
 function errorResult(code: string, message: string) {
   return {
@@ -24,6 +32,78 @@ function boundOutput(output: string): string {
   );
 }
 
+interface LoadedFiles {
+  files: Record<string, string>;
+  error?: { code: string; message: string };
+}
+
+/**
+ * Loads the requested workspace files on the host side. The sandbox has no
+ * storage access of its own, so this is the only way content reaches it.
+ */
+async function loadRequestedFiles(
+  paths: string[],
+  context: BuiltinToolContext,
+): Promise<LoadedFiles> {
+  if (paths.length > AGENT_WORKSPACE_LIMITS.maxSandboxReadFiles) {
+    return {
+      files: {},
+      error: {
+        code: "JAVASCRIPT_TOO_MANY_FILES",
+        message: `readFiles accepts at most ${AGENT_WORKSPACE_LIMITS.maxSandboxReadFiles} files per run.`,
+      },
+    };
+  }
+
+  const files: Record<string, string> = {};
+  let totalChars = 0;
+
+  for (const path of paths) {
+    const result = await readWorkspaceBlob(context.sessionId, path);
+    if (!result.ok) {
+      return { files: {}, error: result.error };
+    }
+    if (!isTextWorkspaceFile(result.value.entry.path)) {
+      return {
+        files: {},
+        error: {
+          code: "WORKSPACE_READ_FAILED",
+          message: `"${result.value.entry.path}" is not a text file and cannot be loaded into the JavaScript sandbox.`,
+        },
+      };
+    }
+
+    let content: string;
+    try {
+      content = await result.value.blob.text();
+    } catch (error) {
+      return {
+        files: {},
+        error: {
+          code: "WORKSPACE_READ_FAILED",
+          message:
+            error instanceof Error ? error.message : "Failed to read the file.",
+        },
+      };
+    }
+    context.signal?.throwIfAborted();
+
+    totalChars += content.length;
+    if (totalChars > AGENT_WORKSPACE_LIMITS.maxSandboxFileChars) {
+      return {
+        files: {},
+        error: {
+          code: "JAVASCRIPT_FILES_TOO_LARGE",
+          message: `readFiles may load at most ${AGENT_WORKSPACE_LIMITS.maxSandboxFileChars} characters in total. Read the file in ranges instead.`,
+        },
+      };
+    }
+    files[result.value.entry.path] = content;
+  }
+
+  return { files };
+}
+
 export function createJavaScriptBinding(): BuiltinToolBinding {
   return {
     definition: {
@@ -31,7 +111,7 @@ export function createJavaScriptBinding(): BuiltinToolBinding {
       function: {
         name: "run_javascript",
         description:
-          "Run bounded synchronous JavaScript for calculations in an isolated browser sandbox. The sandbox has no network, DOM, storage, imports, or external libraries.",
+          "Run bounded synchronous JavaScript in an isolated browser sandbox. The sandbox has no network, DOM, storage, imports, or external libraries. Workspace files named in readFiles are exposed as the `files` object (path to text); when writeFiles is true, call writeFile(path, content) to save results back to the workspace.",
         parameters: {
           type: "object",
           additionalProperties: false,
@@ -43,6 +123,19 @@ export function createJavaScriptBinding(): BuiltinToolBinding {
               description:
                 "Synchronous JavaScript. Use console.log or a return value for output.",
             },
+            readFiles: {
+              type: "array",
+              maxItems: AGENT_WORKSPACE_LIMITS.maxSandboxReadFiles,
+              items: { type: "string", minLength: 1 },
+              description:
+                "Workspace text files to load into the `files` object before running.",
+            },
+            writeFiles: {
+              type: "boolean",
+              default: false,
+              description:
+                "Enables writeFile(path, content) so the run can save files to the workspace.",
+            },
           },
           required: ["code"],
         },
@@ -51,6 +144,7 @@ export function createJavaScriptBinding(): BuiltinToolBinding {
     risk: "read",
     displayKey: "javascript",
     agentOnly: true,
+    executionGroup: "workspace",
     async execute(args, context) {
       context.signal?.throwIfAborted();
       const input =
@@ -71,13 +165,55 @@ export function createJavaScriptBinding(): BuiltinToolBinding {
         );
       }
 
+      const requestedPaths = Array.isArray(input.readFiles)
+        ? input.readFiles.filter(
+            (path): path is string => typeof path === "string",
+          )
+        : [];
+      const captureFiles = input.writeFiles === true;
+
+      const loaded = await loadRequestedFiles(requestedPaths, context);
+      if (loaded.error) {
+        return errorResult(loaded.error.code, loaded.error.message);
+      }
+      context.signal?.throwIfAborted();
+
       try {
-        const output = boundOutput(await runInSandbox(code, context.signal));
+        const run = await runInSandbox(code, context.signal, {
+          files: loaded.files,
+          captureFiles,
+        });
+        const output = boundOutput(run.output);
         context.signal?.throwIfAborted();
         if (/(^|\n)Error:/.test(output)) {
           return errorResult("JAVASCRIPT_EXECUTION_FAILED", output);
         }
-        return { output };
+
+        // Only commit files after a clean run, so a failed script leaves the
+        // workspace untouched.
+        const writtenPaths: string[] = [];
+        const writeErrors: string[] = [];
+        if (captureFiles) {
+          for (const [path, content] of Object.entries(run.files)) {
+            const written = await writeWorkspaceText(
+              context.sessionId,
+              path,
+              content,
+              "overwrite",
+            );
+            if (written.ok) {
+              writtenPaths.push(written.value.path);
+            } else {
+              writeErrors.push(`${path}: ${written.error.message}`);
+            }
+          }
+        }
+
+        return {
+          output,
+          ...(writtenPaths.length ? { writtenFiles: writtenPaths } : {}),
+          ...(writeErrors.length ? { writeErrors } : {}),
+        };
       } catch (error) {
         if (
           context.signal?.aborted ||

@@ -21,6 +21,36 @@ describe("MessageItem composition", () => {
     expect(messageItem).toContain('aria-label={t("generatingResponse")}');
   });
 
+  it("opens shared workspace text files in the existing reading dialog", () => {
+    const messageItem = readFileSync(
+      resolve(process.cwd(), "src/components/chat/MessageItem.tsx"),
+      "utf8",
+    );
+    const messageOutputRenderer = readFileSync(
+      resolve(
+        process.cwd(),
+        "src/components/content/MessageOutputRenderer.tsx",
+      ),
+      "utf8",
+    );
+    const workspaceFileBlock = readFileSync(
+      resolve(process.cwd(), "src/components/content/WorkspaceFileBlock.tsx"),
+      "utf8",
+    );
+
+    expect(messageItem).toContain("const handleWorkspaceFileOpen");
+    expect(messageItem).toContain('setReadingMode("workspace_file")');
+    expect(messageItem).toContain(
+      "onWorkspaceFileOpen={handleWorkspaceFileOpen}",
+    );
+    expect(messageItem).toContain("const activeWorkspaceFile =");
+    expect(messageItem).toContain("file={activeWorkspaceFile}");
+    expect(messageItem).toContain("forceExpanded");
+    expect(messageOutputRenderer).toContain("onWorkspaceFileOpen?:");
+    expect(messageOutputRenderer).toContain("onOpen={onWorkspaceFileOpen}");
+    expect(workspaceFileBlock).toContain("!forceExpanded && isText && onOpen");
+  });
+
   it("keeps attachment/media rendering in a dedicated component", () => {
     const messageItem = readFileSync(
       resolve(process.cwd(), "src/components/chat/MessageItem.tsx"),

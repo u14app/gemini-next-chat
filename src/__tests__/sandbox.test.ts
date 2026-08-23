@@ -95,7 +95,7 @@ describe("browser sandbox hardening", () => {
       "x".repeat(BROWSER_SANDBOX_LIMITS.maxCodeChars + 1),
     );
 
-    expect(result).toContain("too large");
+    expect(result.output).toContain("too large");
   });
 
   it("rejects an already-aborted request before touching the DOM", async () => {
@@ -161,7 +161,12 @@ describe("browser sandbox hardening", () => {
       data: { runId, ready: true },
     } as unknown as MessageEvent);
     expect(harness.contentWindow.postMessage).toHaveBeenCalledWith(
-      { runId, code: "return 42;" },
+      expect.objectContaining({
+        runId,
+        code: "return 42;",
+        files: {},
+        maxWriteFiles: 0,
+      }),
       "*",
     );
 
@@ -170,7 +175,7 @@ describe("browser sandbox hardening", () => {
       data: { runId, success: true, output: "42" },
     } as unknown as MessageEvent);
 
-    await expect(result).resolves.toBe("42");
+    await expect(result).resolves.toEqual({ output: "42", files: {} });
     expect(harness.clearTimeout).toHaveBeenCalledTimes(1);
     expect(harness.iframe.remove).toHaveBeenCalledTimes(1);
 

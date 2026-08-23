@@ -4,16 +4,22 @@ import React from "react";
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { NextIntlClientProvider } from "next-intl";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import MessageOutputRenderer from "@/components/content/MessageOutputRenderer";
 import contentMessages from "@/i18n/locales/en/Content.json";
 import messageMessages from "@/i18n/locales/en/Message.json";
-import type { Message } from "@/types";
+import type { Message, WorkspaceFilePresentation } from "@/types";
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
 
-function renderMessage(message: Message) {
+function renderMessage(
+  message: Message,
+  onWorkspaceFileOpen?: (file: WorkspaceFilePresentation) => void,
+) {
   return render(
     <NextIntlClientProvider
       locale="en"
@@ -26,10 +32,62 @@ function renderMessage(message: Message) {
         message={message}
         displayedContent={message.content}
         searchSources={message.searchSources || []}
+        onWorkspaceFileOpen={onWorkspaceFileOpen}
       />
     </NextIntlClientProvider>,
   );
 }
+
+describe("MessageOutputRenderer workspace file presentation", () => {
+  it("connects a workspace text card to the full-screen handler", async () => {
+    const onWorkspaceFileOpen = vi.fn();
+    vi.stubGlobal(
+      "IntersectionObserver",
+      vi.fn(function MockIntersectionObserver() {
+        return {
+          observe: vi.fn(),
+          disconnect: vi.fn(),
+          unobserve: vi.fn(),
+          takeRecords: vi.fn(),
+        };
+      }),
+    );
+    const file: WorkspaceFilePresentation = {
+      path: "out/report.md",
+      fileName: "report.md",
+      mimeType: "text/markdown",
+      bytes: 24,
+      url: "opfs://chat/workspace/session-1/out/report.md",
+      revision: "share-1",
+      title: "Quarterly report",
+    };
+
+    renderMessage(
+      {
+        id: "workspace-message",
+        role: "model",
+        content: "",
+        timestamp: 1,
+        outputBlocks: [
+          {
+            id: "workspace-file",
+            type: "workspace_file",
+            file,
+          },
+        ],
+      },
+      onWorkspaceFileOpen,
+    );
+
+    await userEvent.click(
+      screen.getByRole("button", {
+        name: "Open workspace file Quarterly report in full screen",
+      }),
+    );
+
+    expect(onWorkspaceFileOpen).toHaveBeenCalledWith(file);
+  });
+});
 
 describe("MessageOutputRenderer web search presentation", () => {
   it("shows only the dedicated search loading state", () => {

@@ -17,6 +17,7 @@
   "toolKnowledgeSearch": "ナレッジ検索",
   "toolLoadSkill": "スキルを読み込む",
   "toolRunJavaScript": "JavaScript を実行",
+  "toolFetchUrl": "ウェブページを読み取り",
   "toolUpdateTaskPlan": "タスク計画を更新",
   "runningTool": "{name} を実行中…",
   "usedTools": "{count} 個のツールを使用",
@@ -144,5 +145,14 @@
   "lengthShortest": "最短",
   "toggleVersionHistory": "変更履歴を切り替え",
   "cancel": "キャンセル",
-  "save": "保存"
+  "save": "保存",
+  "toolListWorkspaceFiles": "ワークスペースのファイル一覧",
+  "toolReadWorkspaceFile": "ワークスペースファイルを読む",
+  "toolWriteWorkspaceFile": "ワークスペースファイルを書く",
+  "toolEditWorkspaceFile": "ワークスペースファイルを編集",
+  "toolDeleteWorkspaceFile": "ワークスペースファイルを削除",
+  "toolShareWorkspaceFile": "ワークスペースファイルを共有",
+  "toolSearchWorkspaceFiles": "ワークスペースファイルを検索",
+  "toolMoveWorkspaceFile": "ワークスペースファイルを移動",
+  "toolCreateArchive": "アーカイブを作成"
 }

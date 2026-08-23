@@ -9,6 +9,7 @@ export { ResponseTimeoutError } from "../errors";
 import {
   getSafeUrlPolicy,
   isLocalhostName,
+  isPrivateIpAddress,
   redactUrl,
   SafeUrlPolicy,
   validateOutboundUrl,
@@ -229,21 +230,40 @@ async function assertResolvedAddressAllowed(
   const normalizedHostname = normalizeHostname(hostname);
 
   if (isLocalhostName(normalizedHostname)) {
+    if (policy.requirePublicAddress) {
+      throw new HostedProxyBlockedError(
+        "Outbound requests must target public network addresses",
+      );
+    }
     return;
   }
 
   if (isIpLiteral(normalizedHostname)) {
+    if (policy.requirePublicAddress && isPrivateIpAddress(normalizedHostname)) {
+      throw new HostedProxyBlockedError(
+        "Outbound requests must target public network addresses",
+      );
+    }
     return;
   }
 
   const addresses = await lookupWithAbort(normalizedHostname, signal);
-  if (!addresses) {
-    if (policy.requireDnsResolution) {
+  if (!addresses?.length) {
+    if (policy.requireDnsResolution || policy.requirePublicAddress) {
       throw new HostedProxyBlockedError(
         "DNS validation is unavailable for this outbound request",
       );
     }
     return;
+  }
+
+  if (
+    policy.requirePublicAddress &&
+    addresses.some(({ address }) => isPrivateIpAddress(address))
+  ) {
+    throw new HostedProxyBlockedError(
+      "Outbound requests must target public network addresses",
+    );
   }
 }
 

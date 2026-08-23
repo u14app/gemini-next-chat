@@ -251,7 +251,47 @@ export const MARKDOWN_FILE_LIMITS = {
 export const BROWSER_SANDBOX_LIMITS = {
   maxCodeChars: 100_000,
   maxOutputChars: 20_000,
-  executionTimeoutMs: 3_000,
+  executionTimeoutMs: 10_000,
+} as const;
+
+export const AGENT_FETCH_URL_LIMITS = {
+  maxResponseBytes: 2 * 1024 * 1024,
+  maxContentChars: 40_000,
+  timeoutMs: 15_000,
+} as const;
+
+export const AGENT_WORKSPACE_LIMITS = {
+  maxFiles: 50,
+  maxFileBytes: 5 * 1024 * 1024,
+  maxTotalBytes: 20 * 1024 * 1024,
+  maxPathChars: 256,
+  maxPathSegmentChars: 120,
+  maxPathDepth: 6,
+  /** Cap on the text returned by a single read_workspace_file call. */
+  maxReadChars: 60_000,
+  maxListEntries: 50,
+  /** Files that a single run_javascript call may load into the sandbox. */
+  maxSandboxReadFiles: 10,
+  /** Total characters injected into, or captured out of, one sandbox run. */
+  maxSandboxFileChars: 200_000,
+  maxSandboxWriteFiles: 10,
+  /** Caps on a single search_workspace_files call. */
+  maxSearchMatches: 50,
+  maxSearchLineChars: 200,
+  maxSearchScanChars: 2_000_000,
+} as const;
+
+/**
+ * Archives live outside the workspace quota, in their own OPFS root, so
+ * bundling a nearly-full workspace never fails on quota. They therefore need
+ * their own independent caps.
+ */
+export const AGENT_ARCHIVE_LIMITS = {
+  maxEntries: 50,
+  maxTotalUncompressedBytes: 50 * 1024 * 1024,
+  maxArchiveBytes: 25 * 1024 * 1024,
+  maxArchivesPerSession: 5,
+  maxArchiveNameChars: 80,
 } as const;
 
 export const TASK_PLAN_LIMITS = {

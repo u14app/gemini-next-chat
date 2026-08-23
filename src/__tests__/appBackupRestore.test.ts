@@ -69,6 +69,7 @@ import {
   reportAppRestoreHydration,
 } from "../lib/data/appRestoreJournal";
 import { flushSessionMessageWrites } from "../store/sessionMessagePersistence";
+import { normalizeMessage } from "../store/storage/migrations";
 import { deleteFromOPFS, writeBlobToOPFS } from "../utils/opfs";
 
 function createLocalStorage(initial: Record<string, string>) {
@@ -257,6 +258,109 @@ function makeBackup(): Blob {
   return new Blob([bytes], { type: "application/zip" });
 }
 
+function makeWorkspaceOutputBackup(): Blob {
+  const exportedAt = "2026-08-23T00:00:00.000Z";
+  const workspaceUrl = "opfs://chat/workspace/new-session/out/report.md";
+  const archiveUrl = "opfs://chat/archives/new-session/archive-id.zip";
+  const workspaceContent = strToU8("restored report");
+  const archiveContent = strToU8("zip bytes");
+  const files = [
+    {
+      originalUrl: workspaceUrl,
+      archivePath: "files/000000",
+      mimeType: "text/markdown",
+      content: workspaceContent,
+    },
+    {
+      originalUrl: archiveUrl,
+      archivePath: "files/000001",
+      mimeType: "application/zip",
+      content: archiveContent,
+    },
+  ];
+  const manifest: BackupManifestV3 = {
+    format: "neo-chat-backup",
+    exportVersion: 3,
+    storageVersion: 5,
+    exportedAt,
+    dataPath: "data.json",
+    files: files.map((file) => ({
+      originalUrl: file.originalUrl,
+      archivePath: file.archivePath,
+      size: file.content.byteLength,
+      mimeType: file.mimeType,
+      sha256: createHash("sha256").update(file.content).digest("hex"),
+    })),
+    missingReferences: [],
+    excluded: [],
+  };
+  const payload = {
+    exportVersion: 3,
+    storageVersion: 5,
+    exportedAt,
+    metadata: {
+      opfs: { mode: "bundled", includesBlobs: true },
+      security: { credentialsIncluded: false, excluded: [] },
+    },
+    data: {
+      coreSettings: { state: {}, version: 5 },
+      settings: { state: {}, version: 5 },
+      chat: { state: { sessions: [{ id: "new-session" }] }, version: 5 },
+      sessionMessages: {
+        "new-session": {
+          nodesById: {
+            message: {
+              id: "message",
+              message: {
+                id: "message",
+                role: "model",
+                content: "",
+                timestamp: 1,
+                outputBlocks: [
+                  {
+                    id: "workspace-file",
+                    type: "workspace_file",
+                    file: {
+                      path: "out/report.md",
+                      fileName: "report.md",
+                      mimeType: "text/markdown",
+                      bytes: workspaceContent.byteLength,
+                      url: workspaceUrl,
+                      revision: "revision-before-backup",
+                    },
+                  },
+                  {
+                    id: "workspace-archive",
+                    type: "workspace_archive",
+                    archive: {
+                      fileName: "results.zip",
+                      bytes: archiveContent.byteLength,
+                      entryCount: 1,
+                      url: archiveUrl,
+                    },
+                  },
+                ],
+              },
+              childMessageIds: [],
+            },
+          },
+          rootMessageIds: ["message"],
+        },
+      },
+      knowledge: { state: { collections: [] }, version: 5 },
+      memory: { state: { memories: [] }, version: 5 },
+    },
+  };
+  const bytes = zipSync({
+    "manifest.json": strToU8(JSON.stringify(manifest)),
+    "data.json": strToU8(JSON.stringify(payload)),
+    ...Object.fromEntries(
+      files.map((file) => [file.archivePath, file.content]),
+    ),
+  });
+  return new Blob([bytes], { type: "application/zip" });
+}
+
 describe("browser backup restore", () => {
   beforeEach(() => {
     storedItems.clear();
@@ -404,6 +508,45 @@ describe("browser backup restore", () => {
     expect(
       localStorage.values.get(APP_RESTORE_CREDENTIAL_NOTICE_KEY),
     ).toContain('"plugins"');
+  });
+
+  it("restores workspace file and archive blocks to valid OPFS locations", async () => {
+    const localStorage = createLocalStorage({});
+    vi.stubGlobal("window", { localStorage });
+    vi.stubGlobal("navigator", {
+      storage: {
+        estimate: vi.fn(async () => ({ quota: 1_000_000_000, usage: 0 })),
+      },
+    });
+
+    const result = await restoreBrowserAppBackup(makeWorkspaceOutputBackup());
+    const restoredTree = storedItems.get("session_messages_new-session") as any;
+    const [fileBlock, archiveBlock] =
+      restoredTree.nodesById.message.message.outputBlocks;
+
+    expect(result.restoredFileCount).toBe(2);
+    expect(fileBlock.file.url).toMatch(
+      /^opfs:\/\/chat\/workspace\/new-session\/restored-[a-z0-9]+\/000000\/report\.md$/,
+    );
+    expect(fileBlock.file.path).toBe(
+      fileBlock.file.url.replace("opfs://chat/workspace/new-session/", ""),
+    );
+    expect(fileBlock.file.revision).toBe("revision-before-backup");
+    expect(writtenFiles.has(fileBlock.file.url)).toBe(true);
+    expect(archiveBlock.archive).toMatchObject({
+      fileName: "results.zip",
+      entryCount: 1,
+    });
+    expect(archiveBlock.archive.url).toMatch(
+      /^opfs:\/\/chat\/archives\/new-session\/[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.zip$/,
+    );
+    expect(writtenFiles.has(archiveBlock.archive.url)).toBe(true);
+    expect(
+      normalizeMessage(restoredTree.nodesById.message.message).outputBlocks,
+    ).toEqual([
+      expect.objectContaining({ type: "workspace_file" }),
+      expect.objectContaining({ type: "workspace_archive" }),
+    ]);
   });
 
   it("rolls current data back when applying imported stores fails", async () => {

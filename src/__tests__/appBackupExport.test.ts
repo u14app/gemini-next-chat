@@ -142,6 +142,66 @@ describe("browser backup export", () => {
     expect(phases).toContain("packing");
   });
 
+  it("bundles shared workspace files and immutable workspace archives", async () => {
+    const workspaceUrl = "opfs://chat/workspace/session-1/out/report.md";
+    const archiveUrl =
+      "opfs://chat/archives/session-1/0192f0a1-2222-7000-8000-abcdefabcdef.zip";
+    storedItems.set(
+      "neo-chat-storage",
+      JSON.stringify({
+        state: { sessions: [{ id: "session-1" }] },
+        version: 5,
+      }),
+    );
+    storedItems.set("session_messages_session-1", {
+      nodesById: {
+        message: {
+          message: {
+            outputBlocks: [
+              {
+                id: "workspace-file",
+                type: "workspace_file",
+                file: {
+                  path: "out/report.md",
+                  fileName: "report.md",
+                  mimeType: "text/markdown",
+                  bytes: 6,
+                  url: workspaceUrl,
+                  revision: "revision-1",
+                },
+              },
+              {
+                id: "workspace-archive",
+                type: "workspace_archive",
+                archive: {
+                  fileName: "results.zip",
+                  bytes: 3,
+                  entryCount: 1,
+                  url: archiveUrl,
+                },
+              },
+            ],
+          },
+          childMessageIds: [],
+        },
+      },
+      rootMessageIds: ["message"],
+    });
+    opfsBlobs.set(workspaceUrl, new Blob(["report"]));
+    opfsBlobs.set(archiveUrl, new Blob(["zip"]));
+
+    const backup = await createBrowserAppBackup();
+
+    expect(
+      backup.manifest.files.map((file) => file.originalUrl).sort(),
+    ).toEqual([archiveUrl, workspaceUrl].sort());
+    await expect(inspectBrowserAppBackup(backup.blob)).resolves.toMatchObject({
+      fileCount: 2,
+      totalFileBytes: 9,
+      incomplete: false,
+    });
+  });
+
   it("honors an already-aborted export signal", async () => {
     const controller = new AbortController();
     controller.abort();

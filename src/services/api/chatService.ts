@@ -91,7 +91,7 @@ import {
   createBuiltinKnowledgeAggregator,
   createBuiltinSearchAggregator,
 } from "./chat/builtinResultAggregators";
-import { mapWithConcurrency } from "@/lib/utils/concurrency";
+import { mapWithConcurrencyGroups } from "@/lib/utils/concurrency";
 import { boundHistoryForRequest } from "@/lib/chat/requestContextBudget";
 import {
   appendAgentSystemInstruction,
@@ -1239,9 +1239,12 @@ export const streamChatResponse = async (
       });
 
       const pluginImagesByToolCallId = new Map<string, Attachment[]>();
-      const completedToolCalls = await mapWithConcurrency(
+      const completedToolCalls = await mapWithConcurrencyGroups(
         approvedToolCalls,
         PLUGIN_EXECUTION_LIMITS.maxToolConcurrency,
+        (toolCall) =>
+          collectedBuiltinTools.bindingsByName.get(toolCall.name)
+            ?.executionGroup,
         async (toolCall) => {
           try {
             const builtinBinding = collectedBuiltinTools.bindingsByName.get(
@@ -1275,6 +1278,28 @@ export const streamChatResponse = async (
                     },
                     taskPlan: (plan) => {
                       outputBlockBuilder.upsertTaskPlan(plan);
+                      emitOutputBlocks();
+                    },
+                    workspaceFile: (file) => {
+                      outputBlockBuilder.upsertWorkspaceFile({
+                        path: file.path,
+                        fileName: file.fileName,
+                        mimeType: file.mimeType,
+                        bytes: file.bytes,
+                        url: file.url,
+                        revision: file.revision,
+                        ...(file.title ? { title: file.title } : {}),
+                      });
+                      emitOutputBlocks();
+                    },
+                    archiveFile: (archive) => {
+                      outputBlockBuilder.upsertArchiveFile({
+                        fileName: archive.fileName,
+                        bytes: archive.bytes,
+                        entryCount: archive.entryCount,
+                        url: archive.url,
+                        ...(archive.title ? { title: archive.title } : {}),
+                      });
                       emitOutputBlocks();
                     },
                     longText: (request) => {

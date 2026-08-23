@@ -236,6 +236,33 @@ describe("url policy and provider runtime helpers", () => {
     );
   });
 
+  it("rejects localhost and non-public literals for arbitrary web fetches", () => {
+    for (const url of [
+      "http://localhost/admin",
+      "http://api.localhost/admin",
+      "http://127.0.0.1/admin",
+      "http://2130706433/admin",
+      "http://0x7f000001/admin",
+      "http://0177.0.0.1/admin",
+      "http://127.1/admin",
+      "http://169.254.169.254/latest/meta-data",
+      "http://[::1]/admin",
+      "http://[::ffff:127.0.0.1]/admin",
+    ]) {
+      expect(
+        () => validateOutboundUrl(url, getSafeUrlPolicy("webFetch")),
+        url,
+      ).toThrow(/public network addresses/i);
+    }
+
+    expect(
+      validateOutboundUrl(
+        "https://93.184.216.34/page",
+        getSafeUrlPolicy("webFetch"),
+      ).hostname,
+    ).toBe("93.184.216.34");
+  });
+
   it("allows redirects from plugin URLs to private network targets", async () => {
     const { safeFetch } = await import("../lib/security/safeFetch");
 

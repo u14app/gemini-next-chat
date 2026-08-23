@@ -185,6 +185,18 @@ const API_ROUTE_POLICIES: readonly ApiRoutePolicy[] = [
     },
   },
   {
+    // Must precede the general /api/agents rule: this one is a POST that
+    // performs an outbound fetch, so it needs proof and rate limiting.
+    pattern: /^\/api\/agents\/fetch-url$/,
+    requestProofMethods: ALL_METHODS,
+    rateLimitMethods: MUTATING_METHODS,
+    rateLimit: {
+      routeFamily: "/api/agents/fetch-url",
+      windowMs: 60_000,
+      maxRequests: 20,
+    },
+  },
+  {
     pattern: /^\/api\/agents(?:\/|$)/,
     requestProofMethods: ["GET"],
     rateLimitMethods: ["GET"],

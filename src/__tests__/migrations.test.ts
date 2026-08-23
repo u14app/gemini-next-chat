@@ -112,6 +112,144 @@ describe("storage migrations", () => {
     ]);
   });
 
+  it("round-trips workspace file blocks and drops ones pointing outside the workspace", () => {
+    const normalized = normalizeMessage({
+      id: "message",
+      role: "model",
+      content: "",
+      timestamp: 1,
+      outputBlocks: [
+        {
+          id: "shared",
+          type: "workspace_file",
+          file: {
+            path: "out/report.md",
+            fileName: "report.md",
+            mimeType: "text/markdown",
+            bytes: 8,
+            url: "opfs://chat/workspace/session-1/out/report.md",
+            revision: "revision-1",
+            title: "Report",
+          },
+        },
+        {
+          id: "escaped",
+          type: "workspace_file",
+          file: {
+            path: "secret.txt",
+            fileName: "secret.txt",
+            mimeType: "text/plain",
+            bytes: 4,
+            url: "opfs://knowledge-base/secret.txt",
+          },
+        },
+      ],
+    } as never);
+
+    expect(normalized.outputBlocks).toEqual([
+      {
+        id: "shared",
+        type: "workspace_file",
+        file: expect.objectContaining({
+          path: "out/report.md",
+          url: "opfs://chat/workspace/session-1/out/report.md",
+          revision: "revision-1",
+        }),
+      },
+    ]);
+  });
+
+  it("adds a deterministic legacy revision to older workspace file blocks", () => {
+    const message = {
+      id: "message",
+      role: "model",
+      content: "",
+      timestamp: 1,
+      outputBlocks: [
+        {
+          id: "shared",
+          type: "workspace_file",
+          file: {
+            path: "out/report.md",
+            fileName: "report.md",
+            mimeType: "text/markdown",
+            bytes: 8,
+            url: "opfs://chat/workspace/session-1/out/report.md",
+          },
+        },
+      ],
+    } as never;
+
+    const first = normalizeMessage(message);
+    const second = normalizeMessage(message);
+    const firstBlock = first.outputBlocks?.[0];
+    const secondBlock = second.outputBlocks?.[0];
+
+    expect(firstBlock?.type).toBe("workspace_file");
+    expect(secondBlock?.type).toBe("workspace_file");
+    if (
+      firstBlock?.type === "workspace_file" &&
+      secondBlock?.type === "workspace_file"
+    ) {
+      expect(firstBlock.file.revision).toMatch(/^legacy-[0-9a-f]{8}$/);
+      expect(secondBlock.file.revision).toBe(firstBlock.file.revision);
+    }
+  });
+
+  it("round-trips archive blocks and drops ones pointing outside the archive root", () => {
+    const normalized = normalizeMessage({
+      id: "message",
+      role: "model",
+      content: "",
+      timestamp: 1,
+      outputBlocks: [
+        {
+          id: "bundle",
+          type: "workspace_archive",
+          archive: {
+            fileName: "bundle.zip",
+            bytes: 120,
+            entryCount: 3,
+            url: "opfs://chat/archives/session-1/bundle.zip",
+            title: "Results",
+          },
+        },
+        {
+          id: "escaped",
+          type: "workspace_archive",
+          archive: {
+            fileName: "secret.zip",
+            bytes: 4,
+            entryCount: 1,
+            url: "opfs://knowledge-base/secret.zip",
+          },
+        },
+        {
+          id: "workspace-url",
+          type: "workspace_archive",
+          archive: {
+            fileName: "sneaky.zip",
+            bytes: 4,
+            entryCount: 1,
+            url: "opfs://chat/workspace/session-1/sneaky.zip",
+          },
+        },
+      ],
+    } as never);
+
+    expect(normalized.outputBlocks).toEqual([
+      {
+        id: "bundle",
+        type: "workspace_archive",
+        archive: expect.objectContaining({
+          fileName: "bundle.zip",
+          entryCount: 3,
+          url: "opfs://chat/archives/session-1/bundle.zip",
+        }),
+      },
+    ]);
+  });
+
   it("derives missing tool call status from legacy fields", () => {
     expect(
       normalizeToolCall({

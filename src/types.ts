@@ -13,6 +13,8 @@ export type {
   ChatPipelineStatus,
   LongTextFormat,
   LongTextPresentation,
+  WorkspaceFilePresentation,
+  ArchivePresentation,
   Message,
   MessageGenerationState,
   MessageGenerationStatus,

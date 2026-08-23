@@ -133,6 +133,27 @@ export interface LongTextPresentation {
   };
 }
 
+/** A workspace file the model has shared into the transcript. */
+export interface WorkspaceFilePresentation {
+  path: string;
+  fileName: string;
+  mimeType: string;
+  bytes: number;
+  url: string;
+  /** Changes every time the same workspace path is shared again. */
+  revision: string;
+  title?: string;
+}
+
+/** A zip archive the model has produced from workspace files. */
+export interface ArchivePresentation {
+  fileName: string;
+  bytes: number;
+  entryCount: number;
+  url: string;
+  title?: string;
+}
+
 export type MessageOutputBlock =
   | {
       id: string;
@@ -171,6 +192,16 @@ export type MessageOutputBlock =
       type: "task_plan";
       steps: TaskPlanStep[];
       note?: string;
+    }
+  | {
+      id: string;
+      type: "workspace_file";
+      file: WorkspaceFilePresentation;
+    }
+  | {
+      id: string;
+      type: "workspace_archive";
+      archive: ArchivePresentation;
     }
   | {
       id: string;

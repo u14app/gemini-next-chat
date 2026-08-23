@@ -1,4 +1,5 @@
 import { strFromU8, strToU8, unzipSync, Zip, ZipPassThrough } from "fflate";
+import { v7 as uuidv7 } from "uuid";
 import {
   APP_EXPORT_EXCLUSIONS,
   APP_EXPORT_VERSION,
@@ -36,6 +37,11 @@ import {
   resolveOPFSBlob,
   writeBlobToOPFS,
 } from "@/utils/opfs";
+import {
+  getSessionArchiveRoot,
+  getSessionWorkspaceRoot,
+  normalizeWorkspacePath,
+} from "@/lib/agent/workspace";
 
 const BACKUP_FORMAT = "neo-chat-backup";
 const BACKUP_MIME_TYPE = "application/zip";
@@ -695,6 +701,15 @@ function rewriteOpfsUrls(
 
   const isAttachment =
     typeof value.fileName === "string" && typeof value.mimeType === "string";
+  const isWorkspaceFile =
+    isAttachment &&
+    typeof value.path === "string" &&
+    typeof value.url === "string" &&
+    value.url.startsWith("opfs://chat/workspace/");
+  const isWorkspaceArchive =
+    typeof value.fileName === "string" &&
+    typeof value.entryCount === "number" &&
+    typeof value.bytes === "number";
   const isKnowledgeFile =
     typeof value.name === "string" &&
     ("sourcePath" in value ||
@@ -705,6 +720,7 @@ function rewriteOpfsUrls(
           "contentKind" in value)));
   const referenceKeys = new Set<string>();
   if (isAttachment) referenceKeys.add("url");
+  if (isWorkspaceArchive) referenceKeys.add("url");
   if (isKnowledgeFile) {
     referenceKeys.add("sourcePath");
     referenceKeys.add("contentPath");
@@ -736,7 +752,33 @@ function rewriteOpfsUrls(
     output.localFileMissing = true;
     output.localFileError = MISSING_FILE_ERROR;
   }
+  if (isWorkspaceFile && typeof value.url === "string") {
+    const restoredUrl = mapping.get(value.url);
+    const restoredPath = restoredUrl
+      ? workspaceRelativePathFromUrl(restoredUrl)
+      : null;
+    if (restoredPath) output.path = restoredPath;
+  }
   return output;
+}
+
+function workspaceRelativePathFromUrl(url: string): string | null {
+  const safePath = getSafeOPFSPath(url);
+  if (!safePath) return null;
+  const segments = safePath.split("/");
+  if (
+    segments.length < 4 ||
+    segments[0] !== "chat" ||
+    segments[1] !== "workspace"
+  ) {
+    return null;
+  }
+
+  const root = getSessionWorkspaceRoot(segments[2]);
+  if (!root || safePath.slice(0, root.length + 1) !== `${root}/`) return null;
+  const relativePath = segments.slice(3).join("/");
+  const normalized = normalizeWorkspacePath(relativePath);
+  return normalized.ok ? normalized.value : null;
 }
 
 function resetKnowledgeFileState(
@@ -836,10 +878,32 @@ function restoredOpfsUrl(
 ): string {
   const safePath = getSafeOPFSPath(originalUrl);
   if (!safePath) throw new Error("Backup contains an invalid OPFS reference.");
-  const [root] = safePath.split("/");
+  const segments = safePath.split("/");
+  const [root] = segments;
   if (!["knowledge-base", "workspaces", "images", "chat"].includes(root)) {
     throw new Error("Backup contains an unsupported OPFS reference.");
   }
+
+  if (root === "chat" && segments[1] === "workspace") {
+    const workspaceRoot = getSessionWorkspaceRoot(segments[2] ?? "");
+    const originalName = segments.at(-1) ?? "";
+    const normalizedName = normalizeWorkspacePath(originalName);
+    if (!workspaceRoot || segments.length < 4 || !normalizedName.ok) {
+      throw new Error("Backup contains an invalid workspace reference.");
+    }
+    return `opfs://${workspaceRoot}/restored-${transactionId}/${String(index).padStart(6, "0")}/${normalizedName.value}`;
+  }
+
+  if (root === "chat" && segments[1] === "archives") {
+    const archiveRoot = getSessionArchiveRoot(segments[2] ?? "");
+    if (!archiveRoot || segments.length !== 4) {
+      throw new Error("Backup contains an invalid archive reference.");
+    }
+    // Retention sorts physical archive names as UUIDv7 creation order. Restore
+    // into that same namespace so later cleanup remains chronological.
+    return `opfs://${archiveRoot}/${uuidv7()}.zip`;
+  }
+
   const originalName = safePath.split("/").pop() || "";
   const extension = originalName.match(/\.[a-z0-9]{1,16}$/i)?.[0] || "";
   return `opfs://${root}/restored-${transactionId}/${String(index).padStart(6, "0")}${extension}`;

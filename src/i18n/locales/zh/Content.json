@@ -17,6 +17,7 @@
   "toolKnowledgeSearch": "知识库搜索",
   "toolLoadSkill": "加载技能",
   "toolRunJavaScript": "运行 JavaScript",
+  "toolFetchUrl": "读取网页",
   "toolUpdateTaskPlan": "更新任务计划",
   "runningTool": "正在运行 {name}…",
   "usedTools": "{count, plural, other {已使用 # 个工具}}",
@@ -144,5 +145,14 @@
   "lengthShortest": "最短",
   "toggleVersionHistory": "切换版本历史",
   "cancel": "取消",
-  "save": "保存"
+  "save": "保存",
+  "toolListWorkspaceFiles": "列出工作区文件",
+  "toolReadWorkspaceFile": "读取工作区文件",
+  "toolWriteWorkspaceFile": "写入工作区文件",
+  "toolEditWorkspaceFile": "编辑工作区文件",
+  "toolDeleteWorkspaceFile": "删除工作区文件",
+  "toolShareWorkspaceFile": "分享工作区文件",
+  "toolSearchWorkspaceFiles": "搜索工作区文件",
+  "toolMoveWorkspaceFile": "移动工作区文件",
+  "toolCreateArchive": "创建压缩包"
 }

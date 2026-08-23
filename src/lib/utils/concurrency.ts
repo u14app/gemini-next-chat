@@ -55,3 +55,37 @@ export async function mapWithConcurrency<T, R>(
   );
   return results;
 }
+
+/**
+ * Maps with a global concurrency cap while serializing items that share a
+ * non-empty execution group. Grouped items start in their original order;
+ * ungrouped items and different groups may still run concurrently.
+ */
+export async function mapWithConcurrencyGroups<T, R>(
+  items: readonly T[],
+  concurrency: number,
+  getGroup: (item: T, index: number) => string | undefined,
+  mapper: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const groupTails = new Map<string, Promise<void>>();
+
+  return mapWithConcurrency(items, concurrency, async (item, index) => {
+    const group = getGroup(item, index);
+    if (!group) return mapper(item, index);
+
+    const previous = groupTails.get(group) ?? Promise.resolve();
+    let release!: () => void;
+    const current = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    groupTails.set(group, current);
+
+    await previous;
+    try {
+      return await mapper(item, index);
+    } finally {
+      release();
+      if (groupTails.get(group) === current) groupTails.delete(group);
+    }
+  });
+}

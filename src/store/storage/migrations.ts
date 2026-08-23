@@ -6,6 +6,10 @@ import {
 } from "@/types";
 import { normalizeSearchSettings } from "@/lib/settings/searchRag";
 import { parseTaskPlan } from "@/lib/agent/taskPlan";
+import {
+  normalizeArchivePresentation,
+  normalizeWorkspaceFilePresentation,
+} from "@/lib/agent/workspace";
 import { ATTACHMENT_LIMITS, MARKET_LIMITS } from "@/config/limits";
 import { normalizeLongTextPresentation } from "@/lib/chat/longText";
 
@@ -142,6 +146,22 @@ export function normalizeMessage(message: Message): Message {
         normalizedBlocks.push({
           ...blockWithoutNote,
           ...parsed.plan,
+        });
+        continue;
+      }
+      if (block.type === "workspace_file") {
+        const file = normalizeWorkspaceFilePresentation(block.file);
+        if (!file) continue;
+        normalizedBlocks.push({ id: block.id, type: "workspace_file", file });
+        continue;
+      }
+      if (block.type === "workspace_archive") {
+        const archive = normalizeArchivePresentation(block.archive);
+        if (!archive) continue;
+        normalizedBlocks.push({
+          id: block.id,
+          type: "workspace_archive",
+          archive,
         });
         continue;
       }

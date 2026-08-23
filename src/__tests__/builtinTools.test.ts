@@ -281,7 +281,46 @@ describe("built-in tool registry", () => {
       "web_search",
       "search_knowledge",
       "run_javascript",
+      "fetch_url",
+      "list_workspace_files",
+      "search_workspace_files",
+      "read_workspace_file",
+      "write_workspace_file",
+      "edit_workspace_file",
+      "move_workspace_file",
+      "delete_workspace_file",
+      "share_workspace_file",
+      "create_archive",
     ]);
+  });
+
+  it("serializes every built-in that can observe or mutate workspace state", () => {
+    mocks.memoryState.settings.enabled = false;
+    const collected = collectBuiltinTools({
+      message: "Build and share a report",
+      agentModeEnabled: true,
+    });
+
+    for (const name of [
+      "run_javascript",
+      "fetch_url",
+      "list_workspace_files",
+      "search_workspace_files",
+      "read_workspace_file",
+      "write_workspace_file",
+      "edit_workspace_file",
+      "move_workspace_file",
+      "delete_workspace_file",
+      "share_workspace_file",
+      "create_archive",
+    ]) {
+      expect(collected.bindingsByName.get(name)?.executionGroup, name).toBe(
+        "workspace",
+      );
+    }
+    expect(
+      collected.bindingsByName.get("update_task_plan")?.executionGroup,
+    ).toBeUndefined();
   });
 
   it("does not advertise native search as the Agent web_search tool", () => {
@@ -298,6 +337,16 @@ describe("built-in tool registry", () => {
       "start_long_text_output",
       "update_task_plan",
       "run_javascript",
+      "fetch_url",
+      "list_workspace_files",
+      "search_workspace_files",
+      "read_workspace_file",
+      "write_workspace_file",
+      "edit_workspace_file",
+      "move_workspace_file",
+      "delete_workspace_file",
+      "share_workspace_file",
+      "create_archive",
     ]);
     expect(names).not.toContain("web_search");
   });

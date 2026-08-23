@@ -17,6 +17,7 @@
   "toolKnowledgeSearch": "Knowledge search",
   "toolLoadSkill": "Load skill",
   "toolRunJavaScript": "Run JavaScript",
+  "toolFetchUrl": "Read web page",
   "toolUpdateTaskPlan": "Update task plan",
   "runningTool": "Running {name}…",
   "usedTools": "{count, plural, one {Used # Tool} other {Used # Tools}}",
@@ -144,5 +145,14 @@
   "lengthShortest": "Shortest",
   "toggleVersionHistory": "Toggle version history",
   "cancel": "Cancel",
-  "save": "Save"
+  "save": "Save",
+  "toolListWorkspaceFiles": "List workspace files",
+  "toolReadWorkspaceFile": "Read workspace file",
+  "toolWriteWorkspaceFile": "Write workspace file",
+  "toolEditWorkspaceFile": "Edit workspace file",
+  "toolDeleteWorkspaceFile": "Delete workspace file",
+  "toolShareWorkspaceFile": "Share workspace file",
+  "toolSearchWorkspaceFiles": "Search workspace files",
+  "toolMoveWorkspaceFile": "Move workspace file",
+  "toolCreateArchive": "Create archive"
 }

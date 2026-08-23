@@ -427,6 +427,14 @@ function isAttachmentRecord(value: Record<string, unknown>): boolean {
   );
 }
 
+function isWorkspaceArchiveRecord(value: Record<string, unknown>): boolean {
+  return (
+    typeof value.fileName === "string" &&
+    typeof value.entryCount === "number" &&
+    typeof value.bytes === "number"
+  );
+}
+
 function isKnowledgeFileRecord(value: Record<string, unknown>): boolean {
   if (typeof value.name !== "string") return false;
   if ("sourcePath" in value || "contentPath" in value) return true;
@@ -450,6 +458,7 @@ function collectOpfsUrls(value: unknown, output: Set<string>): void {
   if (!isRecord(value)) return;
 
   if (isAttachmentRecord(value)) addOpfsUrl(value.url, output);
+  if (isWorkspaceArchiveRecord(value)) addOpfsUrl(value.url, output);
   if (isKnowledgeFileRecord(value)) {
     addOpfsUrl(value.sourcePath, output);
     addOpfsUrl(value.contentPath, output);

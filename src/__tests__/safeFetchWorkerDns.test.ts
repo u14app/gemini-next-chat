@@ -76,6 +76,45 @@ describe("safeFetch Worker DNS compatibility", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it("rejects private addresses resolved through Worker DNS for web fetches", async () => {
+    vi.resetModules();
+    mockWorkerDns({ ipv4: ["127.0.0.1"] });
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+    const { safeFetch } = await import("../lib/security/safeFetch");
+
+    await expect(
+      safeFetch(
+        "https://example.com/page",
+        { method: "GET" },
+        { policy: getSafeUrlPolicy("webFetch") },
+      ),
+    ).rejects.toMatchObject({ code: "HOSTED_PROXY_BLOCKED" });
+
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("fails closed for web fetches when Worker DNS is unavailable", async () => {
+    vi.resetModules();
+    vi.stubEnv("DEPLOYMENT_MODE", "local");
+    vi.doMock("node:dns/promises", () => ({
+      lookup: undefined,
+      resolve4: undefined,
+      resolve6: undefined,
+    }));
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+    const { safeFetch } = await import("../lib/security/safeFetch");
+
+    await expect(
+      safeFetch(
+        "https://example.com/page",
+        { method: "GET" },
+        { policy: getSafeUrlPolicy("webFetch") },
+      ),
+    ).rejects.toMatchObject({ code: "HOSTED_PROXY_BLOCKED" });
+
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("fails closed for hosted image requests when DNS validation is unavailable", async () => {
     vi.resetModules();
     vi.stubEnv("DEPLOYMENT_MODE", "hosted");

@@ -1,4 +1,7 @@
-import { BROWSER_SANDBOX_LIMITS } from "../config/limits";
+import {
+  AGENT_WORKSPACE_LIMITS,
+  BROWSER_SANDBOX_LIMITS,
+} from "../config/limits";
 
 type SandboxReadyMessage = { runId: string; ready: true };
 type SandboxResultMessage = {
@@ -6,6 +9,7 @@ type SandboxResultMessage = {
   success: boolean;
   output?: string;
   error?: string;
+  files?: Record<string, string>;
 };
 type SandboxMessage = SandboxReadyMessage | SandboxResultMessage;
 
@@ -120,6 +124,30 @@ function createSandboxWorkerScript(): string {
         }
       };
       const formatArgs = (args) => args.map(stringifyValue).join(' ');
+
+      const MAX_WRITE_FILES = Number(data.maxWriteFiles) || 0;
+      const MAX_FILE_CHARS = Number(data.maxFileChars) || 0;
+      const inputFiles = Object.freeze(Object.assign(Object.create(null), data.files || {}));
+      const writtenFiles = Object.create(null);
+      let writtenChars = 0;
+      const writeFile = (path, content) => {
+        if (MAX_WRITE_FILES <= 0) {
+          throw new Error('File output is disabled for this run. Set writeFiles to true.');
+        }
+        if (typeof path !== 'string' || !path) {
+          throw new Error('writeFile requires a file path.');
+        }
+        const text = typeof content === 'string' ? content : stringifyValue(content);
+        if (!(path in writtenFiles) && Object.keys(writtenFiles).length >= MAX_WRITE_FILES) {
+          throw new Error('writeFile exceeded the limit of ' + MAX_WRITE_FILES + ' output files.');
+        }
+        writtenChars += text.length - (writtenFiles[path] ? writtenFiles[path].length : 0);
+        if (writtenChars > MAX_FILE_CHARS) {
+          throw new Error('writeFile exceeded the total output size limit.');
+        }
+        writtenFiles[path] = text;
+        return text.length;
+      };
       const safeConsole = {
         log: (...args) => pushLog(formatArgs(args)),
         warn: (...args) => pushLog('WARN: ' + formatArgs(args)),
@@ -128,8 +156,8 @@ function createSandboxWorkerScript(): string {
       };
 
       try {
-        const fn = new Function('console', data.code);
-        const result = fn(safeConsole);
+        const fn = new Function('console', 'files', 'writeFile', data.code);
+        const result = fn(safeConsole, inputFiles, writeFile);
 
         if (result !== undefined) {
           pushLog(stringifyValue(result));
@@ -139,6 +167,7 @@ function createSandboxWorkerScript(): string {
           runId: data.runId,
           success: true,
           output: logs.join('\\n'),
+          files: writtenFiles,
         });
       } catch (err) {
         self.postMessage({
@@ -212,6 +241,7 @@ export function createSandboxHtml(runId: string, parentOrigin: string): string {
                   success: result.success === true,
                   output: typeof result.output === 'string' ? result.output : '',
                   error: typeof result.error === 'string' ? result.error : undefined,
+                  files: result.files && typeof result.files === 'object' ? result.files : {},
                 });
               };
               worker.onerror = (event) => {
@@ -233,6 +263,9 @@ export function createSandboxHtml(runId: string, parentOrigin: string): string {
                 runId: RUN_ID,
                 code: data.code,
                 maxOutputChars: MAX_OUTPUT_CHARS,
+                files: data.files && typeof data.files === 'object' ? data.files : {},
+                maxWriteFiles: Number(data.maxWriteFiles) || 0,
+                maxFileChars: Number(data.maxFileChars) || 0,
               });
             } catch (err) {
               if (workerUrl) {
@@ -255,14 +288,36 @@ export function createSandboxHtml(runId: string, parentOrigin: string): string {
     `;
 }
 
+export interface SandboxRunOptions {
+  /** Files exposed to the sandbox as the `files` global. */
+  files?: Record<string, string>;
+  /** Enables the `writeFile` global and captures what it buffers. */
+  captureFiles?: boolean;
+}
+
+export interface SandboxRunResult {
+  output: string;
+  files: Record<string, string>;
+}
+
+/**
+ * Runs code in an opaque-origin iframe worker. The sandbox never touches
+ * storage: file contents are injected by the host and written output is
+ * returned for the host to persist.
+ */
 export async function runInSandbox(
   code: string,
   signal?: AbortSignal,
-): Promise<string> {
+  options: SandboxRunOptions = {},
+): Promise<SandboxRunResult> {
   if (signal?.aborted) throw createSandboxAbortError();
 
   if (code.length > BROWSER_SANDBOX_LIMITS.maxCodeChars) {
-    return `Error: JavaScript code is too large to run in the browser sandbox.`;
+    return {
+      output:
+        "Error: JavaScript code is too large to run in the browser sandbox.",
+      files: {},
+    };
   }
 
   return new Promise((resolve, reject) => {
@@ -297,20 +352,32 @@ export async function runInSandbox(
 
       if (isSandboxReadyMessage(event.data)) {
         // The sandbox has an opaque origin because it intentionally omits allow-same-origin.
-        iframe.contentWindow?.postMessage({ runId, code }, "*");
+        iframe.contentWindow?.postMessage(
+          {
+            runId,
+            code,
+            files: options.files || {},
+            maxWriteFiles: options.captureFiles
+              ? AGENT_WORKSPACE_LIMITS.maxSandboxWriteFiles
+              : 0,
+            maxFileChars: AGENT_WORKSPACE_LIMITS.maxSandboxFileChars,
+          },
+          "*",
+        );
         return;
       }
 
       settle(() => {
+        const files = event.data.files || {};
         if (event.data.success) {
-          resolve(event.data.output || "undefined");
+          resolve({ output: event.data.output || "undefined", files });
           return;
         }
 
         const errorMsg = event.data.output
           ? `${event.data.output}\nError: ${event.data.error}`
           : `Error: ${event.data.error}`;
-        resolve(errorMsg);
+        resolve({ output: errorMsg, files: {} });
       });
     };
 
@@ -326,7 +393,12 @@ export async function runInSandbox(
 
       document.body.appendChild(iframe);
       timeoutId = window.setTimeout(() => {
-        settle(() => resolve("Error: JavaScript execution timed out."));
+        settle(() =>
+          resolve({
+            output: "Error: JavaScript execution timed out.",
+            files: {},
+          }),
+        );
       }, BROWSER_SANDBOX_LIMITS.executionTimeoutMs);
       iframe.srcdoc = createSandboxHtml(runId, parentOrigin);
     } catch (error) {

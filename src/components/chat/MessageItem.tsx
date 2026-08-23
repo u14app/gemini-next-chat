@@ -15,12 +15,14 @@ import type {
   Message,
   MessageOutputBlock,
   ToolConfirmationDecision,
+  WorkspaceFilePresentation,
 } from "@/types";
 import type { ModelInfo } from "@/services/api/chatService";
 import MarkdownRenderer from "../content/MarkdownRenderer";
 import Tooltip from "../ui/Tooltip";
 import Artifact from "../content/Artifact";
 import MessageOutputRenderer from "../content/MessageOutputRenderer";
+import WorkspaceFileBlock from "../content/WorkspaceFileBlock";
 import MessageAttachmentView from "./MessageAttachmentView";
 import UserMessageEditor from "./UserMessageEditor";
 import RAGBlock from "../knowledge/RAGBlock";
@@ -376,13 +378,15 @@ const MessageItem: React.FC<MessageItemProps> = ({
 
   // Immersive / Reading Mode State
   const [readingMode, setReadingMode] = useState<
-    "none" | "message" | "file" | "attachment" | "long_text"
+    "none" | "message" | "file" | "attachment" | "long_text" | "workspace_file"
   >("none");
   const [fileToRead, setFileToRead] = useState<MarkdownGeneratedFile | null>(
     null,
   );
   const [attachmentToRead, setAttachmentToRead] =
     useState<ReadableAttachmentDocument | null>(null);
+  const [workspaceFileToRead, setWorkspaceFileToRead] =
+    useState<WorkspaceFilePresentation | null>(null);
 
   // Typewriter effect state
   const [displayedContent, setDisplayedContent] = useState(
@@ -468,6 +472,7 @@ const MessageItem: React.FC<MessageItemProps> = ({
     setReadingMode("none");
     setFileToRead(null);
     setAttachmentToRead(null);
+    setWorkspaceFileToRead(null);
     setReaderCopyStatus("idle");
   }, []);
 
@@ -859,6 +864,7 @@ const MessageItem: React.FC<MessageItemProps> = ({
   const handleFileClick = useCallback((file: MarkdownGeneratedFile) => {
     setFileToRead(normalizeMarkdownGeneratedFile(file));
     setAttachmentToRead(null);
+    setWorkspaceFileToRead(null);
     setReaderCopyStatus("idle");
     setReadingMode("file");
   }, []);
@@ -876,6 +882,7 @@ const MessageItem: React.FC<MessageItemProps> = ({
         renderAsMarkdown: shouldRenderAttachmentAsMarkdown(attachment),
       });
       setFileToRead(null);
+      setWorkspaceFileToRead(null);
       setReaderCopyStatus("idle");
       setReadingMode("attachment");
     } catch (error) {
@@ -894,8 +901,20 @@ const MessageItem: React.FC<MessageItemProps> = ({
         renderAsMarkdown: block.presentation.format === "markdown",
       });
       setFileToRead(null);
+      setWorkspaceFileToRead(null);
       setReaderCopyStatus("idle");
       setReadingMode("long_text");
+    },
+    [],
+  );
+
+  const handleWorkspaceFileOpen = useCallback(
+    (file: WorkspaceFilePresentation) => {
+      setWorkspaceFileToRead(file);
+      setFileToRead(null);
+      setAttachmentToRead(null);
+      setReaderCopyStatus("idle");
+      setReadingMode("workspace_file");
     },
     [],
   );
@@ -1198,6 +1217,16 @@ const MessageItem: React.FC<MessageItemProps> = ({
   };
 
   const readingFile = getActiveReadingFile();
+  const currentWorkspaceFile = message.outputBlocks?.find(
+    (block): block is Extract<MessageOutputBlock, { type: "workspace_file" }> =>
+      block.type === "workspace_file" &&
+      block.file.path === workspaceFileToRead?.path,
+  )?.file;
+  const activeWorkspaceFile =
+    readingMode === "workspace_file" && workspaceFileToRead
+      ? (currentWorkspaceFile ?? workspaceFileToRead)
+      : null;
+  const isReadingFileSurface = Boolean(readingFile || activeWorkspaceFile);
   const readerCopied = readerCopyStatus === "copied";
   const readerCopyTooltip =
     readerCopyStatus === "copied"
@@ -1212,7 +1241,12 @@ const MessageItem: React.FC<MessageItemProps> = ({
         ? t("readingAttachment", { name: attachmentToRead.name })
         : readingMode === "long_text" && attachmentToRead
           ? t("longTextDocumentAria", { title: attachmentToRead.name })
-          : t("readingMessage");
+          : activeWorkspaceFile
+            ? t("workspaceFileAria", {
+                title:
+                  activeWorkspaceFile.title || activeWorkspaceFile.fileName,
+              })
+            : t("readingMessage");
 
   return (
     <>
@@ -1354,7 +1388,14 @@ const MessageItem: React.FC<MessageItemProps> = ({
               )}
 
               <div className="flex-1 overflow-auto custom-scrollbar">
-                {readingFile ? (
+                {activeWorkspaceFile ? (
+                  <div className="mx-auto w-full max-w-4xl px-1 py-2">
+                    <WorkspaceFileBlock
+                      file={activeWorkspaceFile}
+                      forceExpanded
+                    />
+                  </div>
+                ) : readingFile ? (
                   readingFile.renderAsMarkdown ? (
                     <div className="mx-auto max-w-4xl px-1 py-2">
                       <MarkdownRenderer content={readingFile.content} />
@@ -1395,12 +1436,12 @@ const MessageItem: React.FC<MessageItemProps> = ({
                   onClick={closeReadingMode}
                   className={`pointer-events-auto flex items-center gap-2 px-5 py-2.5 bg-red-500/80 hover:bg-red-600/80 backdrop-blur-md text-white rounded-full shadow-lg transition-[background-color,box-shadow,color] font-medium text-sm ${actionButtonFocusClass}`}
                 >
-                  {readingFile ? (
+                  {isReadingFileSurface ? (
                     <X size={18} aria-hidden="true" />
                   ) : (
                     <Minimize2 size={18} aria-hidden="true" />
                   )}
-                  {readingFile ? t("closeFile") : t("exitReading")}
+                  {isReadingFileSurface ? t("closeFile") : t("exitReading")}
                 </Button>
               </div>
             </div>
@@ -1596,6 +1637,7 @@ const MessageItem: React.FC<MessageItemProps> = ({
                 onFileClick={handleFileClick}
                 onImageCached={persistCachedOutputImage}
                 onLongTextOpen={handleLongTextOpen}
+                onWorkspaceFileOpen={handleWorkspaceFileOpen}
                 onToolConfirmationDecision={
                   confirmationActionsDisabled
                     ? undefined

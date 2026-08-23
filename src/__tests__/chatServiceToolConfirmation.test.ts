@@ -2174,6 +2174,16 @@ describe("chat service tool execution", () => {
           "update_task_plan",
           "web_search",
           "run_javascript",
+          "fetch_url",
+          "list_workspace_files",
+          "search_workspace_files",
+          "read_workspace_file",
+          "write_workspace_file",
+          "edit_workspace_file",
+          "move_workspace_file",
+          "delete_workspace_file",
+          "share_workspace_file",
+          "create_archive",
         ]);
         expect(body.systemInstruction).toContain("<agent-mode>");
         expect(body.systemInstruction).toContain("update_task_plan");

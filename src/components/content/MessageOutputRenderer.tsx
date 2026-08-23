@@ -9,6 +9,7 @@ import type {
   MessageOutputBlock,
   Source,
   ToolConfirmationDecision,
+  WorkspaceFilePresentation,
 } from "@/types";
 import { getMessageOutputBlocks } from "@/lib/chat/messageOutputBlocks";
 import type { MarkdownGeneratedFile } from "@/lib/utils/markdownFiles";
@@ -23,6 +24,8 @@ import ToolCallBlock from "./ToolCallBlock";
 import MemorySearchBlock from "./MemorySearchBlock";
 import TaskPlanBlock from "./TaskPlanBlock";
 import LongTextBlock from "./LongTextBlock";
+import WorkspaceFileBlock from "./WorkspaceFileBlock";
+import ArchiveFileBlock from "./ArchiveFileBlock";
 import SafeImage from "../ui/SafeImage";
 import { Button } from "@/components/ui/primitives";
 
@@ -51,6 +54,7 @@ interface MessageOutputRendererProps {
   onLongTextOpen?: (
     block: Extract<MessageOutputBlock, { type: "text" }>,
   ) => void;
+  onWorkspaceFileOpen?: (file: WorkspaceFilePresentation) => void;
 }
 
 const isMemorySearchTool = (name: string | undefined) =>
@@ -190,6 +194,7 @@ const MessageOutputRenderer: React.FC<MessageOutputRendererProps> = ({
   onToolConfirmationDecision,
   onRevokeToolSessionApproval,
   onLongTextOpen,
+  onWorkspaceFileOpen,
 }) => {
   const t = useTranslations("Message");
   const blocks = useMemo(() => {
@@ -256,6 +261,16 @@ const MessageOutputRenderer: React.FC<MessageOutputRendererProps> = ({
                 note={block.note}
               />
             );
+          case "workspace_file":
+            return (
+              <WorkspaceFileBlock
+                key={block.id}
+                file={block.file}
+                onOpen={onWorkspaceFileOpen}
+              />
+            );
+          case "workspace_archive":
+            return <ArchiveFileBlock key={block.id} archive={block.archive} />;
           case "search":
             return (
               <SourceBlock

@@ -86,5 +86,14 @@
   "reply": "引用回复",
   "openReplySource": "打开被引用的消息",
   "replySourceUnavailable": "原消息不可用",
-  "regenerateWithModel": "使用指定模型重新生成"
+  "regenerateWithModel": "使用指定模型重新生成",
+  "workspaceFileAria": "工作区文件：{title}",
+  "workspaceFileDownloadAria": "下载工作区文件 {title}",
+  "workspaceFileOpenAria": "全屏打开工作区文件 {title}",
+  "workspaceFilePreviewLoading": "正在加载文件预览",
+  "workspaceFileMissing": "该文件已不在工作区中。",
+  "archiveAria": "压缩包：{title}",
+  "archiveDownloadAria": "下载压缩包 {title}",
+  "archiveEntryCount": "{count, plural, other {# 个文件}}",
+  "archiveMissing": "该压缩包已不可用。"
 }
