@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   createLongTextPresentation,
   getLongTextPreview,
+  hasMixedLongTextOutput,
   normalizeLongTextPresentation,
   parseLongTextOutputRequest,
 } from "@/lib/chat/longText";
@@ -99,5 +100,25 @@ describe("long text output metadata", () => {
       content: "short",
       truncated: false,
     });
+  });
+
+  it("detects long text responses that cannot be edited as one flat string", () => {
+    const document = {
+      id: "document",
+      type: "text" as const,
+      content: "Document body",
+      presentation: createLongTextPresentation({
+        title: "Document",
+        format: "markdown",
+      }),
+    };
+
+    expect(hasMixedLongTextOutput([document])).toBe(false);
+    expect(
+      hasMixedLongTextOutput([
+        { id: "preamble", type: "text", content: "Preamble" },
+        document,
+      ]),
+    ).toBe(true);
   });
 });

@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   buildForcedToolDirective,
+  FORCED_PLUGIN_INVOCATION_ERROR_CODE,
+  ForcedPluginInvocationError,
+  isForcedPluginInvocationError,
   mergeForcedPluginIds,
 } from "../lib/chat/forcedInvocation";
 import type { PluginFunction } from "../lib/plugin/types";
@@ -69,5 +72,21 @@ describe("mergeForcedPluginIds", () => {
     expect(mergeForcedPluginIds(undefined, undefined)).toEqual([]);
     expect(mergeForcedPluginIds(["a", ""], undefined)).toEqual(["a"]);
     expect(mergeForcedPluginIds(undefined, ["b", "b"])).toEqual(["b"]);
+  });
+});
+
+describe("forced plugin invocation errors", () => {
+  it("recognizes local and serialized fail-closed errors", () => {
+    expect(
+      isForcedPluginInvocationError(
+        new ForcedPluginInvocationError("Plugin was not called"),
+      ),
+    ).toBe(true);
+    expect(
+      isForcedPluginInvocationError({
+        code: FORCED_PLUGIN_INVOCATION_ERROR_CODE,
+      }),
+    ).toBe(true);
+    expect(isForcedPluginInvocationError(new Error("other"))).toBe(false);
   });
 });

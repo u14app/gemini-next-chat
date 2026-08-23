@@ -47,6 +47,18 @@ function persisted(state: unknown) {
 }
 
 describe("storage migrations", () => {
+  it("normalizes forced plugin ids stored on user messages", () => {
+    const normalized = normalizeMessage({
+      id: "message",
+      role: "user",
+      content: "Use the referenced plugin",
+      timestamp: 1,
+      forcedPluginIds: [" weather ", "weather", "", 42],
+    } as never);
+
+    expect(normalized.forcedPluginIds).toEqual(["weather"]);
+  });
+
   it("preserves valid long text metadata and drops malformed presentation data", () => {
     const normalized = normalizeMessage({
       id: "message",

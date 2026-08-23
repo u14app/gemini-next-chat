@@ -497,6 +497,132 @@ describe("chat service tool execution", () => {
     );
   });
 
+  it("fails before requesting the model when a forced plugin has no available tool", async () => {
+    mocks.settingsState = {
+      ...mocks.settingsState,
+      installedPlugins: [{ ...writePlugin, id: "empty-plugin", functions: [] }],
+    };
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+    const { streamChatResponse } = await import("../services/api/chatService");
+
+    await expect(
+      streamChatResponse(
+        "session-1",
+        "openai:gpt-4",
+        [],
+        "Use the plugin",
+        [],
+        {},
+        () => undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        [],
+        undefined,
+        undefined,
+        createAllowOnceController(),
+        { forcedPluginIds: ["empty-plugin"] },
+      ),
+    ).rejects.toThrow(/forced plugin.*no enabled tools/i);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when the model ignores a forced plugin", async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementationOnce(async () =>
+        sseResponse([
+          { type: "content", content: "Answered without the plugin." },
+          { type: "done" },
+        ]),
+      );
+    const { streamChatResponse } = await import("../services/api/chatService");
+
+    await expect(
+      streamChatResponse(
+        "session-1",
+        "openai:gpt-4",
+        [],
+        "Create a record",
+        [],
+        {},
+        () => undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        [],
+        undefined,
+        undefined,
+        createAllowOnceController(),
+        { forcedPluginIds: ["writer"] },
+      ),
+    ).rejects.toThrow(/forced plugin.*Writer.*not called/i);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(mocks.executePluginFunction).not.toHaveBeenCalled();
+  });
+
+  it("accepts a response after the forced plugin tool was attempted", async () => {
+    mocks.executePluginFunction.mockResolvedValueOnce({ id: "record-1" });
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementationOnce(async (_url, init) => {
+        const body = JSON.parse(String(init?.body));
+        expect(body.tools.map((tool: any) => tool.function.name)).toContain(
+          "create_record",
+        );
+        return sseResponse([
+          {
+            type: "tool_call",
+            toolCall: {
+              id: "forced-writer-call",
+              name: "create_record",
+              args: { title: "Draft" },
+              status: "pending",
+            },
+          },
+          { type: "done" },
+        ]);
+      })
+      .mockImplementationOnce(async () =>
+        sseResponse([
+          { type: "content", content: "Record created." },
+          { type: "done" },
+        ]),
+      );
+    const { streamChatResponse } = await import("../services/api/chatService");
+
+    const result = await streamChatResponse(
+      "session-1",
+      "openai:gpt-4",
+      [],
+      "Create a record",
+      [],
+      {},
+      () => undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      [],
+      undefined,
+      undefined,
+      createAllowOnceController(),
+      { forcedPluginIds: ["writer"] },
+    );
+
+    expect(result).toBe("Record created.");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(mocks.executePluginFunction).toHaveBeenCalledTimes(1);
+  });
+
   it("rejects plugin functions omitted from the request tool snapshot", async () => {
     const widePlugin: Plugin = {
       id: "wide-plugin",

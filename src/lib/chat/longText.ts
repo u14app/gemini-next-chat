@@ -159,3 +159,19 @@ export const getLongTextBlocks = (
     (block): block is Extract<MessageOutputBlock, { type: "text" }> =>
       block.type === "text" && block.presentation?.kind === "long_text",
   );
+
+/** Flat message editing cannot preserve the boundary between these text blocks. */
+export function hasMixedLongTextOutput(
+  blocks: MessageOutputBlock[] = [],
+): boolean {
+  let textBlockCount = 0;
+  let hasLongText = false;
+
+  for (const block of blocks) {
+    if (block.type !== "text") continue;
+    textBlockCount += 1;
+    hasLongText ||= block.presentation?.kind === "long_text";
+  }
+
+  return hasLongText && textBlockCount > 1;
+}

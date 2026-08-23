@@ -94,6 +94,8 @@ import {
   isTextDocumentMimeType,
 } from "@/lib/utils/documentAttachments";
 import { hasUnsafeContinuationToolState } from "@/lib/chat/streamResilience";
+import { hasMixedLongTextOutput } from "@/lib/chat/longText";
+import { FORCED_PLUGIN_INVOCATION_ERROR_CODE } from "@/lib/chat/forcedInvocation";
 import type { MessageBranchOption } from "@/lib/chat/messageTree";
 import { Button } from "@/components/ui/primitives";
 
@@ -348,6 +350,8 @@ const MessageItem: React.FC<MessageItemProps> = ({
     [locale],
   );
   const [isEditing, setIsEditing] = useState(false);
+  const isFlatModelEditUnsupported =
+    message.role === "model" && hasMixedLongTextOutput(message.outputBlocks);
   const [copyStatus, setCopyStatus] = useState<CopyStatus>("idle");
   const [readerCopyStatus, setReaderCopyStatus] = useState<CopyStatus>("idle");
   const isCopied = copyStatus === "copied";
@@ -756,7 +760,9 @@ const MessageItem: React.FC<MessageItemProps> = ({
   };
 
   const handleEditClick = () => {
-    if (mutationActionsDisabled) return;
+    if (mutationActionsDisabled || isFlatModelEditUnsupported) {
+      return;
+    }
     setIsEditing(true);
   };
 
@@ -1005,7 +1011,9 @@ const MessageItem: React.FC<MessageItemProps> = ({
     Boolean(
       message.content || message.reasoning || message.outputBlocks?.length,
     );
-  const continuationBlocked = hasUnsafeContinuationToolState(message.toolCalls);
+  const continuationBlocked =
+    hasUnsafeContinuationToolState(message.toolCalls) ||
+    generationError?.code === FORCED_PLUGIN_INVOCATION_ERROR_CODE;
 
   // Branch navigation checks
   const hasMultipleBranches = !!branchInfo && branchInfo.count > 1;
@@ -1915,7 +1923,9 @@ const MessageItem: React.FC<MessageItemProps> = ({
                       icon={<Edit2 size={13} />}
                       tooltip={t("edit")}
                       onClick={handleEditClick}
-                      disabled={mutationActionsDisabled}
+                      disabled={
+                        mutationActionsDisabled || isFlatModelEditUnsupported
+                      }
                       containerClass="hidden! md:flex!"
                     />
                     <ActionButton
@@ -2107,7 +2117,10 @@ const MessageItem: React.FC<MessageItemProps> = ({
                         className="w-48"
                       >
                         <DropdownMenuItem
-                          disabled={mutationActionsDisabled}
+                          disabled={
+                            mutationActionsDisabled ||
+                            isFlatModelEditUnsupported
+                          }
                           onSelect={() => {
                             handleEditClick();
                             setShowMoreMenu(false);

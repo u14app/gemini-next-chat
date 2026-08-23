@@ -30,6 +30,44 @@ const retractTarget = {
 describe("message mutation flows", () => {
   beforeEach(() => {
     chatStoreState.isActiveSessionLoading = false;
+    chatStoreState.activeMessages = [];
+  });
+
+  it("blocks flat edits that would repartition a mixed long text response", () => {
+    const mixedDocumentMessage = {
+      id: "model-document",
+      role: "model",
+      content: "Preamble\n\nDocument body",
+      timestamp: 1,
+      outputBlocks: [
+        { id: "preamble", type: "text", content: "Preamble" },
+        {
+          id: "document",
+          type: "text",
+          content: "Document body",
+          presentation: {
+            kind: "long_text",
+            title: "Document",
+            format: "markdown",
+            document: {
+              fileName: "Document.md",
+              mimeType: "text/markdown",
+              url: "opfs://chat/long-text/document.md",
+            },
+          },
+        },
+      ],
+    } as Message;
+    chatStoreState.activeMessages = [mixedDocumentMessage];
+    const deps = createChatFlowDeps({
+      activeMessages: [mixedDocumentMessage],
+    });
+    const edit = renderHook(() => useMessageEditFlow(deps)).result.current;
+
+    edit.handleEditMessage("model-document", "Edited flat response");
+
+    expect(deps.updateMessageContent).not.toHaveBeenCalled();
+    expect(deps.persistLongTextFilesForMessage).not.toHaveBeenCalled();
   });
 
   it("mutates the message tree when the session is idle", async () => {

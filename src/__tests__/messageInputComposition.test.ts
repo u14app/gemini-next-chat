@@ -252,7 +252,8 @@ describe("MessageInput composition", () => {
     expect(messageInput).toContain("void compressContext?.()");
 
     // Referenced conversations flow through the shared attachment budget.
-    expect(messageInput).toContain("buildCompressionSource");
+    expect(messageInput).toContain("buildVisibleConversationSource");
+    expect(messageInput).not.toContain("buildCompressionSource");
     expect(messageInput).toContain("buildConversationTranscript");
     expect(messageInput).toContain("CONVERSATION_REFERENCE_MAX_CHARS");
     expect(messageInput).toContain("appendAttachments([");

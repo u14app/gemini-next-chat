@@ -1,5 +1,30 @@
 import type { PluginFunction } from "@/lib/plugin/types";
 
+export const FORCED_PLUGIN_INVOCATION_ERROR_CODE =
+  "FORCED_PLUGIN_INVOCATION_FAILED";
+
+export class ForcedPluginInvocationError extends Error {
+  readonly code = FORCED_PLUGIN_INVOCATION_ERROR_CODE;
+  readonly recoverable = true;
+
+  constructor(message: string) {
+    super(message);
+    this.name = "ForcedPluginInvocationError";
+  }
+}
+
+export function isForcedPluginInvocationError(
+  error: unknown,
+): error is ForcedPluginInvocationError {
+  return (
+    error instanceof ForcedPluginInvocationError ||
+    (typeof error === "object" &&
+      error !== null &&
+      "code" in error &&
+      error.code === FORCED_PLUGIN_INVOCATION_ERROR_CODE)
+  );
+}
+
 export interface ForcedPluginInvocation {
   title: string;
   functions: readonly PluginFunction[];

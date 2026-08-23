@@ -73,6 +73,15 @@ import type {
 const logChatAppError = logDevError;
 const EMPTY_MESSAGES: Message[] = [];
 const loadChatService = () => import("@/services/api/chatService");
+const getCompressionInputSignature = (messages: Message[]) =>
+  JSON.stringify(
+    messages.map((message) => ({
+      id: message.id,
+      role: message.role,
+      content: message.content,
+      memoryContext: message.memoryContext,
+    })),
+  );
 
 const ChatApp = () => {
   // --- Global Store ---
@@ -185,6 +194,7 @@ const ChatApp = () => {
   const backgroundPostProcessControllerRef = useRef<AbortController | null>(
     null,
   );
+  const manualCompressionControllerRef = useRef<AbortController | null>(null);
   const abortBackgroundPostProcessing = useCallback(() => {
     backgroundPostProcessControllerRef.current?.abort();
     backgroundPostProcessControllerRef.current = null;
@@ -195,6 +205,10 @@ const ChatApp = () => {
     backgroundPostProcessControllerRef.current = controller;
     return controller.signal;
   }, [abortBackgroundPostProcessing]);
+  const abortManualCompression = useCallback(() => {
+    manualCompressionControllerRef.current?.abort();
+    manualCompressionControllerRef.current = null;
+  }, []);
 
   const queueMemoryExtraction = useCallback(
     (
@@ -489,6 +503,7 @@ const ChatApp = () => {
   useEffect(() => {
     return () => {
       abortBackgroundPostProcessing();
+      abortManualCompression();
       assistantSelectRequestRef.current += 1;
       if (actionErrorTimerRef.current) {
         clearTimeout(actionErrorTimerRef.current);
@@ -499,11 +514,15 @@ const ChatApp = () => {
         actionNoticeTimerRef.current = null;
       }
     };
-  }, [abortBackgroundPostProcessing]);
+  }, [abortBackgroundPostProcessing, abortManualCompression]);
 
   useEffect(
     () => () => abortBackgroundPostProcessing(),
     [abortBackgroundPostProcessing, currentSessionId],
+  );
+  useEffect(
+    () => () => abortManualCompression(),
+    [abortManualCompression, currentSessionId],
   );
 
   useEffect(() => {
@@ -921,6 +940,10 @@ const ChatApp = () => {
    * without its message-count threshold.
    */
   const handleCompressContext = async () => {
+    if (manualCompressionControllerRef.current) {
+      showActionNotice(tInput("compressingContext"));
+      return;
+    }
     const state = useChatStore.getState();
     const sessionId = state.currentSessionId;
     const session = state.sessions.find((item) => item.id === sessionId);
@@ -929,16 +952,37 @@ const ChatApp = () => {
       return;
     }
 
+    const sourceMessages = [...state.activeMessages];
+    const sourceSignature = getCompressionInputSignature(sourceMessages);
+    const compressionSignature = JSON.stringify(session.compression ?? null);
+    const controller = new AbortController();
+    manualCompressionControllerRef.current = controller;
     showActionNotice(tInput("compressingContext"));
     try {
       const { performBackgroundCompression } = await loadChatService();
       const nextCompression = await performBackgroundCompression(
-        state.activeMessages,
+        sourceMessages,
         session.compression,
         selectedModel,
-        undefined,
+        controller.signal,
         { ignoreThreshold: true },
       );
+      controller.signal.throwIfAborted();
+      const currentState = useChatStore.getState();
+      const currentSession = currentState.sessions.find(
+        (item) => item.id === sessionId,
+      );
+      const sourceIsCurrent =
+        currentState.currentSessionId === sessionId &&
+        getCompressionInputSignature(
+          currentState.activeMessages.slice(0, sourceMessages.length),
+        ) === sourceSignature &&
+        JSON.stringify(currentSession?.compression ?? null) ===
+          compressionSignature;
+      if (!sourceIsCurrent) {
+        showActionNotice(tInput("compressContextChanged"));
+        return;
+      }
       if (!nextCompression) {
         showActionNotice(tInput("compressContextNothingToDo"));
         return;
@@ -946,8 +990,13 @@ const ChatApp = () => {
       updateSessionCompression(sessionId, nextCompression);
       showActionNotice(tInput("compressContextDone"));
     } catch (error) {
+      if (controller.signal.aborted) return;
       logChatAppError("Manual context compression failed:", error);
       showActionError(tInput("compressContextFailed"));
+    } finally {
+      if (manualCompressionControllerRef.current === controller) {
+        manualCompressionControllerRef.current = null;
+      }
     }
   };
 

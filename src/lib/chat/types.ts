@@ -189,6 +189,8 @@ export interface Message {
   generation?: MessageGenerationState;
   toolCalls?: ToolCall[];
   skillInvocations?: AppliedSkillInvocation[];
+  /** Plugins explicitly referenced for this user request with `@`. */
+  forcedPluginIds?: string[];
   memoryContext?: {
     injectedMemoryIds: string[];
     promptContext: string;

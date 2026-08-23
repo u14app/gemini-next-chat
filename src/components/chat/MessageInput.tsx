@@ -94,10 +94,10 @@ import {
 import {
   buildConversationFileName,
   buildConversationTranscript,
+  buildVisibleConversationSource,
   CONVERSATION_REFERENCE_MAX_CHARS,
   detectComposerTrigger,
 } from "@/lib/utils/composerCommands";
-import { buildCompressionSource } from "@/lib/utils/contextCompression";
 import {
   isReasoningEnabled,
   normalizeReasoningMode,
@@ -662,7 +662,7 @@ const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
 
         const transcript = buildConversationTranscript(
           title,
-          buildCompressionSource(messages).text,
+          buildVisibleConversationSource(messages),
         ).slice(0, CONVERSATION_REFERENCE_MAX_CHARS);
 
         if (!isMountedRef.current) return;
@@ -821,12 +821,14 @@ const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
       setIsPreparingSend(true);
       setErrorMsg(null);
       try {
+        if (forcedPlugins.length > 0 && !modelCapabilities.toolCall) {
+          setErrorMsg(t("forcedPluginNeedsToolSupport"));
+          return;
+        }
         // Forced refs are per-message: they never survive past this send.
         const forced: ComposerForcedInvocations = {
           skillIds: forcedSkills.map((skill) => skill.id),
-          pluginIds: modelCapabilities.toolCall
-            ? forcedPlugins.map((plugin) => plugin.id)
-            : [],
+          pluginIds: forcedPlugins.map((plugin) => plugin.id),
         };
         const skillParameters = onPrepareSend
           ? await onPrepareSend(forced)

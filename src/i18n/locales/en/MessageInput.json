@@ -130,9 +130,10 @@
   "conversationEmpty": "\"{title}\" has no messages to attach.",
   "conversationAttachFailed": "Couldn't attach conversation \"{title}\".",
   "noConversationsAvailable": "No other conversations.",
-  "forcedPluginNeedsToolSupport": "The selected model does not support tool calls, so referenced plugins were ignored.",
+  "forcedPluginNeedsToolSupport": "The selected model does not support tool calls. Remove the forced plugins or choose a compatible model before sending.",
   "compressingContext": "Compressing context…",
   "compressContextDone": "Context compressed.",
   "compressContextNothingToDo": "There is nothing new to compress yet.",
+  "compressContextChanged": "The conversation changed before compression completed, so the stale result was discarded.",
   "compressContextFailed": "Couldn't compress the context. Please try again."
 }

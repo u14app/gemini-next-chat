@@ -20,6 +20,7 @@ import {
 import type { StreamRenderScheduler } from "@/lib/chat/streamRenderScheduler";
 import { getSyncDeviceId } from "@/lib/sync/deviceIdentity";
 import { logDevError } from "@/lib/utils/devLogger";
+import { isForcedPluginInvocationError } from "@/lib/chat/forcedInvocation";
 import type { ChatFlowDeps, StreamRenderSnapshot } from "./chatFlowTypes";
 
 const logChatAppError = logDevError;
@@ -392,12 +393,15 @@ export function useResponseBranchFlow(deps: ChatFlowDeps) {
               );
             },
             toolConfirmationController,
-            createAgentToolStreamOptions({
-              sessionId: currentSessionId,
-              modelMessageId: branchMessageId,
-              knowledgeScope,
-              isActive: () => isGenerationRunActive(generation),
-            }),
+            {
+              ...createAgentToolStreamOptions({
+                sessionId: currentSessionId,
+                modelMessageId: branchMessageId,
+                knowledgeScope,
+                isActive: () => isGenerationRunActive(generation),
+              }),
+              forcedPluginIds: lastUserMsg.forcedPluginIds,
+            },
           ),
       });
 
@@ -458,6 +462,9 @@ export function useResponseBranchFlow(deps: ChatFlowDeps) {
         logChatAppError(`${logPrefix} generation failed:`, error);
         const errorMessage =
           error instanceof Error ? error.message : "An unknown error occurred.";
+        const forcedPluginFailure = isForcedPluginInvocationError(error);
+        const errorCode =
+          typeof error?.code === "string" ? error.code : undefined;
         const partialMessage = useChatStore
           .getState()
           .activeMessages.find((message) => message.id === branchMessageId);
@@ -474,12 +481,14 @@ export function useResponseBranchFlow(deps: ChatFlowDeps) {
                 checkpointAt: Date.now(),
               }
             : undefined,
-          generationError: hasPartialOutput
-            ? undefined
-            : {
-                message: errorMessage,
-                recoverable: true,
-              },
+          generationError:
+            hasPartialOutput && !forcedPluginFailure
+              ? undefined
+              : {
+                  message: errorMessage,
+                  recoverable: true,
+                  ...(errorCode ? { code: errorCode } : {}),
+                },
           timing: {
             startTime,
             endTime: Date.now(),

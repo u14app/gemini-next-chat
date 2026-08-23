@@ -17,6 +17,8 @@ import {
 import type { StreamRenderScheduler } from "@/lib/chat/streamRenderScheduler";
 import { getSyncDeviceId } from "@/lib/sync/deviceIdentity";
 import { logDevError } from "@/lib/utils/devLogger";
+import { hasMixedLongTextOutput } from "@/lib/chat/longText";
+import { isForcedPluginInvocationError } from "@/lib/chat/forcedInvocation";
 import type { ChatFlowDeps, StreamRenderSnapshot } from "./chatFlowTypes";
 
 const logChatAppError = logDevError;
@@ -67,6 +69,11 @@ export function useMessageEditFlow(deps: ChatFlowDeps) {
   } = deps;
 
   const handleEditMessage = (msgId: string, newContent: string) => {
+    const currentMessage = useChatStore
+      .getState()
+      .activeMessages.find((message) => message.id === msgId);
+    if (hasMixedLongTextOutput(currentMessage?.outputBlocks)) return;
+
     if (
       currentSessionId &&
       !isGenerating &&
@@ -156,6 +163,9 @@ export function useMessageEditFlow(deps: ChatFlowDeps) {
         sourceMessage.replyTo,
         selectedModel,
       );
+      if (sourceMessage.forcedPluginIds?.length) {
+        userMessage.forcedPluginIds = [...sourceMessage.forcedPluginIds];
+      }
       if (!isGenerationRunActive(generation)) return;
       commitInjectedMemoryContext(sessionId, sessionMeta, injectedMemoryIds);
 
@@ -385,13 +395,16 @@ export function useMessageEditFlow(deps: ChatFlowDeps) {
               );
             },
             toolConfirmationController,
-            createAgentToolStreamOptions({
-              sessionId,
-              modelMessageId: modelMessageId!,
-              knowledgeScope,
-              isActive: () =>
-                isGenerationRunActive(generation) && Boolean(modelMessageId),
-            }),
+            {
+              ...createAgentToolStreamOptions({
+                sessionId,
+                modelMessageId: modelMessageId!,
+                knowledgeScope,
+                isActive: () =>
+                  isGenerationRunActive(generation) && Boolean(modelMessageId),
+              }),
+              forcedPluginIds: sourceMessage.forcedPluginIds,
+            },
           ),
       });
 
@@ -446,6 +459,9 @@ export function useMessageEditFlow(deps: ChatFlowDeps) {
       logChatAppError("User message edit branch generation failed:", error);
       const errorMessage =
         error instanceof Error ? error.message : "An unknown error occurred.";
+      const forcedPluginFailure = isForcedPluginInvocationError(error);
+      const errorCode =
+        typeof error?.code === "string" ? error.code : undefined;
       if (modelMessageId) {
         const partialMessage = useChatStore
           .getState()
@@ -463,12 +479,14 @@ export function useMessageEditFlow(deps: ChatFlowDeps) {
                 checkpointAt: Date.now(),
               }
             : undefined,
-          generationError: hasPartialOutput
-            ? undefined
-            : {
-                message: errorMessage,
-                recoverable: true,
-              },
+          generationError:
+            hasPartialOutput && !forcedPluginFailure
+              ? undefined
+              : {
+                  message: errorMessage,
+                  recoverable: true,
+                  ...(errorCode ? { code: errorCode } : {}),
+                },
           timing: {
             startTime,
             endTime: Date.now(),

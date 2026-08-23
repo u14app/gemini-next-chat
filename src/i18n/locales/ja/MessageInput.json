@@ -130,9 +130,10 @@
   "conversationEmpty": "「{title}」には添付できるメッセージがありません。",
   "conversationAttachFailed": "会話「{title}」を添付できませんでした。",
   "noConversationsAvailable": "他の会話はありません。",
-  "forcedPluginNeedsToolSupport": "選択中のモデルはツール呼び出しに対応していないため、参照したプラグインは無視されました。",
+  "forcedPluginNeedsToolSupport": "選択中のモデルはツール呼び出しに対応していません。強制プラグインを削除するか、対応モデルを選択してから送信してください。",
   "compressingContext": "コンテキストを圧縮しています…",
   "compressContextDone": "コンテキストを圧縮しました。",
   "compressContextNothingToDo": "圧縮できる新しい内容はまだありません。",
+  "compressContextChanged": "圧縮の完了前に会話が変更されたため、古い結果を破棄しました。",
   "compressContextFailed": "コンテキストの圧縮に失敗しました。もう一度お試しください。"
 }

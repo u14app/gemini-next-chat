@@ -43,12 +43,14 @@ vi.mock("@/services/api/skillService", () => ({
 
 import { useResponseBranchFlow } from "@/features/chat/hooks/useResponseBranchFlow";
 import { useSendMessageFlow } from "@/features/chat/hooks/useSendMessageFlow";
+import { useMessageEditFlow } from "@/features/chat/hooks/useMessageEditFlow";
 import { createChatFlowDeps } from "./support/chatFlowDeps";
 import type { Message } from "@/types";
 
 // Positional arguments of `streamChatResponse`.
 const SKILLS_CONTEXT_ARG = 14;
 const TOOL_CONFIRMATION_ARG = 16;
+const STREAM_OPTIONS_ARG = 17;
 
 const conversation = [
   { id: "user-1", role: "user", content: "hello", timestamp: 0 },
@@ -74,6 +76,27 @@ describe("skill and tool-confirmation wiring", () => {
     expect(args[TOOL_CONFIRMATION_ARG]).toBe(deps.toolConfirmationController);
   });
 
+  it("stores and forwards explicitly referenced plugins when composing", async () => {
+    const deps = createChatFlowDeps();
+    const { handleSendMessage } = renderHook(() => useSendMessageFlow(deps))
+      .result.current;
+
+    await handleSendMessage("hello", [], undefined, undefined, {
+      skillIds: [],
+      pluginIds: ["weather"],
+    });
+
+    expect(deps.addMessage).toHaveBeenNthCalledWith(
+      1,
+      "session-1",
+      expect.objectContaining({ forcedPluginIds: ["weather"] }),
+    );
+    const args = streamChatResponse.mock.calls[0] as unknown[];
+    expect(args[STREAM_OPTIONS_ARG]).toEqual(
+      expect.objectContaining({ forcedPluginIds: ["weather"] }),
+    );
+  });
+
   it("sends the resolved skill context and confirmation controller when regenerating", async () => {
     const deps = createChatFlowDeps({ activeMessages: conversation });
     const { handleRegenerate } = renderHook(() => useResponseBranchFlow(deps))
@@ -85,6 +108,49 @@ describe("skill and tool-confirmation wiring", () => {
     const args = streamChatResponse.mock.calls[0] as unknown[];
     expect(args[SKILLS_CONTEXT_ARG]).toBe("resolved-skill-context");
     expect(args[TOOL_CONFIRMATION_ARG]).toBe(deps.toolConfirmationController);
+  });
+
+  it("replays explicitly referenced plugins when regenerating", async () => {
+    const messages = [
+      { ...conversation[0], forcedPluginIds: ["weather"] },
+      conversation[1],
+    ] as Message[];
+    chatStoreState.activeMessages = messages;
+    const deps = createChatFlowDeps({ activeMessages: messages });
+    const { handleRegenerate } = renderHook(() => useResponseBranchFlow(deps))
+      .result.current;
+
+    await handleRegenerate("model-1");
+
+    const args = streamChatResponse.mock.calls[0] as unknown[];
+    expect(args[STREAM_OPTIONS_ARG]).toEqual(
+      expect.objectContaining({ forcedPluginIds: ["weather"] }),
+    );
+  });
+
+  it("keeps explicitly referenced plugins when editing a user message", async () => {
+    const messages = [
+      { ...conversation[0], forcedPluginIds: ["weather"] },
+      conversation[1],
+    ] as Message[];
+    chatStoreState.activeMessages = messages;
+    const deps = createChatFlowDeps({ activeMessages: messages });
+    const { handleSubmitUserMessageEdit } = renderHook(() =>
+      useMessageEditFlow(deps),
+    ).result.current;
+
+    await handleSubmitUserMessageEdit("user-1", "edited prompt");
+
+    expect(deps.createEditedUserMessageBranch).toHaveBeenCalledWith(
+      "session-1",
+      "user-1",
+      expect.objectContaining({ forcedPluginIds: ["weather"] }),
+      expect.any(Object),
+    );
+    const args = streamChatResponse.mock.calls[0] as unknown[];
+    expect(args[STREAM_OPTIONS_ARG]).toEqual(
+      expect.objectContaining({ forcedPluginIds: ["weather"] }),
+    );
   });
 
   it("reuses the recorded invocations instead of re-resolving them", async () => {

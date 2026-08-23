@@ -130,9 +130,10 @@
   "conversationEmpty": "“{title}”没有可添加的消息。",
   "conversationAttachFailed": "添加会话“{title}”失败。",
   "noConversationsAvailable": "暂无其他会话。",
-  "forcedPluginNeedsToolSupport": "当前模型不支持工具调用，已忽略引用的插件。",
+  "forcedPluginNeedsToolSupport": "当前模型不支持工具调用。请移除强制插件，或选择兼容模型后再发送。",
   "compressingContext": "正在压缩上下文…",
   "compressContextDone": "上下文已压缩。",
   "compressContextNothingToDo": "暂时没有可压缩的新内容。",
+  "compressContextChanged": "会话在压缩完成前已发生变化，已丢弃过期结果。",
   "compressContextFailed": "压缩上下文失败，请重试。"
 }

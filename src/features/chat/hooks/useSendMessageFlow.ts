@@ -24,6 +24,10 @@ import {
 } from "@/lib/chat/streamResilience";
 import type { StreamRenderScheduler } from "@/lib/chat/streamRenderScheduler";
 import { getSyncDeviceId } from "@/lib/sync/deviceIdentity";
+import {
+  isForcedPluginInvocationError,
+  mergeForcedPluginIds,
+} from "@/lib/chat/forcedInvocation";
 import { logDevError } from "@/lib/utils/devLogger";
 import type { ChatFlowDeps, StreamRenderSnapshot } from "./chatFlowTypes";
 
@@ -143,6 +147,7 @@ export function useSendMessageFlow(deps: ChatFlowDeps) {
     > | null = null;
     let streamRenderer: StreamRenderScheduler<StreamRenderSnapshot> | null =
       null;
+    const requestedPluginIds = mergeForcedPluginIds([], forced?.pluginIds);
 
     try {
       // Process message and attachments
@@ -168,6 +173,10 @@ export function useSendMessageFlow(deps: ChatFlowDeps) {
         userMessage,
         injectedMemoryIds,
       } = processedData;
+
+      if (requestedPluginIds.length > 0) {
+        userMessage.forcedPluginIds = requestedPluginIds;
+      }
 
       if (!isGenerationRunActive(generation)) return;
       commitInjectedMemoryContext(
@@ -414,7 +423,7 @@ export function useSendMessageFlow(deps: ChatFlowDeps) {
                 knowledgeScope: processedData.knowledgeScope,
                 isActive: () => isGenerationRunActive(generation),
               }),
-              forcedPluginIds: forced?.pluginIds,
+              forcedPluginIds: requestedPluginIds,
             },
           ),
       });
@@ -594,6 +603,9 @@ export function useSendMessageFlow(deps: ChatFlowDeps) {
         } else if (typeof error === "string") {
           errorMessage = error;
         }
+        const forcedPluginFailure = isForcedPluginInvocationError(error);
+        const errorCode =
+          typeof error?.code === "string" ? error.code : undefined;
 
         if (!userMessageAdded) {
           const fallbackUserMessage: Message = {
@@ -603,6 +615,9 @@ export function useSendMessageFlow(deps: ChatFlowDeps) {
             timestamp: Date.now(),
             attachments,
             replyTo,
+            ...(requestedPluginIds.length > 0
+              ? { forcedPluginIds: requestedPluginIds }
+              : {}),
           };
           await addMessage(targetSessionId, fallbackUserMessage);
           userMessageAdded = true;
@@ -625,12 +640,14 @@ export function useSendMessageFlow(deps: ChatFlowDeps) {
                   checkpointAt: Date.now(),
                 }
               : undefined,
-            generationError: hasPartialOutput
-              ? undefined
-              : {
-                  message: errorMessage,
-                  recoverable: true,
-                },
+            generationError:
+              hasPartialOutput && !forcedPluginFailure
+                ? undefined
+                : {
+                    message: errorMessage,
+                    recoverable: true,
+                    ...(errorCode ? { code: errorCode } : {}),
+                  },
             timing: {
               startTime,
               endTime: Date.now(),
@@ -643,6 +660,7 @@ export function useSendMessageFlow(deps: ChatFlowDeps) {
           errorBotMsg.generationError = {
             message: errorMessage,
             recoverable: true,
+            ...(errorCode ? { code: errorCode } : {}),
           };
           errorBotMsg.timing = {
             startTime,

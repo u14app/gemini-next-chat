@@ -71,11 +71,17 @@ const ComposerReferenceChips: React.FC<ComposerReferenceChipsProps> = ({
   removePluginLabel,
 }) => {
   if (skills.length === 0 && plugins.length === 0) return null;
+  const listLabel =
+    skills.length > 0 && plugins.length > 0
+      ? `${skillsLabel}, ${pluginsLabel}`
+      : skills.length > 0
+        ? skillsLabel
+        : pluginsLabel;
 
   return (
     <ul
       className="custom-scrollbar flex flex-wrap items-center gap-1.5 px-3 pt-3"
-      aria-label={skills.length > 0 ? skillsLabel : pluginsLabel}
+      aria-label={listLabel}
     >
       {skills.map((skill) => (
         <Chip

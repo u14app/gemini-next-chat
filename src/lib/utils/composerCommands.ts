@@ -1,4 +1,5 @@
 import { ATTACHMENT_LIMITS } from "@/config/limits";
+import type { Message } from "@/types";
 
 export type ComposerTrigger = "/" | "@";
 
@@ -116,6 +117,15 @@ export function buildConversationTranscript(
 ): string {
   const heading = title.trim() || "Untitled conversation";
   return `# ${heading}\n\n${body.trim()}\n`;
+}
+
+/** Serializes only message fields that are visible in the conversation UI. */
+export function buildVisibleConversationSource<
+  T extends Pick<Message, "role" | "content">,
+>(messages: readonly T[]): string {
+  return messages
+    .map((message) => `[${message.role.toUpperCase()}]: ${message.content}`)
+    .join("\n\n");
 }
 
 /**

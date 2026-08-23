@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildConversationFileName,
   buildConversationTranscript,
+  buildVisibleConversationSource,
   consumeComposerTrigger,
   CONVERSATION_REFERENCE_MAX_CHARS,
   detectComposerTrigger,
@@ -139,6 +140,24 @@ describe("conversation transcript helpers", () => {
     expect(buildConversationTranscript("  ", "body")).toBe(
       "# Untitled conversation\n\nbody\n",
     );
+  });
+
+  it("serializes only visible message content for conversation references", () => {
+    const source = buildVisibleConversationSource([
+      {
+        role: "user",
+        content: "Visible question",
+        memoryContext: {
+          injectedMemoryIds: ["private-memory"],
+          promptContext: "Hidden deployment credential",
+        },
+      },
+      { role: "model", content: "Visible answer" },
+    ]);
+
+    expect(source).toBe("[USER]: Visible question\n\n[MODEL]: Visible answer");
+    expect(source).not.toContain("Hidden deployment credential");
+    expect(source).not.toContain("MEMORY CONTEXT");
   });
 
   it("caps a referenced conversation well under the attachment budget", () => {

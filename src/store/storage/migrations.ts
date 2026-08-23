@@ -6,7 +6,7 @@ import {
 } from "@/types";
 import { normalizeSearchSettings } from "@/lib/settings/searchRag";
 import { parseTaskPlan } from "@/lib/agent/taskPlan";
-import { ATTACHMENT_LIMITS } from "@/config/limits";
+import { ATTACHMENT_LIMITS, MARKET_LIMITS } from "@/config/limits";
 import { normalizeLongTextPresentation } from "@/lib/chat/longText";
 
 function normalizeStringList(value: unknown, maxItems: number): string[] {
@@ -94,6 +94,11 @@ export function normalizeToolCall(toolCall: Partial<ToolCall>): ToolCall {
 }
 
 export function normalizeMessage(message: Message): Message {
+  const hasForcedPluginIds = Array.isArray(message.forcedPluginIds);
+  const forcedPluginIds = normalizeStringList(
+    message.forcedPluginIds,
+    MARKET_LIMITS.maxPlugins,
+  );
   const memoryContext =
     message.memoryContext &&
     typeof message.memoryContext === "object" &&
@@ -153,7 +158,12 @@ export function normalizeMessage(message: Message): Message {
     }
   }
 
-  if (!message.toolCalls?.length && !normalizedBlocks && !memoryContext) {
+  if (
+    !message.toolCalls?.length &&
+    !normalizedBlocks &&
+    !memoryContext &&
+    !hasForcedPluginIds
+  ) {
     return message;
   }
 
@@ -163,6 +173,9 @@ export function normalizeMessage(message: Message): Message {
     memoryContext.injectedMemoryIds.length > 0
       ? { memoryContext }
       : { memoryContext: undefined }),
+    ...(forcedPluginIds.length
+      ? { forcedPluginIds }
+      : { forcedPluginIds: undefined }),
     ...(message.toolCalls?.length
       ? {
           toolCalls: message.toolCalls.map((toolCall) =>

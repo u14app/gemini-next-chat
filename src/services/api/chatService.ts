@@ -18,9 +18,10 @@ import {
   resolveEnabledPluginFunction,
 } from "@/lib/plugin/resolve";
 import { getPluginFunctionRisk } from "@/lib/plugin/risk";
-import type { Plugin } from "@/lib/plugin/types";
+import type { PluginFunction } from "@/lib/plugin/types";
 import {
   buildForcedToolDirective,
+  ForcedPluginInvocationError,
   mergeForcedPluginIds,
 } from "@/lib/chat/forcedInvocation";
 import {
@@ -232,6 +233,18 @@ export const streamChatResponse = async (
   const selectedModelMetadata = resolveModelMetadata(modelName, providerId);
   const toolCallsSupported = supportsToolCalls(selectedModelMetadata);
   const agentModeEnabled = config?.useAgentMode === true && toolCallsSupported;
+  const requestedForcedPluginIds = mergeForcedPluginIds(
+    [],
+    options?.forcedPluginIds,
+  );
+  if (
+    requestedForcedPluginIds.length > 0 &&
+    (options?.disableTools || !toolCallsSupported)
+  ) {
+    throw new ForcedPluginInvocationError(
+      "Forced plugins require an enabled model with tool-call support.",
+    );
+  }
 
   let effectiveNewMessage = newMessage;
   const { search } = useSettingsStore.getState();
@@ -292,13 +305,15 @@ export const streamChatResponse = async (
   const { installedPlugins, pluginConfigs, installedSkills } =
     useSettingsStore.getState();
   // Plugins referenced with `@` are registered and executable for this request
-  // even when they are toggled off for the session.
+  // even when they are toggled off for the session. Explicit refs go first so
+  // session plugins cannot consume the request tool budget ahead of them.
   const effectiveActivePlugins = mergeForcedPluginIds(
+    requestedForcedPluginIds,
     activePlugins,
-    options?.forcedPluginIds,
   );
   const tools: ChatToolDefinition[] = [];
   const toolNames = new Set<string>();
+  const registeredPluginFunctions = new Map<string, PluginFunction[]>();
   const collectedBuiltinTools = collectBuiltinTools({
     message: newMessage,
     disabled: options?.disableTools || !toolCallsSupported,
@@ -321,6 +336,7 @@ export const streamChatResponse = async (
     effectiveActivePlugins.forEach((pluginId) => {
       const plugin = installedPlugins.find((p) => p.id === pluginId);
       const pluginConfig = pluginConfigs[pluginId];
+      const registeredFunctions: PluginFunction[] = [];
 
       if (plugin) {
         const functionsToAdd = getEnabledPluginFunctions(plugin, pluginConfig);
@@ -330,6 +346,7 @@ export const streamChatResponse = async (
           if (tools.length >= MAX_CHAT_TOOLS_PER_REQUEST) return;
           if (toolNames.has(func.name)) return;
           toolNames.add(func.name);
+          registeredFunctions.push(func);
 
           tools.push({
             type: "function",
@@ -341,8 +358,29 @@ export const streamChatResponse = async (
           });
         });
       }
+      registeredPluginFunctions.set(pluginId, registeredFunctions);
     });
   }
+
+  const forcedPluginRequirements = requestedForcedPluginIds.map((pluginId) => {
+    const plugin = installedPlugins.find((item) => item.id === pluginId);
+    if (!plugin) {
+      throw new ForcedPluginInvocationError(
+        `Forced plugin "${pluginId}" is not installed.`,
+      );
+    }
+    const functions = registeredPluginFunctions.get(pluginId) || [];
+    if (functions.length === 0) {
+      throw new ForcedPluginInvocationError(
+        `Forced plugin "${plugin.title}" has no enabled tools available for this request.`,
+      );
+    }
+    return {
+      title: plugin.title,
+      functions,
+      toolNames: new Set(functions.map((fn) => fn.name)),
+    };
+  });
 
   const hasAgentBuiltin = [
     ...collectedBuiltinTools.bindingsByName.values(),
@@ -365,31 +403,40 @@ export const streamChatResponse = async (
         )
       : userSystemInstruction;
 
-  // There is no `tool_choice` field in any provider request built here, so a
-  // forced `@plugin` invocation is expressed as a system-instruction directive.
-  const forcedToolDirective =
-    !options?.disableTools && toolCallsSupported
-      ? buildForcedToolDirective(
-          (options?.forcedPluginIds || [])
-            .map((pluginId) =>
-              installedPlugins.find((plugin) => plugin.id === pluginId),
-            )
-            .filter((plugin): plugin is Plugin => Boolean(plugin))
-            .map((plugin) => ({
-              title: plugin.title,
-              functions: getEnabledPluginFunctions(
-                plugin,
-                pluginConfigs[plugin.id],
-              ).filter((fn) => toolNames.has(fn.name)),
-            })),
-        )
-      : "";
+  // Providers receive the directive as guidance; the terminal checks below
+  // provide the fail-closed guarantee when a model ignores it.
+  const forcedToolDirective = buildForcedToolDirective(
+    forcedPluginRequirements.map((requirement) => ({
+      title: requirement.title,
+      functions: requirement.functions,
+    })),
+  );
   const effectiveSystemInstruction = forcedToolDirective
     ? appendAgentSystemInstruction(agentSystemInstruction, forcedToolDirective)
     : agentSystemInstruction;
 
   try {
     const allToolCalls: ToolCall[] = [];
+    const assertForcedPluginsCalled = () => {
+      const missing = forcedPluginRequirements.filter(
+        (requirement) =>
+          !allToolCalls.some(
+            (toolCall) =>
+              requirement.toolNames.has(toolCall.name) &&
+              toolCall.status !== "skipped",
+          ),
+      );
+      if (missing.length === 0) return;
+
+      const titles = missing
+        .map((requirement) => `"${requirement.title}"`)
+        .join(", ");
+      throw new ForcedPluginInvocationError(
+        `Forced plugin${missing.length === 1 ? "" : "s"} ${titles} ${
+          missing.length === 1 ? "was" : "were"
+        } not called.`,
+      );
+    };
     let committedContent = "";
     let committedReasoning = "";
     let requestHistory = await stripMessagesDisplayCacheForModel(
@@ -456,6 +503,7 @@ export const streamChatResponse = async (
       (!supportsTextOutput(selectedModelMetadata) ||
         modelName.toLowerCase().startsWith("gpt-image-"))
     ) {
+      assertForcedPluginsCalled();
       boundHistoryForRequest([], {
         newMessage: requestMessage,
         attachments: requestAttachments,
@@ -930,6 +978,7 @@ export const streamChatResponse = async (
           outputBlockBuilder.finalizeLongTextCapture();
           emitOutputBlocks();
         }
+        assertForcedPluginsCalled();
         return committedContent + result.content;
       }
 
@@ -946,6 +995,7 @@ export const streamChatResponse = async (
           emitOutputBlocks();
           upsertToolCall(skippedToolCall);
         });
+        assertForcedPluginsCalled();
         return (
           committedContent +
           result.content +
@@ -1406,6 +1456,7 @@ export const streamChatResponse = async (
       requestAttachments = roundPluginImages;
     }
 
+    assertForcedPluginsCalled();
     return committedContent;
   } catch (error) {
     throw error;
