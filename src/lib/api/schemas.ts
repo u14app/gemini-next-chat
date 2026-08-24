@@ -59,6 +59,7 @@ export const ProviderRuntimeConfigSchema = z
       "Anthropic",
       "Google",
       "Gemini",
+      "OrcaRouter",
     ]),
     source: z.literal("server-default").optional(),
     apiKey: z.unknown().optional(),

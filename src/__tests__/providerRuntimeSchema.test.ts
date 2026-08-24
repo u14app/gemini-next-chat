@@ -18,5 +18,8 @@ describe("provider runtime schema", () => {
     expect(
       ProviderRuntimeConfigSchema.parse({ type: "OpenAI Compatible" }).type,
     ).toBe("OpenAI Compatible");
+    expect(ProviderRuntimeConfigSchema.parse({ type: "OrcaRouter" }).type).toBe(
+      "OrcaRouter",
+    );
   });
 });

@@ -122,7 +122,7 @@ registry lookups survive across instances.
 
 | Variable                    | Purpose                                                                                                                                                                    |
 | --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `DEFAULT_PROVIDER_TYPE`     | Default provider type: `Google`, `Anthropic`, `OpenAI`, or `OpenAI Compatible`. Legacy `Gemini` is still accepted and normalized to `Google`.                              |
+| `DEFAULT_PROVIDER_TYPE`     | Default provider type: `Google`, `Anthropic`, `OpenAI`, `OpenAI Compatible`, or `OrcaRouter`. Legacy `Gemini` is still accepted and normalized to `Google`.                |
 | `DEFAULT_PROVIDER_NAME`     | Display name for the default provider.                                                                                                                                     |
 | `DEFAULT_PROVIDER_BASE_URL` | Base URL for the default provider. Google defaults to `/v1beta`, while OpenAI-compatible and Anthropic default to `/v1` unless a version segment such as `/v2` is present. |
 | `DEFAULT_PROVIDER_API_KEY`  | Deployment-level API key for the default provider.                                                                                                                         |

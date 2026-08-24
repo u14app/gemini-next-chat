@@ -10,6 +10,7 @@ import {
   GOOGLE_PROVIDER_TYPE,
   OPENAI_COMPATIBLE_PROVIDER_TYPE,
   OPENAI_PROVIDER_TYPE,
+  ORCAROUTER_PROVIDER_TYPE,
   normalizeProviderType,
 } from "../providers/providerTypes";
 
@@ -76,6 +77,11 @@ const DEFAULT_PROVIDER_API = {
     baseUrl: "https://generativelanguage.googleapis.com",
     version: "v1beta",
     chatPath: "models",
+  },
+  [ORCAROUTER_PROVIDER_TYPE]: {
+    baseUrl: "https://api.orcarouter.ai",
+    version: "v1",
+    chatPath: "chat/completions",
   },
 } as const satisfies Record<
   ProviderType,

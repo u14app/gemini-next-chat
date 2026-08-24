@@ -79,6 +79,15 @@ describe("provider config normalization", () => {
     ).toBe("OpenAI Compatible");
   });
 
+  it("accepts OrcaRouter as a provider type", () => {
+    expect(
+      normalizeModelProvider({
+        id: "ORCA",
+        type: "OrcaRouter",
+      })?.type,
+    ).toBe("OrcaRouter");
+  });
+
   it("defaults unknown provider types to OpenAI Compatible", () => {
     expect(
       normalizeModelProvider({

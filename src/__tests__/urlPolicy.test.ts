@@ -60,6 +60,21 @@ describe("url policy and provider runtime helpers", () => {
     ).toBe("https://gateway.example.com/anthropic/v1");
   });
 
+  it("normalizes OrcaRouter base URLs like an OpenAI-compatible gateway", () => {
+    expect(
+      normalizeProviderBaseUrl("https://api.orcarouter.ai", "OrcaRouter"),
+    ).toBe("https://api.orcarouter.ai/v1");
+    expect(getProviderChatUrl("https://api.orcarouter.ai", "OrcaRouter")).toBe(
+      "https://api.orcarouter.ai/v1/chat/completions",
+    );
+    expect(
+      getProviderModelsUrl("https://api.orcarouter.ai", "OrcaRouter"),
+    ).toBe("https://api.orcarouter.ai/v1/models");
+    expect(
+      normalizeProviderBaseUrl("https://api.orcarouter.ai/v1", "OrcaRouter"),
+    ).toBe("https://api.orcarouter.ai/v1");
+  });
+
   it("splits Google SDK base URL from API version and allows version override", () => {
     expect(
       normalizeProviderBaseUrl(
