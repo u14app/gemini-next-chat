@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  AGENT_RUN_BUDGET_PRESETS,
   AgentRunTransitionError,
   commitToolExecution,
   createAgentRun,
   getExceededAgentRunBudget,
+  getAgentRunBudgetPreset,
   getToolExecutionByCallId,
   getToolReplayDecision,
   markToolExecutionRunning,
@@ -47,6 +49,36 @@ function prepare(policy: ToolInvocationPolicy = readPolicy, callId = "call-1") {
 }
 
 describe("AgentRun domain", () => {
+  it("maps the three session budget presets without persisting a preset name", () => {
+    expect(AGENT_RUN_BUDGET_PRESETS).toEqual({
+      light: {
+        maxToolRounds: 8,
+        maxToolCalls: 30,
+        maxDurationMs: 600_000,
+      },
+      standard: {
+        maxToolRounds: 16,
+        maxToolCalls: 75,
+        maxDurationMs: 1_500_000,
+      },
+      extended: {
+        maxToolRounds: 24,
+        maxToolCalls: 150,
+        maxDurationMs: 2_700_000,
+      },
+    });
+    expect(getAgentRunBudgetPreset(AGENT_RUN_BUDGET_PRESETS.standard)).toBe(
+      "standard",
+    );
+    expect(
+      getAgentRunBudgetPreset({
+        ...AGENT_RUN_BUDGET_PRESETS.standard,
+        maxTotalTokens: 40_000,
+      }),
+    ).toBeNull();
+    expect(getAgentRunBudgetPreset()).toBeNull();
+  });
+
   it("creates a serializable run with the existing tool-loop limits", () => {
     const run = createAgentRun({
       id: "run-1",
@@ -195,6 +227,22 @@ describe("AgentRun domain", () => {
     });
     expect(record).not.toHaveProperty("args");
     expect(record).not.toHaveProperty("result");
+  });
+
+  it("does not reuse a committed result without a content hash", () => {
+    const prepared = prepare();
+    const running = markToolExecutionRunning(prepared, "execution-call-1", 120);
+    const committed = commitToolExecution(running, "execution-call-1", {
+      at: 130,
+      resultRefs: [{ kind: "tool_cache", id: "call-1" }],
+    });
+
+    expect(
+      getToolReplayDecision(getToolExecutionByCallId(committed, "call-1")!),
+    ).toEqual({
+      action: "block",
+      reason: "committed_result_unverifiable",
+    });
   });
 
   it("rejects a call id reused with different invocation inputs", () => {

@@ -148,6 +148,7 @@ export function useMessageEditFlow(deps: ChatFlowDeps) {
     try {
       const {
         finalText,
+        researchLaunchText,
         finalAttachments,
         ragSources,
         ragError,
@@ -175,15 +176,18 @@ export function useMessageEditFlow(deps: ChatFlowDeps) {
         selectedModel,
         locale,
         installedSkills,
-        activeSkillIds: effectiveContext.agentModeEnabled
+        activeSkillIds: effectiveContext.orchestratedModeEnabled
           ? []
           : effectiveContext.activeSkillIds,
         skillBundles,
-        activeSkillBundleIds,
+        activeSkillBundleIds: effectiveContext.researchModeEnabled
+          ? []
+          : activeSkillBundleIds,
         skillParameterValues: editSkillParameters.skillParameterValues,
         skillBundleParameterValues:
           editSkillParameters.skillBundleParameterValues,
-        autoSelect: skillAutoSelect && !effectiveContext.agentModeEnabled,
+        autoSelect:
+          skillAutoSelect && !effectiveContext.orchestratedModeEnabled,
         signal: generation.controller.signal,
       });
       if (!isGenerationRunActive(generation)) return;
@@ -416,14 +420,13 @@ export function useMessageEditFlow(deps: ChatFlowDeps) {
                 agentBudget: effectiveContext.agentBudget,
                 memoryScopes: effectiveContext.memoryScopes,
                 memoryScopeIds: effectiveContext.memoryScopeIds,
-                agentRun: modelPlaceholder.generation?.agentRunId
-                  ? {
-                      id: modelPlaceholder.generation.agentRunId,
-                      userMessageId: editedUserMessageId || undefined,
-                      modelMessageId: modelMessageId!,
-                    }
-                  : undefined,
+                agentRun: {
+                  id: modelPlaceholder.generation!.requestId,
+                  userMessageId: editedUserMessageId || undefined,
+                  modelMessageId: modelMessageId!,
+                },
               }),
+              researchLaunchMessage: researchLaunchText,
               forcedPluginIds: sourceMessage.forcedPluginIds,
             },
           ),

@@ -1,4 +1,6 @@
 {
+  "pluginDeepResearchTitle": "ディープリサーチ",
+  "pluginDeepResearchDescription": "追跡可能な証拠を用いた範囲限定の複数ソース調査を、ソースへアクセスする前の計画承認付きで実行します。",
   "pluginJinaTitle": "Web リーダー (Jina AI)",
   "pluginJinaDescription": "任意の URL を LLM フレンドリーな Markdown コンテンツに変換します。ドキュメント、記事、または任意のウェブページを読み込むのに便利です。",
   "pluginWeatherTitle": "リアルタイム天気予報",

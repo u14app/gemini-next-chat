@@ -318,10 +318,37 @@ describe("ToolCallBlock built-in tool presentation", () => {
       status: "success",
     });
 
-    await userEvent.click(screen.getByRole("button", { name: "Used 1 Tool" }));
+    await userEvent.click(screen.getByRole("button", { name: /Used 1 Tool/ }));
 
     expect(screen.getByText("Create Issue")).toBeTruthy();
     expect(container.querySelector(".lucide-wrench")).toBeTruthy();
+  });
+
+  it("renders a structured workspace snapshot before the raw payload", async () => {
+    renderBlock({
+      id: "workspace-write",
+      name: "write_workspace_file",
+      args: {
+        path: "reports/final.md",
+        mode: "create",
+        content: "# Final report",
+      },
+      result: {
+        ok: true,
+        path: "reports/final.md",
+        bytes: 14,
+        revision: "sha256:1234567890abcdef",
+      },
+      status: "success",
+    });
+
+    await userEvent.click(screen.getByRole("button", { name: /Used 1 Tool/ }));
+
+    expect(screen.getByText("reports/final.md")).toBeTruthy();
+    expect(screen.getByText("Content snapshot")).toBeTruthy();
+    expect(screen.getByText("Write mode")).toBeTruthy();
+    expect(screen.getByText("Create")).toBeTruthy();
+    expect(screen.getByText("View raw arguments and result")).toBeTruthy();
   });
 });
 
@@ -343,7 +370,7 @@ describe("ToolCallBlock image results", () => {
       status: "success",
     });
 
-    await userEvent.click(screen.getByRole("button", { name: "Used 1 Tool" }));
+    await userEvent.click(screen.getByRole("button", { name: /Used 1 Tool/ }));
 
     expect(
       screen.getByRole("img", { name: "plugin-image.png" }).getAttribute("src"),

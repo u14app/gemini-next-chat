@@ -19,7 +19,7 @@ const TaskPlanBlock: React.FC<TaskPlanSnapshot> = ({ steps, note }) => {
   ).length;
 
   useEffect(() => {
-    if (hasActiveWork) setIsExpanded(true);
+    setIsExpanded(hasActiveWork);
   }, [hasActiveWork]);
 
   if (steps.length === 0) return null;

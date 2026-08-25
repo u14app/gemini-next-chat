@@ -112,10 +112,55 @@ describe("search_knowledge built-in", () => {
     expect(
       (result as { sources: Array<{ content: string }> }).sources[0]?.content,
     ).toHaveLength(20_000);
+    expect(
+      (
+        result as {
+          sources: Array<{
+            url: string;
+            metadata?: Record<string, unknown>;
+          }>;
+        }
+      ).sources[0],
+    ).toMatchObject({
+      url: "knowledge://search/release%20policy/1",
+      metadata: {
+        sourceId: expect.stringMatching(/^source-/),
+        retrievalKind: "attachment",
+        externalUntrusted: true,
+      },
+    });
     expect(emit).toHaveBeenCalledWith(
       expect.any(Array),
       expect.objectContaining({ code: "RAG_VECTOR_FALLBACK" }),
     );
+  });
+
+  it("caps formal knowledge evidence by the shared Research source budget", async () => {
+    mocks.retrieveKnowledgeSources.mockResolvedValue({
+      sources: Array.from({ length: 5 }, (_, index) => ({
+        title: `Source ${index}`,
+        url: `knowledge://collection-1/${index}`,
+        content: `Evidence ${index}`,
+      })),
+    });
+    const onSourceBodiesRead = vi.fn();
+    const sourceBudget = {
+      remainingSourceBodies: 2,
+      onSourceBodiesRead,
+    };
+
+    const result = (await createKnowledgeSearchBinding({
+      sourceBudget,
+    }).execute({ query: "release policy" }, createContext())) as {
+      sources: unknown[];
+    };
+
+    expect(result.sources).toHaveLength(2);
+    expect(sourceBudget.remainingSourceBodies).toBe(0);
+    expect(onSourceBodiesRead).toHaveBeenCalledWith([
+      "knowledge://collection-1/0",
+      "knowledge://collection-1/1",
+    ]);
   });
 
   it("reports retrieval failures to the message knowledge channel", async () => {

@@ -10,7 +10,7 @@ export function createTaskPlanBinding(): BuiltinToolBinding {
       function: {
         name: "update_task_plan",
         description:
-          "Create or update the live task checklist for a genuinely multi-step request. Send the full current plan on every update.",
+          "Create or update the live task checklist for a genuinely multi-step request. Whenever a step changes status, immediately send the full current plan again. Before the final answer, leave no step pending or in progress.",
         parameters: {
           type: "object",
           additionalProperties: false,

@@ -7,6 +7,7 @@ import type {
 import type {
   AgentUserInputController,
   Attachment,
+  ChatMode,
   Collection,
   ImageSource,
   Source,
@@ -18,6 +19,11 @@ import type {
 } from "@/lib/knowledge/retrieveKnowledgeSources";
 import type { TaskPlanSnapshot } from "@/lib/agent/taskPlan";
 import type { LongTextOutputRequest } from "@/lib/chat/longText";
+import type {
+  AdjustResearchPlanArgs,
+  StartDeepResearchArgs,
+} from "@/lib/research/toolArguments";
+import type { ResearchTaskStatus } from "@/lib/research/types";
 
 import type { ChatToolDefinition } from "../types";
 
@@ -27,6 +33,32 @@ export interface BuiltinKnowledgeScope {
   attachments: Attachment[];
   collections: Collection[];
   ragConfig: KnowledgeRetrievalRagConfig;
+}
+
+export interface BuiltinResearchQueryBudget {
+  remainingQueries: number;
+  maxResultsPerQuery: number;
+  /** Shared normalized-query ledger used to reject replayed query variants. */
+  seenQueries?: Set<string>;
+  /** Optional hard deadline used by the pre-approval reconnaissance stage. */
+  deadlineAt?: number;
+  onQueriesExecuted?: (queries: string[]) => void;
+}
+
+export interface BuiltinResearchSourceBudget {
+  remainingSourceBodies: number;
+  onSourceBodiesRead?: (locators: string[]) => void;
+}
+
+export function consumeBuiltinResearchSourceBodies(
+  budget: BuiltinResearchSourceBudget | undefined,
+  locators: readonly string[],
+): boolean {
+  if (!budget) return true;
+  if (locators.length > budget.remainingSourceBodies) return false;
+  budget.remainingSourceBodies -= locators.length;
+  budget.onSourceBodiesRead?.([...locators]);
+  return true;
 }
 
 export type BuiltinSearchEvent =
@@ -57,7 +89,32 @@ export interface ArchiveFileShare {
   title?: string;
 }
 
+export interface BuiltinResearchHostContext {
+  sessionId: string;
+  userMessageId?: string;
+  modelMessageId?: string;
+  agentRunId?: string;
+  signal?: AbortSignal;
+}
+
+export interface BuiltinResearchStartResult {
+  taskId: string;
+  status: ResearchTaskStatus;
+}
+
+export interface BuiltinResearchEmitters {
+  start: (
+    request: StartDeepResearchArgs,
+    context: BuiltinResearchHostContext,
+  ) => Promise<BuiltinResearchStartResult> | BuiltinResearchStartResult;
+  adjustPlan: (
+    request: AdjustResearchPlanArgs,
+    context: BuiltinResearchHostContext,
+  ) => Promise<void> | void;
+}
+
 export interface BuiltinToolEmitters {
+  chatMode?: (mode: Extract<ChatMode, "agent" | "research">) => void;
   search?: (event: BuiltinSearchEvent) => void;
   knowledgeSources?: (sources: Source[], ragError?: RagQueryError) => void;
   skillInvocation?: (invocation: AppliedSkillInvocation) => void;
@@ -71,14 +128,20 @@ export interface BuiltinToolEmitters {
         ok: false;
         error: { code: string; message: string };
       };
+  research?: BuiltinResearchEmitters;
 }
 
 export interface BuiltinToolContext {
   signal?: AbortSignal;
   sessionId: string;
+  userMessageId?: string;
+  modelMessageId?: string;
+  agentRunId?: string;
   toolCallId?: string;
   userInputController?: AgentUserInputController;
   knowledgeScope?: BuiltinKnowledgeScope;
+  /** Frozen workspace paths available to an approval-gated Research run. */
+  workspaceReadScope?: readonly string[];
   emit: BuiltinToolEmitters;
 }
 

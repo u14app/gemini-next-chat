@@ -168,6 +168,7 @@ export function useSendMessageFlow(deps: ChatFlowDeps) {
 
       const {
         finalText,
+        researchLaunchText,
         finalAttachments,
         ragSources,
         ragError,
@@ -267,16 +268,21 @@ export function useSendMessageFlow(deps: ChatFlowDeps) {
         installedSkills,
         // Agent mode loads auto Skills through load_skill. Only explicit
         // slash references are injected directly for the current turn.
-        activeSkillIds: effectiveContext.agentModeEnabled
+        activeSkillIds: effectiveContext.orchestratedModeEnabled
           ? []
           : effectiveContext.activeSkillIds,
         skillBundles,
-        activeSkillBundleIds,
+        activeSkillBundleIds: effectiveContext.researchModeEnabled
+          ? []
+          : activeSkillBundleIds,
         skillParameterValues: resolvedSkillParameters.skillParameterValues,
         skillBundleParameterValues:
           resolvedSkillParameters.skillBundleParameterValues,
-        autoSelect: skillAutoSelect && !effectiveContext.agentModeEnabled,
-        forcedSkillIds: forced?.skillIds,
+        autoSelect:
+          skillAutoSelect && !effectiveContext.orchestratedModeEnabled,
+        forcedSkillIds: effectiveContext.researchModeEnabled
+          ? undefined
+          : forced?.skillIds,
         signal: generation.controller.signal,
       });
       if (!isGenerationRunActive(generation)) return;
@@ -451,14 +457,13 @@ export function useSendMessageFlow(deps: ChatFlowDeps) {
                 agentBudget: effectiveContext.agentBudget,
                 memoryScopes: effectiveContext.memoryScopes,
                 memoryScopeIds: effectiveContext.memoryScopeIds,
-                agentRun: botMsg.generation?.agentRunId
-                  ? {
-                      id: botMsg.generation.agentRunId,
-                      userMessageId: userMessage.id,
-                      modelMessageId: currentBotMsgId,
-                    }
-                  : undefined,
+                agentRun: {
+                  id: botMsg.generation!.requestId,
+                  userMessageId: userMessage.id,
+                  modelMessageId: currentBotMsgId,
+                },
               }),
+              researchLaunchMessage: researchLaunchText,
               forcedPluginIds: requestedPluginIds,
             },
           ),

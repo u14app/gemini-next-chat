@@ -12,6 +12,10 @@ import type {
   WorkspaceFilePresentation,
 } from "@/types";
 import { getMessageOutputBlocks } from "@/lib/chat/messageOutputBlocks";
+import {
+  getMessageOutputBlockSpacingClass,
+  normalizeMessageOutputPresentation,
+} from "@/lib/chat/messageOutputPresentation";
 import type { MarkdownGeneratedFile } from "@/lib/utils/markdownFiles";
 import { useUIStore } from "@/store/core/uiStore";
 import { useAttachmentDisplayUrl } from "@/lib/utils/useAttachmentDisplayUrl";
@@ -30,6 +34,7 @@ import AgentRunBar from "./AgentRunBar";
 import SafeImage from "../ui/SafeImage";
 import { Button } from "@/components/ui/primitives";
 import { useAgentRunStore } from "@/store/core/agentRunStore";
+import { ConnectedResearchTaskCard } from "@/features/research";
 
 interface MessageOutputRendererProps {
   message: Message;
@@ -69,6 +74,13 @@ const isSuccessfulLongTextTool = (
   toolCall: NonNullable<Message["toolCalls"]>[number],
 ) =>
   toolCall.name === "start_long_text_output" &&
+  toolCall.status === "success" &&
+  !toolCall.isError;
+
+const isSuccessfulResearchStartTool = (
+  toolCall: NonNullable<Message["toolCalls"]>[number],
+) =>
+  toolCall.name === "start_deep_research" &&
   toolCall.status === "success" &&
   !toolCall.isError;
 
@@ -202,138 +214,226 @@ const MessageOutputRenderer: React.FC<MessageOutputRendererProps> = ({
 }) => {
   const t = useTranslations("Message");
   const agentRunId = message.generation?.agentRunId;
-  const agentRun = useAgentRunStore((state) =>
-    agentRunId ? state.runsById[agentRunId] : undefined,
-  );
+  const agentRun = useAgentRunStore((state) => {
+    const run = agentRunId ? state.runsById[agentRunId] : undefined;
+    return run?.workflowKind === "research" ? undefined : run;
+  });
   const blocks = useMemo(() => {
     const orderedBlocks = getMessageOutputBlocks(message);
+    const presentationBlocks =
+      normalizeMessageOutputPresentation(orderedBlocks);
     return trimTextBlocksForStreaming(
-      orderedBlocks,
+      presentationBlocks,
       displayedContent,
       isTyping,
     );
   }, [displayedContent, isTyping, message]);
+  const activeReasoningBlockId = useMemo(() => {
+    for (let index = blocks.length - 1; index >= 0; index -= 1) {
+      const block = blocks[index];
+      if (
+        block.type === "reasoning" &&
+        !block.endedAt &&
+        (block.startedAt !== undefined || isThinking)
+      ) {
+        return block.id;
+      }
+    }
+    return undefined;
+  }, [blocks, isThinking]);
   const isLongTextStreaming =
     isTyping || message.generation?.status === "streaming";
+  const renderedItems: Array<{
+    key: string;
+    framed: boolean;
+    node: React.ReactNode;
+  }> = [];
+  if (agentRun) {
+    renderedItems.push({
+      key: `agent:${agentRun.id}`,
+      framed: true,
+      node: <AgentRunBar run={agentRun} onStop={onStopAgentRun} />,
+    });
+  }
+  blocks.forEach((block) => {
+    switch (block.type) {
+      case "text":
+        if (block.presentation?.kind === "long_text") {
+          renderedItems.push({
+            key: block.id,
+            framed: true,
+            node: (
+              <LongTextBlock
+                content={block.content}
+                presentation={block.presentation}
+                isStreaming={isLongTextStreaming}
+                isInterrupted={message.generation?.status === "interrupted"}
+                forceExpanded={forceExpandLongTextBlocks}
+                onOpen={
+                  onLongTextOpen ? () => onLongTextOpen(block) : undefined
+                }
+              />
+            ),
+          });
+          return;
+        }
+        renderedItems.push({
+          key: block.id,
+          framed: false,
+          node: (
+            <MarkdownRenderer
+              content={block.content}
+              className={isErrorMessage ? "text-red-500" : undefined}
+              searchSources={searchSources}
+              ragSources={ragSources}
+              onFileClick={onFileClick}
+              isStreaming={isTyping}
+              forcedTheme={forcedTheme}
+              forceExpandCodeBlocks={forceExpandCodeBlocks}
+            />
+          ),
+        });
+        return;
+      case "reasoning":
+        if (hideReasoning || !block.content) return;
+        renderedItems.push({
+          key: block.id,
+          framed: true,
+          node: (
+            <ReasoningBlock
+              reasoning={block.content}
+              isThinking={block.id === activeReasoningBlockId}
+              durationMs={block.durationMs}
+            />
+          ),
+        });
+        return;
+      case "task_plan":
+        if (block.steps.length === 0) return;
+        renderedItems.push({
+          key: block.id,
+          framed: true,
+          node: <TaskPlanBlock steps={block.steps} note={block.note} />,
+        });
+        return;
+      case "research_task":
+        renderedItems.push({
+          key: block.id,
+          framed: true,
+          node: (
+            <ConnectedResearchTaskCard
+              taskId={block.taskId}
+              messageId={message.id}
+              blockId={block.id}
+            />
+          ),
+        });
+        return;
+      case "workspace_file":
+        renderedItems.push({
+          key: block.id,
+          framed: true,
+          node: (
+            <WorkspaceFileBlock
+              file={block.file}
+              onOpen={onWorkspaceFileOpen}
+            />
+          ),
+        });
+        return;
+      case "workspace_archive":
+        renderedItems.push({
+          key: block.id,
+          framed: true,
+          node: <ArchiveFileBlock archive={block.archive} />,
+        });
+        return;
+      case "search":
+        renderedItems.push({
+          key: block.id,
+          framed: true,
+          node: (
+            <SourceBlock
+              sources={block.sources}
+              images={block.images}
+              isSearching={block.isSearching}
+              error={block.error}
+            />
+          ),
+        });
+        return;
+      case "image":
+        renderedItems.push({
+          key: block.id,
+          framed: true,
+          node: (
+            <GeneratedImageBlock
+              image={block.image}
+              onImageCached={onImageCached}
+            />
+          ),
+        });
+        return;
+      case "image_generation_status":
+        renderedItems.push({
+          key: block.id,
+          framed: true,
+          node: <ImageGenerationStatusBlock label={t("generatingImage")} />,
+        });
+        return;
+      case "tool_group": {
+        if (hideToolCalls) return;
+        const memoryToolCalls = block.toolCalls.filter((toolCall) =>
+          isMemorySearchTool(toolCall.name),
+        );
+        const otherToolCalls = block.toolCalls.filter(
+          (toolCall) =>
+            !isMemorySearchTool(toolCall.name) &&
+            !isWebSearchTool(toolCall.name) &&
+            !isSuccessfulLongTextTool(toolCall) &&
+            !isSuccessfulResearchStartTool(toolCall),
+        );
+        if (memoryToolCalls.length > 0) {
+          renderedItems.push({
+            key: `${block.id}:memory`,
+            framed: true,
+            node: <MemorySearchBlock toolCalls={memoryToolCalls} />,
+          });
+        }
+        if (otherToolCalls.length > 0) {
+          renderedItems.push({
+            key: `${block.id}:tools`,
+            framed: true,
+            node: (
+              <ToolCallBlock
+                toolCalls={otherToolCalls}
+                onConfirmationDecision={onToolConfirmationDecision}
+                onRevokeSessionApproval={onRevokeToolSessionApproval}
+              />
+            ),
+          });
+        }
+      }
+    }
+  });
 
-  if (blocks.length === 0 && !agentRun) return null;
+  if (renderedItems.length === 0) return null;
 
   return (
     <div className={isTyping ? "animate-in fade-in duration-500" : ""}>
-      {agentRun ? <AgentRunBar run={agentRun} onStop={onStopAgentRun} /> : null}
-      {blocks.map((block, index) => {
-        switch (block.type) {
-          case "text":
-            if (block.presentation?.kind === "long_text") {
-              return (
-                <LongTextBlock
-                  key={block.id}
-                  content={block.content}
-                  presentation={block.presentation}
-                  isStreaming={isLongTextStreaming}
-                  isInterrupted={message.generation?.status === "interrupted"}
-                  forceExpanded={forceExpandLongTextBlocks}
-                  onOpen={
-                    onLongTextOpen ? () => onLongTextOpen(block) : undefined
-                  }
-                />
-              );
-            }
-            return (
-              <MarkdownRenderer
-                key={block.id}
-                content={block.content}
-                className={isErrorMessage ? "text-red-500" : undefined}
-                searchSources={searchSources}
-                ragSources={ragSources}
-                onFileClick={onFileClick}
-                isStreaming={isTyping}
-                forcedTheme={forcedTheme}
-                forceExpandCodeBlocks={forceExpandCodeBlocks}
-              />
-            );
-          case "reasoning":
-            if (hideReasoning) return null;
-            return (
-              <ReasoningBlock
-                key={block.id}
-                reasoning={block.content}
-                isThinking={isThinking && index === blocks.length - 1}
-                durationMs={block.durationMs}
-              />
-            );
-          case "task_plan":
-            return (
-              <TaskPlanBlock
-                key={block.id}
-                steps={block.steps}
-                note={block.note}
-              />
-            );
-          case "workspace_file":
-            return (
-              <WorkspaceFileBlock
-                key={block.id}
-                file={block.file}
-                onOpen={onWorkspaceFileOpen}
-              />
-            );
-          case "workspace_archive":
-            return <ArchiveFileBlock key={block.id} archive={block.archive} />;
-          case "search":
-            return (
-              <SourceBlock
-                key={block.id}
-                sources={block.sources}
-                images={block.images}
-                isSearching={block.isSearching}
-                error={block.error}
-              />
-            );
-          case "image":
-            return (
-              <GeneratedImageBlock
-                key={block.id}
-                image={block.image}
-                onImageCached={onImageCached}
-              />
-            );
-          case "image_generation_status":
-            return (
-              <ImageGenerationStatusBlock
-                key={block.id}
-                label={t("generatingImage")}
-              />
-            );
-          case "tool_group": {
-            if (hideToolCalls) return null;
-            const memoryToolCalls = block.toolCalls.filter((toolCall) =>
-              isMemorySearchTool(toolCall.name),
-            );
-            const otherToolCalls = block.toolCalls.filter(
-              (toolCall) =>
-                !isMemorySearchTool(toolCall.name) &&
-                !isWebSearchTool(toolCall.name) &&
-                !isSuccessfulLongTextTool(toolCall),
-            );
-
-            return (
-              <React.Fragment key={block.id}>
-                {memoryToolCalls.length > 0 ? (
-                  <MemorySearchBlock toolCalls={memoryToolCalls} />
-                ) : null}
-                {otherToolCalls.length > 0 ? (
-                  <ToolCallBlock
-                    toolCalls={otherToolCalls}
-                    onConfirmationDecision={onToolConfirmationDecision}
-                    onRevokeSessionApproval={onRevokeToolSessionApproval}
-                  />
-                ) : null}
-              </React.Fragment>
-            );
-          }
-        }
-      })}
+      {renderedItems.map((item, index) =>
+        item.framed ? (
+          <div
+            key={item.key}
+            data-message-output-block
+            className={`${getMessageOutputBlockSpacingClass(index > 0)} [&>*]:m-0!`}
+          >
+            {item.node}
+          </div>
+        ) : (
+          <React.Fragment key={item.key}>{item.node}</React.Fragment>
+        ),
+      )}
     </div>
   );
 };

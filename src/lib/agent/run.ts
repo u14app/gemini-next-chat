@@ -31,6 +31,48 @@ export interface ResolvedAgentRunBudget {
   maxDurationMs?: number;
 }
 
+export type AgentRunBudgetPreset = "light" | "standard" | "extended";
+
+export const AGENT_RUN_BUDGET_PRESETS: Readonly<
+  Record<AgentRunBudgetPreset, ResolvedAgentRunBudget>
+> = {
+  light: {
+    maxToolRounds: 8,
+    maxToolCalls: 30,
+    maxDurationMs: 10 * 60 * 1_000,
+  },
+  standard: {
+    maxToolRounds: 16,
+    maxToolCalls: 75,
+    maxDurationMs: 25 * 60 * 1_000,
+  },
+  extended: {
+    maxToolRounds: 24,
+    maxToolCalls: 150,
+    maxDurationMs: 45 * 60 * 1_000,
+  },
+};
+
+export function getAgentRunBudgetPreset(
+  budget?: Partial<ResolvedAgentRunBudget>,
+): AgentRunBudgetPreset | null {
+  if (!budget || budget.maxTotalTokens !== undefined) return null;
+
+  const presets = Object.keys(
+    AGENT_RUN_BUDGET_PRESETS,
+  ) as AgentRunBudgetPreset[];
+  return (
+    presets.find((preset) => {
+      const candidate = AGENT_RUN_BUDGET_PRESETS[preset];
+      return (
+        budget.maxToolRounds === candidate.maxToolRounds &&
+        budget.maxToolCalls === candidate.maxToolCalls &&
+        budget.maxDurationMs === candidate.maxDurationMs
+      );
+    }) ?? null
+  );
+}
+
 export interface AgentRunUsage {
   modelRounds: number;
   toolRounds: number;
@@ -134,6 +176,8 @@ export interface ToolExecutionRecord {
 
 export interface AgentRun {
   schemaVersion: typeof AGENT_RUN_SCHEMA_VERSION;
+  /** Shared execution journal owner. Missing legacy values are Agent runs. */
+  workflowKind?: "agent" | "research";
   id: string;
   sessionId: string;
   userMessageId?: string;
@@ -158,6 +202,7 @@ export interface CreateAgentRunInput {
   userMessageId?: string;
   modelMessageId?: string;
   model?: string;
+  workflowKind?: "agent" | "research";
   budget?: Partial<ResolvedAgentRunBudget>;
   now?: number;
 }
@@ -193,6 +238,7 @@ export type ToolReplayDecision =
       action: "block";
       reason:
         | "effect_unknown"
+        | "committed_result_unverifiable"
         | "in_flight_effect_unconfirmed"
         | "failed_non_idempotent";
     };
@@ -421,6 +467,7 @@ export function createAgentRun(input: CreateAgentRunInput): AgentRun {
 
   const run: AgentRun = {
     schemaVersion: AGENT_RUN_SCHEMA_VERSION,
+    workflowKind: input.workflowKind ?? "agent",
     id,
     sessionId: input.sessionId,
     ...(input.userMessageId ? { userMessageId: input.userMessageId } : {}),
@@ -523,6 +570,25 @@ export function transitionAgentRunStatus(
   );
 
   return next;
+}
+
+/** Resumes an interrupted foreground run without charging time spent paused. */
+export function resumeInterruptedAgentRun(
+  run: AgentRun,
+  at = Date.now(),
+): AgentRun {
+  if (run.status !== "interrupted") {
+    throw new AgentRunTransitionError(
+      `Agent run ${run.id} cannot resume from ${run.status}.`,
+    );
+  }
+  const activeWallTimeMs = run.usage.wallTimeMs;
+  const resumed = transitionAgentRunStatus(run, "running", { at });
+  return {
+    ...resumed,
+    startedAt: Math.max(0, at - activeWallTimeMs),
+    usage: { ...resumed.usage, wallTimeMs: activeWallTimeMs },
+  };
 }
 
 export function checkpointAgentRun(run: AgentRun, at = Date.now()): AgentRun {
@@ -789,11 +855,18 @@ export function getToolReplayDecision(
     return { action: "execute", reason: "not_started" };
   }
   if (record.status === "committed") {
+    const resultRefs =
+      record.resultRefs?.map((reference) => ({ ...reference })) ?? [];
+    if (
+      resultRefs.length === 0 ||
+      resultRefs.some((reference) => !reference.contentHash)
+    ) {
+      return { action: "block", reason: "committed_result_unverifiable" };
+    }
     return {
       action: "reuse",
       reason: "committed",
-      resultRefs:
-        record.resultRefs?.map((reference) => ({ ...reference })) ?? [],
+      resultRefs,
     };
   }
   if (record.status === "effect_unknown") {

@@ -11,7 +11,7 @@ import {
 import { ATTACHMENT_LIMITS } from "../config/limits";
 
 describe("detectComposerTrigger", () => {
-  it("opens for a slash only at the start of the composer", () => {
+  it("opens for a slash at the start or after whitespace", () => {
     expect(detectComposerTrigger("/att", 4)).toEqual({
       trigger: "/",
       query: "att",
@@ -22,12 +22,24 @@ describe("detectComposerTrigger", () => {
       trigger: "/",
       query: "",
     });
+    expect(detectComposerTrigger("ask /att", 8)).toEqual({
+      trigger: "/",
+      query: "att",
+      start: 4,
+      end: 8,
+    });
+    expect(detectComposerTrigger("first line\n/att", 15)).toEqual({
+      trigger: "/",
+      query: "att",
+      start: 11,
+      end: 15,
+    });
   });
 
   it("ignores slashes that are not a command prefix", () => {
     expect(detectComposerTrigger("and/or", 6)).toBeNull();
     expect(detectComposerTrigger("https://example.com", 19)).toBeNull();
-    expect(detectComposerTrigger("see /docs", 9)).toBeNull();
+    expect(detectComposerTrigger("open src/docs", 13)).toBeNull();
   });
 
   it("opens for an at-sign at the start or after whitespace", () => {

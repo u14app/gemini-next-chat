@@ -5,6 +5,7 @@ import {
 } from "@/config/defaults";
 import type { ChatConfig, SystemSettings } from "@/types";
 import { normalizeReasoningMode, isReasoningEnabled } from "../chat/reasoning";
+import { normalizeChatMode } from "../chat/mode";
 
 function clampInteger(
   value: unknown,
@@ -65,16 +66,20 @@ export function normalizeChatConfig(config: unknown): ChatConfig {
     raw.useReasoning,
     DEFAULT_CHAT_CONFIG.reasoningMode,
   );
+  const chatMode = normalizeChatMode(
+    raw.chatMode,
+    raw.useAgentMode,
+    raw.useDeepResearch,
+  );
 
   return {
+    chatMode,
     useSearch:
       typeof raw.useSearch === "boolean"
         ? raw.useSearch
         : DEFAULT_CHAT_CONFIG.useSearch,
-    useAgentMode:
-      typeof raw.useAgentMode === "boolean"
-        ? raw.useAgentMode
-        : DEFAULT_CHAT_CONFIG.useAgentMode,
+    useAgentMode: chatMode === "agent",
+    useDeepResearch: chatMode === "research",
     useReasoning: isReasoningEnabled(reasoningMode),
     reasoningMode,
     useRAG:

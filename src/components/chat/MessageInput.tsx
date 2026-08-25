@@ -28,12 +28,15 @@ import {
   Square,
   Library,
   PencilSparkles,
-  Sparkles,
+  ScrollText,
   Quote,
 } from "lucide-react";
 import { useTranslations } from "next-intl";
 import type {
+  AgentApprovalMode,
+  AgentRunBudget,
   Attachment,
+  ChatMode,
   Message,
   MessageReplyReference,
   ReasoningMode,
@@ -120,9 +123,11 @@ import {
 } from "@/components/shortcuts/ShortcutHint";
 import { Button } from "@/components/ui/primitives";
 import AgentCapabilityMenu, {
-  type AgentCapabilitySummary,
+  type ChatModeOption,
 } from "@/components/agent/AgentCapabilityMenu";
-import AgentArtifactDrawer from "@/components/agent/AgentArtifactDrawer";
+import AgentSettingsDialog, {
+  type AgentCapabilitySummary,
+} from "@/components/agent/AgentSettingsDialog";
 import { resolveAgentProfile } from "@/lib/assistant/profile";
 import {
   getAgentBuiltinToolNames,
@@ -130,6 +135,11 @@ import {
 } from "@/lib/agent";
 import { getEnabledPluginFunctions } from "@/lib/plugin/resolve";
 import { useMemoryStore } from "@/store/core/memoryStore";
+import {
+  applyChatMode,
+  getNextSupportedChatMode,
+  normalizeChatMode,
+} from "@/lib/chat/mode";
 
 type MessageInputVariant = "default" | "hero";
 
@@ -170,12 +180,13 @@ export interface MessageInputRef {
   setValue: (value: string) => void;
   focus: () => void;
   setAttachments: (attachments: Attachment[]) => void;
+  cycleChatMode: () => boolean;
 }
 
 const logInputError = logDevError;
 
 const iconButtonFocusClass =
-  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400/40 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-background";
+  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-background";
 
 const iconButtonBaseClass =
   "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg";
@@ -236,7 +247,8 @@ const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
     const [isPreparingSend, setIsPreparingSend] = useState(false);
     const [forcedSkillIds, setForcedSkillIds] = useState<string[]>([]);
     const [forcedPluginIds, setForcedPluginIds] = useState<string[]>([]);
-    const [showArtifactDrawer, setShowArtifactDrawer] = useState(false);
+    const [showAgentSettings, setShowAgentSettings] = useState(false);
+    const agentSettingsReturnFocusRef = useRef<HTMLButtonElement | null>(null);
 
     const t = useTranslations("MessageInput");
     const tConfig = useTranslations("Config");
@@ -359,30 +371,31 @@ const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
       });
     }, [search, selectedModel, selectedModelProvider?.type]);
 
-    const getSearchUnavailableMessage = (
-      reason: SearchCompatibilityReason | undefined,
-    ) => {
-      switch (reason) {
-        case "missing_model_provider":
-          return t("searchUnavailableNoProvider");
-        case "google_requires_gemini":
-          return t("searchUnavailableGoogleGemini");
-        case "model_builtin_search_unsupported":
-          return t("searchUnavailableModelBuiltIn");
-        case "missing_server_default":
-          return t("searchUnavailableServerDefault");
-        case "missing_search_api_key":
-          return t("searchUnavailableApiKey", {
-            provider: getSearchProviderLabel(searchCompatibility.provider),
-          });
-        case "missing_search_base_url":
-          return t("searchUnavailableBaseUrl", {
-            provider: getSearchProviderLabel(searchCompatibility.provider),
-          });
-        default:
-          return t("searchUnavailableGeneric");
-      }
-    };
+    const getSearchUnavailableMessage = useCallback(
+      (reason: SearchCompatibilityReason | undefined) => {
+        switch (reason) {
+          case "missing_model_provider":
+            return t("searchUnavailableNoProvider");
+          case "google_requires_gemini":
+            return t("searchUnavailableGoogleGemini");
+          case "model_builtin_search_unsupported":
+            return t("searchUnavailableModelBuiltIn");
+          case "missing_server_default":
+            return t("searchUnavailableServerDefault");
+          case "missing_search_api_key":
+            return t("searchUnavailableApiKey", {
+              provider: getSearchProviderLabel(searchCompatibility.provider),
+            });
+          case "missing_search_base_url":
+            return t("searchUnavailableBaseUrl", {
+              provider: getSearchProviderLabel(searchCompatibility.provider),
+            });
+          default:
+            return t("searchUnavailableGeneric");
+        }
+      },
+      [searchCompatibility.provider, t],
+    );
 
     const searchModeLabel =
       searchCompatibility.mode === "gemini-google"
@@ -487,9 +500,15 @@ const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
       }),
       [t],
     );
+    const chatMode = normalizeChatMode(
+      chatConfig.chatMode,
+      chatConfig.useAgentMode,
+      chatConfig.useDeepResearch,
+    );
     const {
       modelCapabilities,
       agentModeEnabled,
+      orchestratedModeEnabled,
       isReasoningSupported,
       currentReasoningMode,
       isReasoningEnabledForMode,
@@ -501,9 +520,42 @@ const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
       customModelMetadata,
       reasoningMode: chatConfig.reasoningMode,
       useReasoning: chatConfig.useReasoning,
-      useAgentMode: chatConfig.useAgentMode ?? false,
+      chatMode,
       reasoningOptionLabels,
     });
+    const chatModeOptions = useMemo<ChatModeOption[]>(
+      () => [
+        {
+          value: "auto",
+          label: t("chatModeAuto"),
+          description: t("chatModeAutoDescription"),
+          supported: true,
+        },
+        {
+          value: "chat",
+          label: t("chatModeChat"),
+          description: t("chatModeChatDescription"),
+          supported: true,
+        },
+        {
+          value: "research",
+          label: t("chatModeResearch"),
+          description: modelCapabilities.toolCall
+            ? t("chatModeResearchDescription")
+            : t("agentModeUnavailable"),
+          supported: modelCapabilities.toolCall,
+        },
+        {
+          value: "agent",
+          label: t("chatModeAgent"),
+          description: modelCapabilities.toolCall
+            ? t("chatModeAgentDescription")
+            : t("agentModeUnavailable"),
+          supported: modelCapabilities.toolCall,
+        },
+      ],
+      [modelCapabilities.toolCall, t],
+    );
     const maxAttachmentFileBytes =
       serverConfig?.limits?.attachments?.maxFileBytes ??
       ATTACHMENT_LIMITS.maxFileBytes;
@@ -565,33 +617,132 @@ const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
         teardownRecording();
       };
     }, [teardownRecording]);
-    const agentSearchRequiresExternalProvider =
-      agentModeEnabled &&
+    const orchestratedSearchRequiresExternalProvider =
+      orchestratedModeEnabled &&
       isSearchEnabled &&
       searchCompatibility.mode !== "external";
-    const searchToggleTooltip = agentSearchRequiresExternalProvider
+    const searchToggleTooltip = orchestratedSearchRequiresExternalProvider
       ? t("agentSearchRequiresExternalProvider")
       : searchTooltip;
-    const searchToggleAriaLabel = agentSearchRequiresExternalProvider
+    const searchToggleAriaLabel = orchestratedSearchRequiresExternalProvider
       ? t("agentSearchRequiresExternalProvider")
       : !searchCompatibility.enabled
         ? getSearchUnavailableMessage(searchCompatibility.reason)
         : isSearchEnabled
           ? t("disableSearchAria")
           : t("enableSearchAria");
+    const handleChatModeChange = useCallback(
+      (mode: ChatMode) => {
+        if (
+          (mode === "agent" || mode === "research") &&
+          !modelCapabilities.toolCall
+        ) {
+          setErrorMsg(t("agentModeUnavailable"));
+          return;
+        }
 
-    const handleAgentModeToggle = () => {
-      if (!modelCapabilities.toolCall) {
-        setErrorMsg(t("agentModeUnavailable"));
-        return;
-      }
+        const nextConfig = applyChatMode(chatConfig, mode);
+        if (mode === "research") {
+          if (searchCompatibility.enabled) {
+            nextConfig.useSearch = true;
+          } else {
+            setErrorMsg(
+              getSearchUnavailableMessage(searchCompatibility.reason),
+            );
+          }
+        }
+        const sessionConfig = {
+          chatMode: nextConfig.chatMode,
+          useAgentMode: nextConfig.useAgentMode,
+          useDeepResearch: nextConfig.useDeepResearch,
+          ...(mode === "research" ? { useSearch: nextConfig.useSearch } : {}),
+        };
+        setChatConfig(sessionConfig);
+        if (currentSessionId) {
+          updateSessionConfig(currentSessionId, sessionConfig);
+        }
+      },
+      [
+        chatConfig,
+        currentSessionId,
+        getSearchUnavailableMessage,
+        modelCapabilities.toolCall,
+        searchCompatibility.enabled,
+        searchCompatibility.reason,
+        setChatConfig,
+        t,
+        updateSessionConfig,
+      ],
+    );
 
-      const useAgentMode = !agentModeEnabled;
-      setChatConfig({ useAgentMode });
-      if (currentSessionId) {
-        updateSessionConfig(currentSessionId, { useAgentMode });
-      }
-    };
+    const handleApprovalModeChange = useCallback(
+      (approvalMode: AgentApprovalMode) => {
+        if (!currentSessionId) return;
+        updateSessionConfig(currentSessionId, { approvalMode });
+      },
+      [currentSessionId, updateSessionConfig],
+    );
+
+    const handleAgentBudgetChange = useCallback(
+      (agentBudget: AgentRunBudget) => {
+        if (!currentSessionId) return;
+        updateSessionConfig(currentSessionId, { agentBudget });
+      },
+      [currentSessionId, updateSessionConfig],
+    );
+
+    const handleAgentBudgetReset = useCallback(() => {
+      if (!currentSessionId) return;
+      updateSessionConfig(currentSessionId, { agentBudget: undefined });
+    }, [currentSessionId, updateSessionConfig]);
+
+    const handleAgentSettingsOpen = useCallback(
+      (returnFocus: HTMLButtonElement | null) => {
+        agentSettingsReturnFocusRef.current = returnFocus;
+        setShowAgentSettings(true);
+      },
+      [],
+    );
+
+    const handleAgentSettingsClose = useCallback(() => {
+      const returnFocus = agentSettingsReturnFocusRef.current;
+      setShowAgentSettings(false);
+      window.requestAnimationFrame(() => {
+        if (returnFocus?.isConnected) {
+          returnFocus.focus({ preventScroll: true });
+        }
+        if (agentSettingsReturnFocusRef.current === returnFocus) {
+          agentSettingsReturnFocusRef.current = null;
+        }
+      });
+    }, []);
+
+    const handlePluginActiveToggle = useCallback(
+      (pluginId: string) => {
+        const isActive = activePlugins.includes(pluginId);
+        if (!isActive && !modelCapabilities.toolCall) {
+          setErrorMsg(t("forcedPluginNeedsToolSupport"));
+          return;
+        }
+        const nextActivePlugins = isActive
+          ? activePlugins.filter((id) => id !== pluginId)
+          : [...activePlugins, pluginId];
+        togglePluginActive(pluginId);
+        if (currentSessionId) {
+          updateSessionConfig(currentSessionId, {
+            activePlugins: nextActivePlugins,
+          });
+        }
+      },
+      [
+        activePlugins,
+        currentSessionId,
+        modelCapabilities.toolCall,
+        t,
+        togglePluginActive,
+        updateSessionConfig,
+      ],
+    );
 
     // Filter plugins to show only those ready for use
     const validPlugins = useMemo(() => {
@@ -732,6 +883,7 @@ const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
       });
       const builtins = getAgentBuiltinToolNames({
         agentModeEnabled,
+        automaticModeEnabled: chatMode === "auto",
         memoryEnabled:
           memoryAvailable &&
           (effectiveAgentProfile.capabilities.memoryScopes || []).length > 0,
@@ -780,6 +932,7 @@ const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
       activeSkillIds,
       agentModeEnabled,
       attachments,
+      chatMode,
       currentSession?.config?.agentProfileId,
       currentSession?.config?.agentProfile,
       currentSession?.config?.skillPolicies,
@@ -799,6 +952,20 @@ const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
 
     const isInputBusy =
       disabled || isTranscribing || isParsingAttachments || isPreparingSend;
+    const supportedChatModes = useMemo(
+      () =>
+        chatModeOptions
+          .filter((option) => option.supported)
+          .map((option) => option.value),
+      [chatModeOptions],
+    );
+    const cycleChatMode = useCallback(() => {
+      if (isInputBusy) return false;
+      const nextMode = getNextSupportedChatMode(chatMode, supportedChatModes);
+      if (nextMode === chatMode) return false;
+      handleChatModeChange(nextMode);
+      return true;
+    }, [chatMode, handleChatModeChange, isInputBusy, supportedChatModes]);
 
     const conversationsForMenu = useMemo(
       () =>
@@ -919,10 +1086,11 @@ const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
               ? prev
               : [...prev, skillId],
           ),
-        forcePlugin: (pluginId) =>
+        forcePlugin: (pluginId) => {
           setForcedPluginIds((prev) =>
             prev.includes(pluginId) ? prev : [...prev, pluginId],
-          ),
+          );
+        },
         attachConversation: (sessionId, title) => {
           void attachConversation(sessionId, title);
         },
@@ -949,6 +1117,7 @@ const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
       setAttachments: (atts: Attachment[]) => {
         setAttachments(atts);
       },
+      cycleChatMode,
     }));
 
     const handleComposerChange = (
@@ -1184,7 +1353,12 @@ const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
     return (
       <div
         ref={composerRootRef}
-        className={`glass-shell relative flex w-full flex-col rounded-xl border focus-within:ring-2 focus-within:ring-blue-100/50 dark:focus-within:ring-blue-900/30 focus-within:border-blue-400/50 transition-[background-color,border-color,box-shadow] duration-200 ${composerPaddingClass}`}
+        className={`glass-shell relative flex w-full flex-col rounded-xl border focus-within:ring-2 ${
+          chatMode === "research"
+            ? "focus-within:border-research-accent/60 focus-within:ring-research-accent/20"
+            : "focus-within:border-blue-400/50 focus-within:ring-blue-100/50 dark:focus-within:ring-blue-900/30"
+        } transition-[background-color,border-color,box-shadow] duration-200 ${composerPaddingClass}`}
+        data-chat-mode={chatMode}
         aria-busy={isInputBusy}
         onDragEnter={handleComposerDragEnter}
         onDragOver={handleComposerDragOver}
@@ -1514,91 +1688,6 @@ const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
               </DropdownMenu>
             </div>
 
-            {/* Skill Toggle Button */}
-            <div className="relative">
-              <DropdownMenu
-                open={showSkillSelect}
-                onOpenChange={(open) => {
-                  setShowAttachMenu(false);
-                  setShowPluginSelect(false);
-                  setShowReasoningSelect(false);
-                  setShowModelSelect(false);
-                  setShowSkillSelect(open);
-                }}
-              >
-                <Tooltip
-                  content={
-                    activeSkillIds.length > 0
-                      ? t("activeSkillsCount", { count: activeSkillIds.length })
-                      : t("skills")
-                  }
-                  position="top"
-                >
-                  <DropdownMenuTrigger asChild>
-                    <Button
-                      variant="bare"
-                      type="button"
-                      aria-label={
-                        activeSkillIds.length > 0
-                          ? t("activeSkillsAria", {
-                              count: activeSkillIds.length,
-                            })
-                          : t("skills")
-                      }
-                      className={`${iconButtonBaseClass} transition-colors ${iconButtonFocusClass} ${
-                        activeSkillIds.length > 0
-                          ? "text-emerald-500 hover:bg-emerald-50 dark:text-emerald-400 dark:hover:bg-emerald-900/20"
-                          : "text-gray-500 hover:bg-gray-100 hover:text-gray-700 dark:text-muted-foreground dark:hover:bg-accent/50 dark:hover:text-foreground"
-                      }`}
-                      disabled={isInputBusy}
-                    >
-                      <Sparkles size={16} aria-hidden="true" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                </Tooltip>
-
-                <DropdownMenuContent
-                  side="top"
-                  align="start"
-                  className="max-h-64 w-64 overflow-y-auto custom-scrollbar"
-                >
-                  {skillsForMenu.length > 0 ? (
-                    <>
-                      <DropdownMenuLabel>
-                        {t("installedSkills")}
-                      </DropdownMenuLabel>
-                      {skillsForMenu.map((skill) => {
-                        const isActive = activeSkillSet.has(skill.id);
-                        return (
-                          <DropdownMenuCheckboxItem
-                            key={skill.id}
-                            checked={isActive}
-                            indicatorPosition="right"
-                            indicator={
-                              <span className="flex h-3 w-3 items-center justify-center rounded-full border border-emerald-500 bg-emerald-500">
-                                <span className="h-1.5 w-1.5 rounded-full bg-white" />
-                              </span>
-                            }
-                            onSelect={(event) => event.preventDefault()}
-                            onCheckedChange={() => toggleSessionSkill(skill.id)}
-                          >
-                            <span className="truncate">{skill.title}</span>
-                          </DropdownMenuCheckboxItem>
-                        );
-                      })}
-                    </>
-                  ) : (
-                    <div
-                      className="px-3 py-4 text-center text-xs text-muted-foreground"
-                      role="status"
-                    >
-                      {t("noSkillsAvailable")}
-                    </div>
-                  )}
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
-
             {/* Plugin Toggle Button */}
             <div className="relative">
               <DropdownMenu
@@ -1635,7 +1724,7 @@ const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
                           : t("plugins")
                       }
                       className={`${iconButtonBaseClass} transition-colors ${iconButtonFocusClass} ${activePlugins.length > 0 ? "text-cyan-500 dark:text-cyan-400 hover:bg-cyan-50 dark:hover:bg-cyan-900/20" : "text-gray-500 dark:text-muted-foreground hover:text-gray-700 dark:hover:text-foreground hover:bg-gray-100 dark:hover:bg-accent/50"}`}
-                      disabled={isInputBusy || !modelCapabilities.toolCall}
+                      disabled={isInputBusy}
                     >
                       <Blocks size={16} aria-hidden="true" />
                     </Button>
@@ -1677,7 +1766,7 @@ const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
                                 key={plugin.id}
                                 onSelect={(event) => event.preventDefault()}
                                 onCheckedChange={() =>
-                                  togglePluginActive(plugin.id)
+                                  handlePluginActiveToggle(plugin.id)
                                 }
                               >
                                 <span className="flex min-w-0 items-center gap-2 truncate">
@@ -1689,7 +1778,7 @@ const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
                                       <Blocks size={14} aria-hidden="true" />
                                     }
                                   />
-                                  <span className="truncate">
+                                  <span className="min-w-0 truncate">
                                     {plugin.title}
                                   </span>
                                 </span>
@@ -1729,7 +1818,7 @@ const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
                                 key={plugin.id}
                                 onSelect={(event) => event.preventDefault()}
                                 onCheckedChange={() =>
-                                  togglePluginActive(plugin.id)
+                                  handlePluginActiveToggle(plugin.id)
                                 }
                               >
                                 <span className="flex min-w-0 items-center gap-2 truncate">
@@ -1760,6 +1849,91 @@ const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
                         ? t("pluginsMissingAuth")
                         : t("noPluginsInstalled")}{" "}
                       <br /> {t("visitPluginMarket")}
+                    </div>
+                  )}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+
+                        {/* Skill Toggle Button */}
+            <div className="relative">
+              <DropdownMenu
+                open={showSkillSelect}
+                onOpenChange={(open) => {
+                  setShowAttachMenu(false);
+                  setShowPluginSelect(false);
+                  setShowReasoningSelect(false);
+                  setShowModelSelect(false);
+                  setShowSkillSelect(open);
+                }}
+              >
+                <Tooltip
+                  content={
+                    activeSkillIds.length > 0
+                      ? t("activeSkillsCount", { count: activeSkillIds.length })
+                      : t("skills")
+                  }
+                  position="top"
+                >
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      variant="bare"
+                      type="button"
+                      aria-label={
+                        activeSkillIds.length > 0
+                          ? t("activeSkillsAria", {
+                              count: activeSkillIds.length,
+                            })
+                          : t("skills")
+                      }
+                      className={`${iconButtonBaseClass} transition-colors ${iconButtonFocusClass} ${
+                        activeSkillIds.length > 0
+                          ? "text-emerald-500 hover:bg-emerald-50 dark:text-emerald-400 dark:hover:bg-emerald-900/20"
+                          : "text-gray-500 hover:bg-gray-100 hover:text-gray-700 dark:text-muted-foreground dark:hover:bg-accent/50 dark:hover:text-foreground"
+                      }`}
+                      disabled={isInputBusy}
+                    >
+                      <ScrollText size={16} aria-hidden="true" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                </Tooltip>
+
+                <DropdownMenuContent
+                  side="top"
+                  align="start"
+                  className="max-h-64 w-64 overflow-y-auto custom-scrollbar"
+                >
+                  {skillsForMenu.length > 0 ? (
+                    <>
+                      <DropdownMenuLabel>
+                        {t("installedSkills")}
+                      </DropdownMenuLabel>
+                      {skillsForMenu.map((skill) => {
+                        const isActive = activeSkillSet.has(skill.id);
+                        return (
+                          <DropdownMenuCheckboxItem
+                            key={skill.id}
+                            checked={isActive}
+                            indicatorPosition="right"
+                            indicator={
+                              <span className="flex h-3 w-3 items-center justify-center rounded-full border border-emerald-500 bg-emerald-500">
+                                <span className="h-1.5 w-1.5 rounded-full bg-white" />
+                              </span>
+                            }
+                            onSelect={(event) => event.preventDefault()}
+                            onCheckedChange={() => toggleSessionSkill(skill.id)}
+                          >
+                            <span className="truncate">{skill.title}</span>
+                          </DropdownMenuCheckboxItem>
+                        );
+                      })}
+                    </>
+                  ) : (
+                    <div
+                      className="px-3 py-4 text-center text-xs text-muted-foreground"
+                      role="status"
+                    >
+                      {t("noSkillsAvailable")}
                     </div>
                   )}
                 </DropdownMenuContent>
@@ -1861,7 +2035,9 @@ const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
                     }
                     className={`${iconButtonBaseClass} transition-colors ${iconButtonFocusClass} ${
                       isSearchEnabled && searchCompatibility.enabled
-                        ? "text-blue-500 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20"
+                        ? chatMode === "research"
+                          ? "text-research-accent hover:bg-research-soft"
+                          : "text-blue-500 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20"
                         : !searchCompatibility.enabled
                           ? "text-amber-500 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/20"
                           : "text-gray-500 dark:text-muted-foreground hover:text-gray-700 dark:hover:text-foreground hover:bg-gray-100 dark:hover:bg-accent/50"
@@ -1874,31 +2050,17 @@ const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
                 </Tooltip>
               </div>
             )}
-
-            {/* Agent Mode Button */}
-            <div>
-              <AgentCapabilityMenu
-                enabled={agentModeEnabled}
-                supported={modelCapabilities.toolCall}
-                disabled={isInputBusy}
-                summary={agentCapabilitySummary}
-                onToggle={handleAgentModeToggle}
-                onOpenArtifacts={() => setShowArtifactDrawer(true)}
-                buttonClassName={`${iconButtonBaseClass} transition-colors ${iconButtonFocusClass} ${
-                  agentModeEnabled
-                    ? "text-blue-500 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20"
-                    : !modelCapabilities.toolCall
-                      ? "text-gray-400 dark:text-muted-foreground/60"
-                      : "text-gray-500 dark:text-muted-foreground hover:text-gray-700 dark:hover:text-foreground hover:bg-gray-100 dark:hover:bg-accent/50"
-                }`}
-              />
-            </div>
           </div>
 
-          <AgentArtifactDrawer
-            open={showArtifactDrawer}
+          <AgentSettingsDialog
+            open={showAgentSettings}
             sessionId={currentSessionId}
-            onClose={() => setShowArtifactDrawer(false)}
+            summary={agentCapabilitySummary}
+            budgetOverride={currentSession?.config?.agentBudget}
+            onApprovalModeChange={handleApprovalModeChange}
+            onBudgetChange={handleAgentBudgetChange}
+            onBudgetReset={handleAgentBudgetReset}
+            onClose={handleAgentSettingsClose}
           />
 
           <div className="flex shrink-0 items-center gap-0.5">
@@ -1984,6 +2146,18 @@ const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
                   </DropdownMenuRadioGroup>
                 </DropdownMenuContent>
               </DropdownMenu>
+            </div>
+
+            {/* Chat Mode Selector */}
+            <div>
+              <AgentCapabilityMenu
+                mode={chatMode}
+                options={chatModeOptions}
+                disabled={isInputBusy}
+                onModeChange={handleChatModeChange}
+                onOpenSettings={handleAgentSettingsOpen}
+                buttonClassName={`${iconButtonBaseClass} text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700 dark:text-muted-foreground dark:hover:bg-accent/50 dark:hover:text-foreground ${iconButtonFocusClass}`}
+              />
             </div>
 
             {/* Text Polish Button */}

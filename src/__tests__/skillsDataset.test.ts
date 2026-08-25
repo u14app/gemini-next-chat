@@ -125,7 +125,14 @@ describe("public skills dataset", () => {
           evalCases: expect.any(Array),
         });
         expect(enDefinition!.content.length).toBeGreaterThan(600);
-        expect(Array.isArray(enDefinition?.allowedTools)).toBe(true);
+        if (
+          enDefinition?.id === "deep-research" ||
+          enDefinition?.id === "citation-evidence-audit"
+        ) {
+          expect(enDefinition.allowedTools).toBeUndefined();
+        } else {
+          expect(Array.isArray(enDefinition?.allowedTools)).toBe(true);
+        }
       } else {
         expect(enDefinition!.content.length).toBeGreaterThan(1_000);
         expect(zhDefinition!.content.length).toBeGreaterThan(900);

@@ -415,4 +415,49 @@ describe("effective chat context", () => {
     expect(unsupported.modelCapabilities.toolCall).toBe(false);
     expect(unsupported.agentModeEnabled).toBe(false);
   });
+
+  it("exposes Research and shared orchestration without enabling Agent", () => {
+    const context = resolveEffectiveChatContext({
+      selectedModel: "openai:gpt-tools",
+      provider: { type: "OpenAI" },
+      modelMetadata: {
+        "gpt-tools": {
+          id: "gpt-tools",
+          name: "GPT Tools",
+          tool_call: true,
+        },
+      },
+      customModelMetadata: {},
+      chatConfig: {
+        chatMode: "research",
+        useSearch: false,
+        useReasoning: false,
+        useAgentMode: true,
+        useDeepResearch: true,
+        reasoningMode: "off",
+        temperature: 0.7,
+        useRAG: false,
+      },
+      search: { provider: "google", configs: {} },
+      rag: {
+        enabled: false,
+        url: "",
+        token: "",
+        topK: 10,
+        chunkSize: 512,
+        documentParseProvider: "mineru",
+        mineruApiToken: "",
+        llamaParseApiKey: "",
+      },
+      installedPlugins: [],
+      pluginConfigs: {},
+      activePlugins: [],
+    });
+
+    expect(context).toMatchObject({
+      agentModeEnabled: false,
+      researchModeEnabled: true,
+      orchestratedModeEnabled: true,
+    });
+  });
 });

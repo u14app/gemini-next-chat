@@ -37,6 +37,7 @@ import {
   supportsToolCalls,
 } from "../utils/model";
 import { resolveAgentProfile } from "../assistant/profile";
+import { normalizeChatMode } from "./mode";
 
 export type CapabilityStatusCode =
   | "ok"
@@ -81,6 +82,8 @@ export interface EffectiveChatContext {
   };
   modelCapabilities: ModelCapabilities;
   agentModeEnabled: boolean;
+  researchModeEnabled: boolean;
+  orchestratedModeEnabled: boolean;
   searchCompatibility: SearchCompatibilityResult;
   capabilityStatuses: CapabilityStatus[];
 }
@@ -272,6 +275,14 @@ export function resolveEffectiveChatContext(
     modelMetadata,
     customModelMetadata,
   });
+  const chatMode = normalizeChatMode(
+    chatConfig.chatMode,
+    chatConfig.useAgentMode,
+    chatConfig.useDeepResearch,
+  );
+  const agentModeEnabled = chatMode === "agent" && modelCapabilities.toolCall;
+  const researchModeEnabled =
+    chatMode === "research" && modelCapabilities.toolCall;
   const requestedPluginIds = activePlugins;
   const resolvedAgentProfile = resolveAgentProfile(
     workspace?.agentProfile,
@@ -401,8 +412,9 @@ export function resolveEffectiveChatContext(
       ...(session?.id ? { session: session.id } : {}),
     },
     modelCapabilities,
-    agentModeEnabled:
-      chatConfig.useAgentMode === true && modelCapabilities.toolCall,
+    agentModeEnabled,
+    researchModeEnabled,
+    orchestratedModeEnabled: agentModeEnabled || researchModeEnabled,
     searchCompatibility,
     capabilityStatuses: statuses.length
       ? statuses

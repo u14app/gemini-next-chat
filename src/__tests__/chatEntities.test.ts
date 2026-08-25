@@ -99,7 +99,12 @@ describe("chat entity normalization", () => {
           useAgentMode: true,
         },
       } as Session).config,
-    ).toEqual({ useSearch: true, useAgentMode: true });
+    ).toEqual({
+      chatMode: "agent",
+      useSearch: true,
+      useAgentMode: true,
+      useDeepResearch: false,
+    });
 
     expect(
       normalizeSession({

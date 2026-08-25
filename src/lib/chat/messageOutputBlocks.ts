@@ -74,6 +74,8 @@ const cloneBlock = (block: MessageOutputBlock): MessageOutputBlock => {
         ...block,
         steps: block.steps.map((step) => ({ ...step })),
       };
+    case "research_task":
+      return { ...block };
     case "workspace_file":
       return { ...block, file: { ...block.file } };
     case "workspace_archive":
@@ -409,6 +411,42 @@ export function createMessageOutputBlockBuilder(
       };
       blocks.push(block);
       taskPlanBlockId = block.id;
+    },
+
+    completeTaskPlan() {
+      if (!taskPlanBlockId) return false;
+      const target = blocks.find(
+        (block): block is Extract<MessageOutputBlock, { type: "task_plan" }> =>
+          block.type === "task_plan" && block.id === taskPlanBlockId,
+      );
+      if (!target) return false;
+
+      let changed = false;
+      target.steps = target.steps.map((step) => {
+        if (step.status === "completed") return step;
+        changed = true;
+        return { ...step, status: "completed" };
+      });
+      return changed;
+    },
+
+    upsertResearchTask(taskId: string) {
+      finalizeActiveReasoning();
+      const normalizedTaskId = taskId.trim();
+      if (!normalizedTaskId) return false;
+      const existing = blocks.find(
+        (
+          block,
+        ): block is Extract<MessageOutputBlock, { type: "research_task" }> =>
+          block.type === "research_task" && block.taskId === normalizedTaskId,
+      );
+      if (existing) return true;
+      blocks.push({
+        id: createId(),
+        type: "research_task",
+        taskId: normalizedTaskId,
+      });
+      return true;
     },
 
     /**

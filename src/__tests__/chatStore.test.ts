@@ -228,6 +228,7 @@ describe("chat store persistence", () => {
     }));
 
     expect(useChatStore.getState().createSession()).toBe("empty");
+    expect(useChatStore.getState().chatConfig.chatMode).toBe("auto");
     expect(useChatStore.getState().chatConfig.useAgentMode).toBe(false);
   });
 
@@ -243,25 +244,58 @@ describe("chat store persistence", () => {
     const sessionId = useChatStore.getState().createSession();
 
     expect(useChatStore.getState().currentSessionId).toBe(sessionId);
+    expect(useChatStore.getState().chatConfig.chatMode).toBe("auto");
     expect(useChatStore.getState().chatConfig.useAgentMode).toBe(false);
   });
 
-  it("resolves Agent mode only from the selected session", async () => {
+  it("keeps a mode upgrade on its source conversation only", () => {
+    const sourceSessionId = useChatStore.getState().createSession();
+    useChatStore.getState().updateSessionConfig(sourceSessionId, {
+      chatMode: "agent",
+      useAgentMode: true,
+      useDeepResearch: false,
+    });
+    useChatStore.getState().setChatConfig({
+      chatMode: "agent",
+      useAgentMode: true,
+      useDeepResearch: false,
+    });
+
+    const nextSessionId = useChatStore.getState().createSession();
+
+    expect(nextSessionId).not.toBe(sourceSessionId);
+    expect(
+      useChatStore
+        .getState()
+        .sessions.find((session) => session.id === sourceSessionId)?.config,
+    ).toMatchObject({ chatMode: "agent", useAgentMode: true });
+    expect(useChatStore.getState().chatConfig).toMatchObject({
+      chatMode: "auto",
+      useAgentMode: false,
+      useDeepResearch: false,
+    });
+  });
+
+  it("resolves Agent and Deep Research modes only from the selected session", async () => {
     useChatStore.setState({
       sessions: [
         {
           ...makeSession("agent"),
-          config: { useAgentMode: true },
+          config: { useAgentMode: true, useDeepResearch: true },
         },
         makeSession("legacy"),
       ],
     });
 
     await useChatStore.getState().selectSession("agent");
-    expect(useChatStore.getState().chatConfig.useAgentMode).toBe(true);
+    expect(useChatStore.getState().chatConfig.chatMode).toBe("research");
+    expect(useChatStore.getState().chatConfig.useAgentMode).toBe(false);
+    expect(useChatStore.getState().chatConfig.useDeepResearch).toBe(true);
 
     await useChatStore.getState().selectSession("legacy");
+    expect(useChatStore.getState().chatConfig.chatMode).toBe("auto");
     expect(useChatStore.getState().chatConfig.useAgentMode).toBe(false);
+    expect(useChatStore.getState().chatConfig.useDeepResearch).toBe(false);
   });
 
   it("does not reuse titled or non-empty chats when creating a default chat", () => {

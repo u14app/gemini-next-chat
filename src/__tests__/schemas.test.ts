@@ -121,6 +121,22 @@ describe("api schemas", () => {
     ).toThrow();
   });
 
+  it("accepts Deep Research independently from Agent mode", () => {
+    const parsed = ChatRequestSchema.parse({
+      provider: { type: "Gemini", apiKeySecret: encryptedSecret },
+      modelName: "gemini-test",
+      history: [],
+      newMessage: "research this",
+      config: {
+        useAgentMode: false,
+        useDeepResearch: true,
+      },
+    });
+
+    expect(parsed.config?.useDeepResearch).toBe(true);
+    expect(parsed.config?.useAgentMode).toBe(false);
+  });
+
   it("fills legacy tool call status defaults", () => {
     const message = MessageSchema.parse({
       role: "model",

@@ -110,6 +110,14 @@ describe("web_search built-in binding", () => {
     expect((result as { sources: unknown[] }).sources).toHaveLength(
       SEARCH_CONFIG_LIMITS.maxResultsLimit,
     );
+    expect(
+      (result as { sources: Array<{ metadata?: Record<string, unknown> }> })
+        .sources[0]?.metadata,
+    ).toMatchObject({
+      sourceId: expect.stringMatching(/^source-/),
+      retrievalKind: "search",
+      externalUntrusted: true,
+    });
     expect((result as { images: unknown[] }).images).toHaveLength(
       SEARCH_CONFIG_LIMITS.maxResultsLimit,
     );
@@ -129,6 +137,84 @@ describe("web_search built-in binding", () => {
       query: string;
     };
     expect(options.query).toHaveLength(4_000);
+  });
+
+  it("enforces a shared Research query budget before network access", async () => {
+    const emitSearch = vi.fn<(event: BuiltinSearchEvent) => void>();
+    const onQueriesExecuted = vi.fn();
+    const queryBudget = {
+      remainingQueries: 1,
+      maxResultsPerQuery: 5,
+      onQueriesExecuted,
+    };
+    mocks.createSearchProvider.mockResolvedValue({ sources: [], images: [] });
+    const binding = createWebSearchBinding({ queryBudget });
+
+    await binding.execute(
+      { query: "allowed", max_results: 100 },
+      createContext(emitSearch),
+    );
+    await expect(
+      binding.execute({ query: "blocked" }, createContext(emitSearch)),
+    ).resolves.toMatchObject({
+      ok: false,
+      error: { code: "RESEARCH_QUERY_BUDGET_EXHAUSTED" },
+    });
+
+    expect(queryBudget.remainingQueries).toBe(0);
+    expect(onQueriesExecuted).toHaveBeenCalledWith(["allowed"]);
+    expect(mocks.createSearchProvider).toHaveBeenCalledTimes(1);
+    expect(mocks.createSearchProvider).toHaveBeenCalledWith(
+      { query: "allowed", maxResults: 5 },
+      undefined,
+    );
+  });
+
+  it("rejects normalized duplicate queries across a Research run", async () => {
+    const emitSearch = vi.fn<(event: BuiltinSearchEvent) => void>();
+    const queryBudget = {
+      remainingQueries: 2,
+      maxResultsPerQuery: 5,
+      seenQueries: new Set<string>(),
+    };
+    mocks.createSearchProvider.mockResolvedValue({ sources: [], images: [] });
+    const binding = createWebSearchBinding({ queryBudget });
+
+    await binding.execute(
+      { query: "  Primary   Source  " },
+      createContext(emitSearch),
+    );
+    await expect(
+      binding.execute({ query: "primary source" }, createContext(emitSearch)),
+    ).resolves.toMatchObject({
+      ok: false,
+      error: { code: "RESEARCH_QUERY_DUPLICATE" },
+    });
+
+    expect(queryBudget.remainingQueries).toBe(1);
+    expect(mocks.createSearchProvider).toHaveBeenCalledTimes(1);
+  });
+
+  it("refuses reconnaissance after its hard deadline", async () => {
+    const emitSearch = vi.fn<(event: BuiltinSearchEvent) => void>();
+    const binding = createWebSearchBinding({
+      queryBudget: {
+        remainingQueries: 2,
+        maxResultsPerQuery: 5,
+        deadlineAt: Date.now() - 1,
+      },
+    });
+
+    await expect(
+      binding.execute(
+        { query: "late reconnaissance" },
+        createContext(emitSearch),
+      ),
+    ).resolves.toMatchObject({
+      ok: false,
+      error: { code: "RESEARCH_RECON_TIMEOUT" },
+    });
+    expect(mocks.createSearchProvider).not.toHaveBeenCalled();
   });
 
   it("normalizes and hard-bounds sources and images", async () => {
@@ -207,6 +293,13 @@ describe("search_web v2 built-in binding", () => {
 
   it("runs bounded batch queries with filters and Evidence metadata", async () => {
     const emitSearch = vi.fn<(event: BuiltinSearchEvent) => void>();
+    const onQueriesExecuted = vi.fn();
+    const queryBudget = {
+      remainingQueries: 4,
+      maxResultsPerQuery: 5,
+      seenQueries: new Set<string>(),
+      onQueriesExecuted,
+    };
     mocks.createSearchProvider.mockResolvedValue({
       sources: [
         {
@@ -218,7 +311,7 @@ describe("search_web v2 built-in binding", () => {
       images: [],
     });
 
-    const result = (await createSearchWebV2Binding().execute(
+    const result = (await createSearchWebV2Binding({ queryBudget }).execute(
       {
         queries: ["release notes", "security notes"],
         mode: "news",
@@ -236,6 +329,11 @@ describe("search_web v2 built-in binding", () => {
     };
 
     expect(mocks.createSearchProvider).toHaveBeenCalledTimes(2);
+    expect(queryBudget.remainingQueries).toBe(2);
+    expect(onQueriesExecuted).toHaveBeenCalledWith([
+      "release notes",
+      "security notes",
+    ]);
     expect(mocks.createSearchProvider).toHaveBeenCalledWith(
       expect.objectContaining({
         query: expect.stringContaining("site:example.com"),
@@ -260,5 +358,26 @@ describe("search_web v2 built-in binding", () => {
       "start",
       "complete",
     ]);
+  });
+
+  it("rejects a batch larger than the remaining Research query budget", async () => {
+    const emitSearch = vi.fn<(event: BuiltinSearchEvent) => void>();
+    const queryBudget = {
+      remainingQueries: 1,
+      maxResultsPerQuery: 5,
+    };
+
+    await expect(
+      createSearchWebV2Binding({ queryBudget }).execute(
+        { queries: ["one", "two"] },
+        createContext(emitSearch),
+      ),
+    ).resolves.toMatchObject({
+      ok: false,
+      error: { code: "RESEARCH_QUERY_BUDGET_EXHAUSTED" },
+    });
+    expect(queryBudget.remainingQueries).toBe(1);
+    expect(mocks.createSearchProvider).not.toHaveBeenCalled();
+    expect(emitSearch).not.toHaveBeenCalled();
   });
 });

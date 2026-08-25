@@ -106,6 +106,7 @@
   "restoreCredentialRestoredAt": "Restore completed: {date}",
   "restoreCredentialDismiss": "I have reviewed this checklist",
   "legacyBackupWarning": "This legacy JSON backup does not contain OPFS files. File references will be marked as unavailable.",
+  "legacyResearchSkippedWarning": "{count} legacy Deep Research record(s) use the removed v1 schema and will be skipped; all other compatible backup data can still be restored.",
   "incompleteBackupWarning": "{count} referenced local files were missing when this backup was created.",
   "cancelRestore": "Cancel",
   "cancelRestoreOperation": "Cancel Restore",

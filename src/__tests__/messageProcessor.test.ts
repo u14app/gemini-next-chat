@@ -377,6 +377,32 @@ describe("message preprocessing", () => {
     expect(result.ragSources).toEqual([]);
   });
 
+  it("defers ordinary attachment reading for Research planning", async () => {
+    const attachment = {
+      id: "brief",
+      mimeType: "text/plain",
+      fileName: "brief.txt",
+      data: encodeText("must remain unread before approval"),
+    };
+
+    const result = await processMessageForSending({
+      text: "Prepare a research plan",
+      attachments: [attachment],
+      selectedModel: "provider:model",
+      modelMetadata: { model: { attachment: false } },
+      customModelMetadata: {},
+      ragConfig: { enabled: false },
+      deferKnowledgeRetrieval: true,
+      deferAttachmentReading: true,
+      knowledgeCollections: [],
+    });
+
+    expect(result.finalText).toBe("Prepare a research plan");
+    expect(result.finalText).not.toContain("must remain unread");
+    expect(result.finalAttachments).toEqual([]);
+    expect(result.userMessage.attachments).toEqual([attachment]);
+  });
+
   it("returns a deduplicated workspace knowledge scope when retrieval is deferred", async () => {
     const manual = createKnowledgeCollectionAttachment({
       collectionId: "collection_1",

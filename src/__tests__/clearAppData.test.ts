@@ -6,6 +6,7 @@ const {
   dirMock,
   encryptSecretMock,
   localforageClearMock,
+  researchRepositoryMock,
   syncStorageClearMock,
   removeMock,
   tokenSecret,
@@ -42,6 +43,9 @@ const {
     })),
     encryptSecretMock: vi.fn(async () => tokenSecret),
     localforageClearMock: vi.fn(() => Promise.resolve()),
+    researchRepositoryMock: {
+      clear: vi.fn(async () => undefined),
+    },
     syncStorageClearMock: vi.fn(() => Promise.resolve()),
     removeMock,
     tokenSecret,
@@ -88,6 +92,10 @@ vi.mock("../lib/api/client", async () => {
     ),
   };
 });
+
+vi.mock("../services/research", () => ({
+  getResearchTaskRepository: () => researchRepositoryMock,
+}));
 
 const { clearBrowserAppData, clearBrowserAppDataSources } =
   await import("../lib/data/clearAppData");
@@ -208,6 +216,7 @@ describe("clear app data", () => {
     );
     expect(localforageClearMock).toHaveBeenCalled();
     expect(appDbMock.clear).toHaveBeenCalled();
+    expect(researchRepositoryMock.clear).toHaveBeenCalledOnce();
   });
 
   it("continues local cleanup when RAG token encryption fails", async () => {
@@ -377,6 +386,7 @@ describe("clear app data", () => {
     expect(appDbMock.removeItem).toHaveBeenCalledWith("session_messages_b");
     expect(appDbMock.removeItem).not.toHaveBeenCalledWith("unrelated");
     expect(appDbMock.clear).not.toHaveBeenCalled();
+    expect(researchRepositoryMock.clear).toHaveBeenCalledOnce();
   });
 
   it("clears the synchronous font preference with settings", async () => {

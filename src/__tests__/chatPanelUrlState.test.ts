@@ -88,6 +88,40 @@ describe("chat panel URL state", () => {
     expect(state.needsReplace).toBe(false);
   });
 
+  it("round-trips a research workbench task with the stable task param", () => {
+    const params = setChatPanelUrlState(new URLSearchParams("keep=1"), {
+      panel: "research",
+      researchTaskId: "research-task_1",
+    });
+    const state = parseChatPanelUrlState(params);
+
+    expect(params.get("panel")).toBe("research");
+    expect(params.get("task")).toBe("research-task_1");
+    expect(state.researchTaskId).toBe("research-task_1");
+    expect(state.needsReplace).toBe(false);
+  });
+
+  it("opens the research task list when no task is provided", () => {
+    const state = parseChatPanelUrlState(
+      new URLSearchParams("panel=research&keep=1"),
+    );
+
+    expect(state.panel).toBe("research");
+    expect(state.researchTaskId).toBeNull();
+    expect(state.needsReplace).toBe(false);
+  });
+
+  it("removes an invalid research task param and opens the task list", () => {
+    const state = parseChatPanelUrlState(
+      new URLSearchParams("panel=research&task=../../unsafe&keep=1"),
+    );
+
+    expect(state.panel).toBe("research");
+    expect(state.researchTaskId).toBeNull();
+    expect(state.normalizedSearchParams.get("keep")).toBe("1");
+    expect(state.normalizedSearchParams.has("task")).toBe(false);
+  });
+
   it("removes panel params when returning to chat", () => {
     const params = setChatPanelUrlState(
       new URLSearchParams("panel=settings&settingsTab=voice&keep=1"),

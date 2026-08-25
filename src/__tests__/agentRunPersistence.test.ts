@@ -26,6 +26,24 @@ function createRun(id: string, sessionId: string, now: number) {
 }
 
 describe("AgentRun local persistence", () => {
+  it("round-trips the shared Research journal discriminator", async () => {
+    const persistence = createAgentRunPersistence({ indexedDb: null });
+    const run = createAgentRun({
+      id: "research-run",
+      sessionId: "session-1",
+      workflowKind: "research",
+      now: 100,
+    });
+
+    await persistence.save(run);
+
+    expect(await persistence.get(run.id)).toMatchObject({
+      id: run.id,
+      workflowKind: "research",
+    });
+    persistence.close();
+  });
+
   it("redacts secret-like error values and never adds raw tool payloads", () => {
     let run = prepareToolExecution(createRun("run-1", "session-1", 100), {
       id: "execution-1",

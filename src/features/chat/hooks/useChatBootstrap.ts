@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import type { ModelInfo } from "@/services/api/chatService";
-import type { ModelProvider, Session } from "@/types";
+import type { ChatConfig, ModelProvider, Session } from "@/types";
 import { resolveSelectedModel } from "@/lib/utils/models";
 import {
   buildProviderRuntimeConfig,
@@ -33,8 +33,18 @@ interface UseChatBootstrapOptions {
   settingsHasHydrated: boolean;
   coreHasHydrated: boolean;
   useSearch: boolean;
+  useDeepResearch: boolean;
   currentSearchCompatibility: SearchCompatibility;
-  setChatConfig: (config: { useSearch: boolean }) => void;
+  setChatConfig: (
+    config: Pick<ChatConfig, "useSearch"> &
+      Partial<
+        Pick<ChatConfig, "chatMode" | "useAgentMode" | "useDeepResearch">
+      >,
+  ) => void;
+  updateSessionConfig: (
+    id: string,
+    config: Partial<NonNullable<Session["config"]>>,
+  ) => void;
   fetchModelMetadata: () => void;
   ensureBuiltInPlugins: () => void;
   applyCoreServerConfig: (config: PublicServerConfig) => void;
@@ -60,8 +70,10 @@ export function useChatBootstrap({
   settingsHasHydrated,
   coreHasHydrated,
   useSearch,
+  useDeepResearch,
   currentSearchCompatibility,
   setChatConfig,
+  updateSessionConfig,
   fetchModelMetadata,
   ensureBuiltInPlugins,
   applyCoreServerConfig,
@@ -97,7 +109,18 @@ export function useChatBootstrap({
     }
 
     if (!currentSearchCompatibility.enabled) {
-      setChatConfig({ useSearch: false });
+      const nextConfig = useDeepResearch
+        ? {
+            chatMode: "chat" as const,
+            useSearch: false,
+            useAgentMode: false,
+            useDeepResearch: false,
+          }
+        : { useSearch: false };
+      setChatConfig(nextConfig);
+      if (currentSessionId) {
+        updateSessionConfig(currentSessionId, nextConfig);
+      }
     }
   }, [
     useSearch,
@@ -105,8 +128,11 @@ export function useChatBootstrap({
     settingsHasHydrated,
     coreHasHydrated,
     currentSearchCompatibility,
+    currentSessionId,
     serverModelBootstrapReady,
     setChatConfig,
+    updateSessionConfig,
+    useDeepResearch,
   ]);
 
   useEffect(() => {

@@ -252,16 +252,20 @@ export function Dialog({
   open,
   onClose,
   title,
+  headerAction,
   children,
   className,
   placement = "center",
+  closeOnBackdropClick = false,
 }: {
   open: boolean;
   onClose: () => void;
   title: React.ReactNode;
+  headerAction?: React.ReactNode;
   children: React.ReactNode;
   className?: string;
   placement?: "center" | "responsive-sheet";
+  closeOnBackdropClick?: boolean;
 }) {
   const dialogRef = useRef<HTMLDivElement>(null);
   const restoreFocusRef = useRef<HTMLElement | null>(null);
@@ -324,6 +328,11 @@ export function Dialog({
           ? "items-end p-0 sm:items-center sm:p-4"
           : "items-center p-4",
       )}
+      onMouseDown={(event) => {
+        if (closeOnBackdropClick && event.target === event.currentTarget) {
+          onClose();
+        }
+      }}
     >
       <div
         ref={dialogRef}
@@ -340,13 +349,14 @@ export function Dialog({
           className,
         )}
       >
-        <div className="border-b border-gray-200 px-4 py-3 dark:border-border">
+        <div className="flex min-h-12 items-center justify-between gap-3 border-b border-gray-200 px-4 py-2.5 dark:border-border">
           <h2
             id={titleId}
             className="text-base font-semibold text-gray-900 dark:text-foreground"
           >
             {title}
           </h2>
+          {headerAction}
         </div>
         {children}
       </div>

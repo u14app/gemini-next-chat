@@ -32,6 +32,7 @@ export type {
   Attachment,
   BackgroundTaskSnapshot,
   ChatConfig,
+  ChatMode,
   ChatGenerationEvent,
   ChatGenerationState,
   ChatGenerationStatus,

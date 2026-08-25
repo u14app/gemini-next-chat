@@ -108,6 +108,7 @@ describe("browser app backups", () => {
       totalFileBytes: strToU8("knowledge content").byteLength,
       missingFileCount: 0,
       credentialsIncluded: false,
+      skippedLegacyResearchTaskCount: 0,
       incomplete: false,
     });
   });
@@ -180,6 +181,13 @@ describe("browser app backups", () => {
             },
           ],
         },
+        research: [
+          {
+            schemaVersion: 1,
+            id: "legacy-research-task",
+            sessionId: "session-1",
+          },
+        ],
       },
     };
 
@@ -192,6 +200,26 @@ describe("browser app backups", () => {
       fileCount: 0,
       missingFileCount: 1,
       credentialsIncluded: false,
+      skippedLegacyResearchTaskCount: 1,
+      incomplete: true,
+    });
+  });
+
+  it("reports legacy research entries without rejecting unrelated backup data", async () => {
+    const payload = createPayload();
+    payload.data.research = [
+      {
+        schemaVersion: 1,
+        id: "legacy-research-task",
+        sessionId: "session-1",
+      },
+    ];
+
+    await expect(
+      inspectBrowserAppBackup(createZipBackup({ payload })),
+    ).resolves.toMatchObject({
+      kind: "zip-v3",
+      skippedLegacyResearchTaskCount: 1,
       incomplete: true,
     });
   });

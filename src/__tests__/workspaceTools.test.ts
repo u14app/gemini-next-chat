@@ -127,6 +127,40 @@ describe("workspace built-in tools", () => {
     expect(result.files.map((file) => file.path)).toEqual(["uploads/data.csv"]);
   });
 
+  it("keeps approval-gated workspace reads inside the frozen path scope", async () => {
+    seedFiles({ "notes.md": "approved", "secret.md": "secret" });
+    const context = {
+      ...createContext(),
+      workspaceReadScope: ["notes.md"],
+    };
+
+    await expect(
+      bindings().list_workspace_files.execute({}, context),
+    ).resolves.toMatchObject({
+      files: [{ path: "notes.md" }],
+      usage: { fileCount: 1, totalBytes: 8 },
+    });
+    await expect(
+      bindings().stat_workspace_file.execute({ path: "secret.md" }, context),
+    ).resolves.toMatchObject({
+      ok: false,
+      error: { code: "WORKSPACE_SCOPE_DENIED" },
+    });
+    await expect(
+      bindings().read_workspace_file.execute({ path: "secret.md" }, context),
+    ).resolves.toMatchObject({
+      ok: false,
+      error: { code: "WORKSPACE_SCOPE_DENIED" },
+    });
+    await expect(
+      bindings().search_workspace_files.execute({ query: "secret" }, context),
+    ).resolves.toMatchObject({
+      ok: true,
+      matches: [],
+      filesSearched: 1,
+    });
+  });
+
   it("persists a stable revision when reconciling legacy files", async () => {
     seedFiles({ "notes.md": "hello" });
 
@@ -158,6 +192,13 @@ describe("workspace built-in tools", () => {
       content: "two",
       totalLines: 3,
       truncated: true,
+      sourceId: expect.stringMatching(/^source-/),
+      retrievedAt: expect.any(Number),
+      evidenceContentHash: expect.stringMatching(/^(?:sha256|fnv1a):/),
+      evidence: {
+        url: "workspace:///notes.md",
+        metadata: { retrievalKind: "attachment" },
+      },
     });
   });
 

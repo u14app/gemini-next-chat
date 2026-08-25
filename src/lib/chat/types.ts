@@ -260,6 +260,11 @@ export type MessageOutputBlock =
     }
   | {
       id: string;
+      type: "research_task";
+      taskId: string;
+    }
+  | {
+      id: string;
       type: "workspace_file";
       file: WorkspaceFilePresentation;
     }
@@ -435,9 +440,11 @@ export type ChatGenerationEvent =
   | { type: "reset" };
 
 export interface SessionConfig {
+  chatMode?: ChatMode;
   useSearch?: boolean;
   useReasoning?: boolean;
   useAgentMode?: boolean;
+  useDeepResearch?: boolean;
   reasoningMode?: ReasoningMode;
   activePlugins?: string[];
   activeSkills?: string[];
@@ -497,13 +504,17 @@ export interface Assistant {
 }
 
 export interface ChatConfig {
+  chatMode?: ChatMode;
   useSearch: boolean;
   useReasoning: boolean;
   useAgentMode?: boolean;
+  useDeepResearch?: boolean;
   reasoningMode: ReasoningMode;
   useRAG?: boolean;
   temperature: number;
   imageCount?: number;
 }
+
+export type ChatMode = "auto" | "chat" | "research" | "agent";
 
 export type ReasoningMode = "off" | "auto" | "low" | "medium" | "high";

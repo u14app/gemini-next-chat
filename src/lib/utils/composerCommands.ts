@@ -28,9 +28,8 @@ function isTriggerBoundary(char: string | undefined): boolean {
 /**
  * Detects an in-progress `/` command or `@` reference token at the caret.
  *
- * `/` only triggers at the very start of the composer because it reads as a
- * command prefix; `@` triggers at the start or after whitespace so it can be
- * used mid-sentence.
+ * Both triggers are valid at the start or after whitespace. Requiring that
+ * boundary keeps URL, word, and relative-path slashes from opening the menu.
  */
 export function detectComposerTrigger(
   text: string,
@@ -43,8 +42,7 @@ export function detectComposerTrigger(
     if (/\s/.test(char)) return null;
 
     if (char === "/" || char === "@") {
-      if (char === "/" && index !== 0) return null;
-      if (char === "@" && index !== 0 && !isTriggerBoundary(text[index - 1])) {
+      if (index !== 0 && !isTriggerBoundary(text[index - 1])) {
         return null;
       }
 

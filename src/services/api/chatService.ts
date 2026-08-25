@@ -2,6 +2,7 @@ import {
   Message,
   Attachment,
   ChatConfig,
+  ChatMode,
   MessageOutputBlock,
   ToolCall,
   ToolConfirmationController,
@@ -22,6 +23,7 @@ import type {
   PluginFunction,
   PluginFunctionRisk,
   ToolApprovalProfile,
+  ToolEffect,
   ToolInvocationPolicy,
 } from "@/lib/plugin/types";
 import {
@@ -64,6 +66,11 @@ import {
 } from "@/lib/settings/searchRag";
 import { createMessageOutputBlockBuilder } from "@/lib/chat/messageOutputBlocks";
 import { LONG_TEXT_TOOL_NAME } from "@/lib/chat/longText";
+import {
+  applyChatMode,
+  CHAT_MODE_SWITCH_TOOL_NAME,
+  normalizeChatMode,
+} from "@/lib/chat/mode";
 import { resolveImageGenerationOptions } from "@/lib/chat/imageGenerationOptions";
 import { getResponseErrorMessage, signedApiFetch } from "@/lib/api/client";
 import { createChatRequestBody } from "@/lib/api/chatImageRequestBody";
@@ -81,7 +88,10 @@ import {
 import { ATTACHMENT_LIMITS, PLUGIN_EXECUTION_LIMITS } from "@/config/limits";
 import {
   collectBuiltinTools,
+  consumeBuiltinResearchSourceBodies,
   type BuiltinKnowledgeScope,
+  type BuiltinResearchQueryBudget,
+  type BuiltinResearchSourceBudget,
   resolveBuiltinToolInvocationPolicy,
 } from "./chat/builtinTools";
 import {
@@ -128,6 +138,7 @@ import {
   recordAgentEvidence,
   recordAgentRoundCompleted,
   recoverInterruptedToolExecutions,
+  resumeInterruptedAgentRun,
   transitionAgentRunStatus,
   type AgentRun,
   type ResolvedAgentRunBudget,
@@ -147,6 +158,8 @@ import {
 } from "@/services/agent/runLease";
 import type { RagQueryError } from "@/lib/knowledge/retrieveKnowledgeSources";
 import { writeWorkspaceText } from "@/services/workspace/sessionWorkspace";
+import { getResearchToolEmitters } from "@/services/research/runtime";
+import { DEEP_RESEARCH_QUERY_MAX_CHARS } from "@/lib/research";
 import {
   ChatStreamEventError,
   ChatStreamSizeLimitError,
@@ -361,11 +374,38 @@ export interface ModelInfo {
   providerName?: string;
 }
 
+export type AgentExecutionPhase = "idle" | "model" | "tool_execution";
+
+export type ChatExecutionWorkflow =
+  { kind: "agent" } | { kind: "research"; phase: "start" | "plan" | "execute" };
+
+const RESEARCH_SINGLE_SOURCE_READ_TOOLS = new Set([
+  "inspect_attachment",
+  "read_workspace_file",
+]);
+
+export class ResearchStartRequiredError extends Error {
+  readonly code = "RESEARCH_START_REQUIRED";
+  readonly recoverable = true;
+
+  constructor() {
+    super(
+      "Deep Research could not start because the selected model did not start the research workflow.",
+    );
+    this.name = "ResearchStartRequiredError";
+  }
+}
+
 export interface StreamChatResponseOptions {
+  executionWorkflow?: ChatExecutionWorkflow;
+  /** Unaugmented user request used when Auto restarts as isolated Research. */
+  researchLaunchMessage?: string;
   disableTools?: boolean;
   initialOutputBlocks?: MessageOutputBlock[];
   resumeLongTextBlockId?: string;
   knowledgeScope?: BuiltinKnowledgeScope;
+  /** Frozen workspace paths available to an approval-gated workflow. */
+  workspaceReadScope?: readonly string[];
   onKnowledgeSources?: (sources: Source[], ragError?: RagQueryError) => void;
   onSkillInvocation?: (invocation: AppliedSkillInvocation) => void;
   /** Plugins referenced with `@`; their tools are registered and required. */
@@ -374,6 +414,10 @@ export interface StreamChatResponseOptions {
   allowedSkillIds?: string[];
   /** Optional Agent Profile allowlist. Empty means no additional restriction. */
   allowedToolIds?: string[];
+  /** Treat an explicitly empty Tool allowlist as deny-all for a bounded workflow. */
+  enforceAllowedToolIds?: boolean;
+  /** Additional fail-closed effect boundary used by first-class workflows. */
+  allowedToolEffects?: ToolEffect[];
   approvalMode?: ToolApprovalProfile;
   agentBudget?: Partial<ResolvedAgentRunBudget>;
   agentRun?: {
@@ -381,7 +425,14 @@ export interface StreamChatResponseOptions {
     userMessageId?: string;
     modelMessageId?: string;
   };
+  onChatModeChange?: (config: Partial<ChatConfig>, agentRunId?: string) => void;
   resumeAgentRun?: boolean;
+  /** Preserve an aborted run as resumable instead of treating it as user stop. */
+  abortAgentRunAsInterrupted?: boolean;
+  /** Lets foreground controllers distinguish abortable model work from a read call that should finish committing. */
+  onAgentExecutionPhase?: (phase: AgentExecutionPhase) => void;
+  /** Checked after the current Tool batch commits and before another model round is dispatched. */
+  shouldPauseAfterToolBatch?: () => boolean;
   userInputController?: AgentUserInputController;
   memoryScopes?: AgentMemoryScope[];
   memoryScopeIds?: {
@@ -389,6 +440,10 @@ export interface StreamChatResponseOptions {
     agent?: string;
     session?: string;
   };
+  /** Shared, fail-closed query allowance for bounded Research stages. */
+  researchQueryBudget?: BuiltinResearchQueryBudget;
+  /** Shared, fail-closed full-source allowance for bounded Research stages. */
+  researchSourceBudget?: BuiltinResearchSourceBudget;
 }
 
 // Stream chat response from backend API
@@ -432,9 +487,41 @@ export const streamChatResponse = async (
   if (!provider) throw new Error("No provider available");
   const selectedModelMetadata = resolveModelMetadata(modelName, providerId);
   const toolCallsSupported = supportsToolCalls(selectedModelMetadata);
-  const agentModeEnabled = config?.useAgentMode === true && toolCallsSupported;
+  const normalizedChatMode = normalizeChatMode(
+    config?.chatMode,
+    config?.useAgentMode,
+    config?.useDeepResearch,
+  );
+  const executionWorkflow: ChatExecutionWorkflow | undefined =
+    options?.executionWorkflow ??
+    (normalizedChatMode === "research"
+      ? { kind: "research", phase: "start" }
+      : normalizedChatMode === "agent"
+        ? { kind: "agent" }
+        : undefined);
+  const researchPhase =
+    executionWorkflow?.kind === "research"
+      ? executionWorkflow.phase
+      : undefined;
+  const researchModeEnabled = Boolean(researchPhase && toolCallsSupported);
+  const agentModeEnabled = Boolean(
+    executionWorkflow?.kind === "agent" && toolCallsSupported,
+  );
+  const orchestratedModeEnabled = agentModeEnabled || researchModeEnabled;
+  const automaticModeEnabled =
+    normalizedChatMode === "auto" && !orchestratedModeEnabled;
+  const executionRunEnabled =
+    agentModeEnabled ||
+    (researchModeEnabled &&
+      researchPhase !== "start" &&
+      Boolean(options?.agentRun?.id));
+  if (researchPhase && !toolCallsSupported) {
+    throw new Error(
+      "Deep Research requires a model with Tool Calling support.",
+    );
+  }
   let agentRun: AgentRun | null = null;
-  if (agentModeEnabled) {
+  if (executionRunEnabled) {
     if (options?.resumeAgentRun && options.agentRun?.id) {
       await useAgentRunStore.getState().loadSessionRuns(sessionId);
       const existing =
@@ -450,8 +537,9 @@ export const streamChatResponse = async (
         );
       }
       agentRun = {
-        ...transitionAgentRunStatus(existing, "running"),
+        ...resumeInterruptedAgentRun(existing),
         model,
+        workflowKind: researchModeEnabled ? "research" : "agent",
         ...(options.agentRun.userMessageId
           ? { userMessageId: options.agentRun.userMessageId }
           : {}),
@@ -466,6 +554,7 @@ export const streamChatResponse = async (
         userMessageId: options?.agentRun?.userMessageId,
         modelMessageId: options?.agentRun?.modelMessageId,
         model,
+        workflowKind: researchModeEnabled ? "research" : "agent",
         budget: options?.agentBudget,
       });
     }
@@ -498,10 +587,9 @@ export const streamChatResponse = async (
       });
     await agentRunUpdateQueue;
   };
-  const requestedForcedPluginIds = mergeForcedPluginIds(
-    [],
-    options?.forcedPluginIds,
-  );
+  const requestedForcedPluginIds = researchModeEnabled
+    ? []
+    : mergeForcedPluginIds([], options?.forcedPluginIds);
   if (
     requestedForcedPluginIds.length > 0 &&
     (options?.disableTools || !toolCallsSupported)
@@ -530,6 +618,17 @@ export const streamChatResponse = async (
   const emitOutputBlocks = () => {
     onOutputBlocks?.(outputBlockBuilder.getBlocks());
   };
+  const completeAgentRun = async () => {
+    if (agentRun?.status !== "running") return;
+    if (outputBlockBuilder.completeTaskPlan()) {
+      emitOutputBlocks();
+    }
+    await updateAgentRun((current) =>
+      transitionAgentRunStatus(current, "completed", {
+        stop: { reason: "completed" },
+      }),
+    );
+  };
   const emitBuiltinSearch = createBuiltinSearchAggregator({
     upsertSearch: outputBlockBuilder.upsertSearch,
     emitOutputBlocks,
@@ -546,7 +645,7 @@ export const streamChatResponse = async (
 
   if (
     config?.useSearch &&
-    !agentModeEnabled &&
+    !orchestratedModeEnabled &&
     onSearchStatus &&
     searchCompatibility.mode === "external"
   ) {
@@ -586,10 +685,21 @@ export const streamChatResponse = async (
   const tools: ChatToolDefinition[] = [];
   const toolNames = new Set<string>();
   const registeredPluginFunctions = new Map<string, PluginFunction[]>();
+  const allowedToolIds = new Set(
+    researchPhase === "start"
+      ? ["start_deep_research"]
+      : options?.allowedToolIds || [],
+  );
+  const restrictTools =
+    researchPhase === "start" ||
+    allowedToolIds.size > 0 ||
+    options?.enforceAllowedToolIds === true;
   const collectedBuiltinTools = collectBuiltinTools({
     message: newMessage,
     disabled: options?.disableTools || !toolCallsSupported,
     agentModeEnabled,
+    automaticModeEnabled,
+    researchPhase,
     useSearch: config?.useSearch === true,
     searchMode: searchCompatibility.mode,
     knowledgeScope: options?.knowledgeScope,
@@ -597,17 +707,39 @@ export const streamChatResponse = async (
     memoryScopes: options?.memoryScopes,
     memoryScopeIds: options?.memoryScopeIds,
     workspaceAvailable: isAgentWorkspaceAvailable(),
+    researchQueryBudget: options?.researchQueryBudget,
+    researchSourceBudget: options?.researchSourceBudget,
   });
-  const allowedToolIds = new Set(options?.allowedToolIds || []);
-  const restrictTools = allowedToolIds.size > 0;
+  const allowedToolEffects = new Set(options?.allowedToolEffects || []);
+  const restrictToolEffects = allowedToolEffects.size > 0;
+  const allowsEffects = (effects: readonly ToolEffect[]) =>
+    !restrictToolEffects ||
+    (effects.length > 0 &&
+      effects.every((effect) => allowedToolEffects.has(effect)));
   const allowedBuiltinDefinitions = restrictTools
-    ? collectedBuiltinTools.definitions.filter((definition) =>
-        allowedToolIds.has(definition.function.name),
-      )
-    : collectedBuiltinTools.definitions;
+    ? collectedBuiltinTools.definitions.filter((definition) => {
+        const binding = collectedBuiltinTools.bindingsByName.get(
+          definition.function.name,
+        );
+        return (
+          (definition.function.name === CHAT_MODE_SWITCH_TOOL_NAME ||
+            allowedToolIds.has(definition.function.name)) &&
+          Boolean(binding && allowsEffects(binding.descriptor.effects))
+        );
+      })
+    : collectedBuiltinTools.definitions.filter((definition) => {
+        const binding = collectedBuiltinTools.bindingsByName.get(
+          definition.function.name,
+        );
+        return Boolean(binding && allowsEffects(binding.descriptor.effects));
+      });
   const builtinBindingsByName = new Map(
     [...collectedBuiltinTools.bindingsByName].filter(
-      ([name]) => !restrictTools || allowedToolIds.has(name),
+      ([name, binding]) =>
+        (!restrictTools ||
+          name === CHAT_MODE_SWITCH_TOOL_NAME ||
+          allowedToolIds.has(name)) &&
+        allowsEffects(binding.descriptor.effects),
     ),
   );
   tools.push(...allowedBuiltinDefinitions);
@@ -626,7 +758,7 @@ export const streamChatResponse = async (
     toolCallsSupported &&
     effectiveActivePlugins.length > 0
   ) {
-    if (agentModeEnabled) {
+    if (agentModeEnabled || researchPhase === "execute") {
       const activeMcpServers = effectiveActivePlugins.flatMap((pluginId) => {
         const plugin = installedPlugins.find((item) => item.id === pluginId);
         return plugin?.source === "mcp" ? [plugin] : [];
@@ -636,7 +768,8 @@ export const streamChatResponse = async (
         if (
           tools.length >= MAX_CHAT_TOOLS_PER_REQUEST ||
           toolNames.has(name) ||
-          (restrictTools && !allowedToolIds.has(name))
+          (restrictTools && !allowedToolIds.has(name)) ||
+          !allowsEffects(binding.descriptor.effects)
         ) {
           continue;
         }
@@ -648,9 +781,15 @@ export const streamChatResponse = async (
     const candidates = effectiveActivePlugins.flatMap((pluginId) => {
       const plugin = installedPlugins.find((item) => item.id === pluginId);
       if (!plugin) return [];
-      return getEnabledPluginFunctions(plugin, pluginConfigs[pluginId]).map(
-        (functionDef) => ({ plugin, functionDef }),
-      );
+      return getEnabledPluginFunctions(plugin, pluginConfigs[pluginId])
+        .map((functionDef) => ({ plugin, functionDef }))
+        .filter(({ plugin: candidatePlugin, functionDef }) => {
+          if (!restrictToolEffects) return true;
+          const policy = getPluginFunctionInvocationPolicy(functionDef, {
+            origin: candidatePlugin.source === "mcp" ? "mcp" : "plugin",
+          });
+          return allowsEffects(policy.effects);
+        });
     });
     const nameCounts = candidates.reduce((counts, candidate) => {
       counts.set(
@@ -818,6 +957,15 @@ export const streamChatResponse = async (
           }),
         )
       : userSystemInstruction;
+  const workflowSystemInstruction =
+    researchPhase === "start"
+      ? [
+          userSystemInstruction,
+          "You are starting a first-class Deep Research workflow. Call start_deep_research exactly once with the user's research request and the most appropriate bounded budget preset. Do not answer the research question, do not call any other tool, and do not claim that source access has begun.",
+        ]
+          .filter(Boolean)
+          .join("\n\n")
+      : agentSystemInstruction;
 
   // Providers receive the directive as guidance; the terminal checks below
   // provide the fail-closed guarantee when a model ignores it.
@@ -828,8 +976,11 @@ export const streamChatResponse = async (
     })),
   );
   const effectiveSystemInstruction = forcedToolDirective
-    ? appendAgentSystemInstruction(agentSystemInstruction, forcedToolDirective)
-    : agentSystemInstruction;
+    ? appendAgentSystemInstruction(
+        workflowSystemInstruction,
+        forcedToolDirective,
+      )
+    : workflowSystemInstruction;
 
   if (agentRun) {
     const lease = acquireAgentRunLease({ sessionId, runId: agentRun.id });
@@ -839,7 +990,9 @@ export const streamChatResponse = async (
           reason: "runtime_error",
           error: {
             code: "AGENT_RUN_LEASE_CONFLICT",
-            message: "Another browser tab currently owns this Agent session.",
+            message: researchModeEnabled
+              ? "Another browser tab currently owns this Research session."
+              : "Another browser tab currently owns this Agent session.",
             recoverable: true,
           },
         },
@@ -852,6 +1005,13 @@ export const streamChatResponse = async (
   }
 
   try {
+    const notifyAgentExecutionPhase = (phase: AgentExecutionPhase) => {
+      try {
+        options?.onAgentExecutionPhase?.(phase);
+      } catch {
+        // UI lifecycle observers must not change Agent execution semantics.
+      }
+    };
     const allToolCalls: ToolCall[] = [];
     const assertForcedPluginsCalled = () => {
       const missing = forcedPluginRequirements.filter(
@@ -875,33 +1035,46 @@ export const streamChatResponse = async (
     };
     let committedContent = "";
     let committedReasoning = "";
-    let requestHistory = await stripMessagesDisplayCacheForModel(
-      history as Message[],
-    );
-    const messageWithSkills = skillsContext?.trim()
-      ? appendContextToChatInput(effectiveNewMessage, skillsContext, {
-          separator: "\n\n",
-        })
-      : effectiveNewMessage;
-    let requestMessage = appendDiagramRequestInstructions(
-      appendHtmlVisualRequestInstructions(
-        messageWithSkills,
-        effectiveSystemInstruction,
-      ),
-      effectiveSystemInstruction,
-    );
-    const compressedRequestAttachments = await compressImageAttachments(
-      attachments,
-      imageCompressionConfig,
-      { signal },
-    );
-    let requestAttachments = await stripAttachmentsDisplayCacheForModel(
-      compressedRequestAttachments,
-    );
+    let requestHistory =
+      researchPhase === "start" || researchPhase === "plan"
+        ? []
+        : await stripMessagesDisplayCacheForModel(history as Message[]);
+    const messageWithSkills = researchModeEnabled
+      ? effectiveNewMessage
+      : skillsContext?.trim()
+        ? appendContextToChatInput(effectiveNewMessage, skillsContext, {
+            separator: "\n\n",
+          })
+        : effectiveNewMessage;
+    let requestMessage = researchModeEnabled
+      ? messageWithSkills
+      : appendDiagramRequestInstructions(
+          appendHtmlVisualRequestInstructions(
+            messageWithSkills,
+            effectiveSystemInstruction,
+          ),
+          effectiveSystemInstruction,
+        );
+    let requestAttachments: Attachment[] = [];
+    if (researchPhase !== "start" && researchPhase !== "plan") {
+      const compressedRequestAttachments = await compressImageAttachments(
+        attachments,
+        imageCompressionConfig,
+        { signal },
+      );
+      requestAttachments = await stripAttachmentsDisplayCacheForModel(
+        compressedRequestAttachments,
+      );
+    }
     let requestConfig: Partial<ChatConfig> = {
       ...config,
       useAgentMode: agentModeEnabled,
+      useDeepResearch: researchModeEnabled,
+      ...(researchModeEnabled && researchPhase !== "execute"
+        ? { useSearch: false }
+        : {}),
     };
+    delete requestConfig.chatMode;
     let requestTools = tools;
     const maxToolRounds =
       agentRun?.budget.maxToolRounds ?? PLUGIN_EXECUTION_LIMITS.maxToolRounds;
@@ -913,6 +1086,8 @@ export const streamChatResponse = async (
     const functionFingerprintCache = new Map<string, Promise<string>>();
     const pendingSkillInvocations = new Map<string, AppliedSkillInvocation>();
     const emittedSkillIds = new Set<string>();
+    let requestedChatMode: Extract<ChatMode, "agent" | "research"> | null =
+      null;
     let skillAllowedToolNames: Set<string> | null = null;
     const compactLargeToolResult = async (
       toolCall: ToolCall,
@@ -921,7 +1096,7 @@ export const streamChatResponse = async (
       value: unknown;
       resultRef?: { kind: "workspace_file"; id: string; contentHash: string };
     }> => {
-      if (!agentModeEnabled) return { value };
+      if (!executionRunEnabled) return { value };
       let serialized: string;
       try {
         serialized = JSON.stringify(value, null, 2);
@@ -969,6 +1144,7 @@ export const streamChatResponse = async (
     };
 
     if (
+      !researchModeEnabled &&
       requestConfig.imageCount === undefined &&
       supportsImageGeneration(selectedModelMetadata)
     ) {
@@ -993,6 +1169,7 @@ export const streamChatResponse = async (
     }
 
     if (
+      !researchModeEnabled &&
       isOpenAIProviderType(provider.type) &&
       supportsImageGeneration(selectedModelMetadata) &&
       (!supportsTextOutput(selectedModelMetadata) ||
@@ -1042,13 +1219,7 @@ export const streamChatResponse = async (
           committedReasoning,
           outputBlockBuilder.getBlocks(),
         );
-        if (agentRun?.status === "running") {
-          await updateAgentRun((current) =>
-            transitionAgentRunStatus(current, "completed", {
-              stop: { reason: "completed" },
-            }),
-          );
-        }
+        await completeAgentRun();
         return committedContent;
       }
 
@@ -1058,13 +1229,7 @@ export const streamChatResponse = async (
         committedReasoning,
         outputBlockBuilder.getBlocks(),
       );
-      if (agentRun?.status === "running") {
-        await updateAgentRun((current) =>
-          transitionAgentRunStatus(current, "completed", {
-            stop: { reason: "completed" },
-          }),
-        );
-      }
+      await completeAgentRun();
       return committedContent + message;
     }
 
@@ -1073,6 +1238,7 @@ export const streamChatResponse = async (
     };
 
     const upsertToolCall = (toolCall: ToolCall) => {
+      if (toolCall.name === CHAT_MODE_SWITCH_TOOL_NAME) return;
       const index = allToolCalls.findIndex((tc) => tc.id === toolCall.id);
       if (index === -1) {
         allToolCalls.push(toolCall);
@@ -1130,15 +1296,16 @@ export const streamChatResponse = async (
         systemInstruction: effectiveSystemInstruction,
         tools: requestTools,
         enableImageGeneration:
+          !researchModeEnabled &&
           supportsImageGeneration(selectedModelMetadata) &&
           (provider.type === "OpenAI" || isGoogleProviderType(provider.type)),
         enableGoogleSearch:
           requestConfig?.useSearch &&
-          !agentModeEnabled &&
+          !orchestratedModeEnabled &&
           searchCompatibility.mode === "gemini-google",
         enableOpenAIWebSearch:
           requestConfig?.useSearch &&
-          !agentModeEnabled &&
+          !orchestratedModeEnabled &&
           searchCompatibility.mode === "openai-web",
       };
 
@@ -1157,6 +1324,7 @@ export const streamChatResponse = async (
       const handleMessage = async (parsed: any) => {
         switch (parsed.type) {
           case "content":
+            if (researchPhase === "start") return false;
             fullContent += parsed.content;
             outputBlockBuilder.appendText(parsed.content);
             onChunk(
@@ -1167,6 +1335,7 @@ export const streamChatResponse = async (
             return false;
 
           case "reasoning":
+            if (researchPhase === "start") return false;
             fullReasoning += parsed.content;
             outputBlockBuilder.appendReasoning(parsed.content);
             onChunk(
@@ -1195,16 +1364,20 @@ export const streamChatResponse = async (
               status: parsed.toolCall?.status || "pending",
             };
             roundToolCalls.push(toolCall);
-            outputBlockBuilder.appendToolCall(toolCall);
-            emitOutputBlocks();
+            if (toolCall.name !== CHAT_MODE_SWITCH_TOOL_NAME) {
+              outputBlockBuilder.appendToolCall(toolCall);
+              emitOutputBlocks();
+            }
             upsertToolCall(toolCall);
             return false;
           }
 
           case "tool_result":
             if (parsed.toolCall) {
-              outputBlockBuilder.updateToolCall(parsed.toolCall);
-              emitOutputBlocks();
+              if (parsed.toolCall.name !== CHAT_MODE_SWITCH_TOOL_NAME) {
+                outputBlockBuilder.updateToolCall(parsed.toolCall);
+                emitOutputBlocks();
+              }
               upsertToolCall(parsed.toolCall);
             }
             return false;
@@ -1482,6 +1655,7 @@ export const streamChatResponse = async (
     };
 
     for (let round = 0; round <= maxToolRounds; round++) {
+      notifyAgentExecutionPhase("model");
       const offeredToolNamesForRound = new Set(
         requestTools.map((tool) => tool.function.name),
       );
@@ -1499,13 +1673,36 @@ export const streamChatResponse = async (
         }
         throw result.error;
       }
-      const pendingToolCalls = result.toolCalls.filter(
+      let pendingToolCalls = result.toolCalls.filter(
         (toolCall) =>
           toolCall.name &&
           (toolCall.status === "pending" ||
             toolCall.status === "running" ||
             toolCall.result === undefined),
       );
+      const modeSwitchToolCall = pendingToolCalls.find(
+        (toolCall) => toolCall.name === CHAT_MODE_SWITCH_TOOL_NAME,
+      );
+      if (modeSwitchToolCall) {
+        pendingToolCalls
+          .filter((toolCall) => toolCall.id !== modeSwitchToolCall.id)
+          .forEach((toolCall) => {
+            const skipped: ToolCall = {
+              ...toolCall,
+              status: "skipped",
+              isError: true,
+              result: createRuntimeToolFailure(toolCall.name, {
+                code: "CHAT_MODE_SWITCH_RESTART",
+                message:
+                  "This tool call was deferred until the selected chat mode restarts the request.",
+                recoverable: true,
+              }),
+            };
+            outputBlockBuilder.updateToolCall(skipped);
+            upsertToolCall(skipped);
+          });
+        pendingToolCalls = [modeSwitchToolCall];
+      }
       if (agentRun) {
         const usage = result.usage;
         await updateAgentRun((current) =>
@@ -1518,7 +1715,29 @@ export const streamChatResponse = async (
         );
       }
 
+      if (pendingToolCalls.length === 0 && researchPhase === "start") {
+        const query = (
+          options?.researchLaunchMessage?.trim() || newMessage.trim()
+        ).slice(0, DEEP_RESEARCH_QUERY_MAX_CHARS);
+        if (query) {
+          const fallbackStartCall: ToolCall = {
+            id: uuidv7(),
+            name: "start_deep_research",
+            args: { query, budgetPreset: "standard" },
+            status: "pending",
+          };
+          pendingToolCalls = [fallbackStartCall];
+          outputBlockBuilder.appendToolCall(fallbackStartCall);
+          emitOutputBlocks();
+          upsertToolCall(fallbackStartCall);
+        }
+      }
+
       if (pendingToolCalls.length === 0) {
+        notifyAgentExecutionPhase("idle");
+        if (researchPhase === "start") {
+          throw new ResearchStartRequiredError();
+        }
         const captureState = outputBlockBuilder.getLongTextCaptureState();
         if (captureState.pending) {
           failLongTextCapture(
@@ -1530,13 +1749,7 @@ export const streamChatResponse = async (
           emitOutputBlocks();
         }
         assertForcedPluginsCalled();
-        if (agentRun?.status === "running") {
-          await updateAgentRun((current) =>
-            transitionAgentRunStatus(current, "completed", {
-              stop: { reason: "completed" },
-            }),
-          );
-        }
+        await completeAgentRun();
         return committedContent + result.content;
       }
 
@@ -1546,6 +1759,7 @@ export const streamChatResponse = async (
           ? "tool_rounds"
           : null;
       if (exceededBudget) {
+        notifyAgentExecutionPhase("idle");
         pendingToolCalls.forEach((toolCall) => {
           const skippedToolCall: ToolCall = {
             ...toolCall,
@@ -1691,16 +1905,41 @@ export const streamChatResponse = async (
           continue;
         }
 
+        const pluginId = resolved?.plugin.id || "builtin";
+        const pluginTitle = resolved?.plugin.title || "Agent built-ins";
+        const functionName = resolved?.functionDef.name || toolCall.name;
         const policy = builtinBinding
           ? resolveBuiltinToolInvocationPolicy(builtinBinding, toolCall.args)
           : getPluginFunctionInvocationPolicy(resolved!.functionDef, {
               args: toolCall.args,
               origin: resolved!.plugin.source === "mcp" ? "mcp" : "plugin",
             });
+        if (!allowsEffects(policy.effects)) {
+          const failed: ToolCall = {
+            ...toolCall,
+            pluginId,
+            pluginTitle,
+            status: "denied",
+            isError: true,
+            invocationPolicy: policy,
+            errorInfo: {
+              code: "TOOL_EFFECT_NOT_ALLOWED",
+              message: "The Tool effect is outside this workflow's policy.",
+              recoverable: false,
+            },
+            result: createRuntimeToolFailure(toolCall.name, {
+              code: "TOOL_EFFECT_NOT_ALLOWED",
+              message: "The Tool effect is outside this workflow's policy.",
+              recoverable: false,
+            }),
+          };
+          outputBlockBuilder.updateToolCall(failed);
+          emitOutputBlocks();
+          upsertToolCall(failed);
+          nonExecutedToolCalls.push(failed);
+          continue;
+        }
         const risk = toLegacyRisk(policy);
-        const pluginId = resolved?.plugin.id || "builtin";
-        const pluginTitle = resolved?.plugin.title || "Agent built-ins";
-        const functionName = resolved?.functionDef.name || toolCall.name;
         let functionFingerprint: string;
         if (resolved) {
           const fingerprintCacheKey = `${pluginId}\u0000${functionName}`;
@@ -1789,7 +2028,15 @@ export const streamChatResponse = async (
                     historical.id === priorWithSameArguments.callId &&
                     historical.result !== undefined,
                 );
-              if (cached) {
+              const cachedResultHash = cached
+                ? await hashToolArguments(cached.result)
+                : undefined;
+              const verifiedReference = replay.resultRefs.some(
+                (reference) =>
+                  reference.kind !== "tool_cache" ||
+                  reference.contentHash === cachedResultHash,
+              );
+              if (cached && verifiedReference) {
                 const reused: ToolCall = {
                   ...toolCall,
                   pluginId,
@@ -2121,6 +2368,7 @@ export const streamChatResponse = async (
       }
 
       const pluginImagesByToolCallId = new Map<string, Attachment[]>();
+      notifyAgentExecutionPhase("tool_execution");
       const completedToolCalls = await mapWithConcurrencyGroups(
         approvedToolCalls,
         PLUGIN_EXECUTION_LIMITS.maxToolConcurrency,
@@ -2136,99 +2384,147 @@ export const streamChatResponse = async (
             }
             let resultData: unknown;
             try {
-              resultData = builtinBinding
-                ? await builtinBinding.execute(toolCall.args, {
-                    signal,
-                    sessionId,
-                    toolCallId: toolCall.id,
-                    userInputController: options?.userInputController,
-                    knowledgeScope: options?.knowledgeScope,
-                    emit: {
-                      search: (event) =>
-                        emitBuiltinSearch(
-                          toolCall.id,
-                          allToolCalls.findIndex(
-                            (candidate) => candidate.id === toolCall.id,
+              const resolvedPluginFunction = offeredPluginFunctionsByName.get(
+                toolCall.name,
+              );
+              const consumesResearchSource =
+                options?.executionWorkflow?.kind === "research" &&
+                options.executionWorkflow.phase === "execute" &&
+                (Boolean(toolCall.pluginId) ||
+                  RESEARCH_SINGLE_SOURCE_READ_TOOLS.has(toolCall.name));
+              const sourceLocator = toolCall.pluginId
+                ? `${toolCall.invocationPolicy?.origin === "mcp" ? "mcp" : "plugin"}://${encodeURIComponent(toolCall.pluginId)}/${encodeURIComponent(toolCall.name)}`
+                : toolCall.name === "read_workspace_file"
+                  ? `workspace:///${encodeURIComponent(String(toolCall.args?.path || "unknown"))}`
+                  : `${toolCall.name}://${toolCall.id}`;
+              if (
+                consumesResearchSource &&
+                !consumeBuiltinResearchSourceBodies(
+                  options?.researchSourceBudget,
+                  [sourceLocator],
+                )
+              ) {
+                resultData = {
+                  ok: false,
+                  error: {
+                    code: "RESEARCH_SOURCE_BUDGET_EXHAUSTED",
+                    message:
+                      "The approved full-source reading budget is exhausted.",
+                    recoverable: true,
+                  },
+                };
+              } else {
+                resultData = builtinBinding
+                  ? await builtinBinding.execute(toolCall.args, {
+                      signal,
+                      sessionId,
+                      userMessageId: options?.agentRun?.userMessageId,
+                      modelMessageId: options?.agentRun?.modelMessageId,
+                      agentRunId: agentRun?.id,
+                      toolCallId: toolCall.id,
+                      userInputController: options?.userInputController,
+                      knowledgeScope: options?.knowledgeScope,
+                      workspaceReadScope: options?.workspaceReadScope,
+                      emit: {
+                        chatMode: (mode) => {
+                          requestedChatMode = mode;
+                        },
+                        search: (event) =>
+                          emitBuiltinSearch(
+                            toolCall.id,
+                            allToolCalls.findIndex(
+                              (candidate) => candidate.id === toolCall.id,
+                            ),
+                            event,
                           ),
-                          event,
-                        ),
-                      knowledgeSources: (sources, ragError) =>
-                        emitBuiltinKnowledgeSources(
-                          toolCall.id,
-                          allToolCalls.findIndex(
-                            (candidate) => candidate.id === toolCall.id,
+                        knowledgeSources: (sources, ragError) =>
+                          emitBuiltinKnowledgeSources(
+                            toolCall.id,
+                            allToolCalls.findIndex(
+                              (candidate) => candidate.id === toolCall.id,
+                            ),
+                            sources,
+                            ragError,
                           ),
-                          sources,
-                          ragError,
-                        ),
-                      skillInvocation: (invocation) => {
-                        pendingSkillInvocations.set(toolCall.id, invocation);
+                        skillInvocation: (invocation) => {
+                          pendingSkillInvocations.set(toolCall.id, invocation);
+                        },
+                        skillToolRestriction: (allowedTools) => {
+                          const next = new Set(allowedTools);
+                          skillAllowedToolNames = skillAllowedToolNames
+                            ? new Set(
+                                [...skillAllowedToolNames].filter((name) =>
+                                  next.has(name),
+                                ),
+                              )
+                            : next;
+                        },
+                        taskPlan: (plan) => {
+                          outputBlockBuilder.upsertTaskPlan(plan);
+                          emitOutputBlocks();
+                        },
+                        workspaceFile: (file) => {
+                          outputBlockBuilder.upsertWorkspaceFile({
+                            path: file.path,
+                            fileName: file.fileName,
+                            mimeType: file.mimeType,
+                            bytes: file.bytes,
+                            url: file.url,
+                            revision: file.revision,
+                            ...(file.title ? { title: file.title } : {}),
+                          });
+                          emitOutputBlocks();
+                        },
+                        archiveFile: (archive) => {
+                          outputBlockBuilder.upsertArchiveFile({
+                            fileName: archive.fileName,
+                            bytes: archive.bytes,
+                            entryCount: archive.entryCount,
+                            url: archive.url,
+                            ...(archive.title ? { title: archive.title } : {}),
+                          });
+                          emitOutputBlocks();
+                        },
+                        longText: (request) => {
+                          const capture =
+                            outputBlockBuilder.startLongTextCapture(request);
+                          if (capture.ok) {
+                            longTextCaptureToolCallId = toolCall.id;
+                          }
+                          return capture;
+                        },
+                        research: getResearchToolEmitters(),
                       },
-                      skillToolRestriction: (allowedTools) => {
-                        const next = new Set(allowedTools);
-                        skillAllowedToolNames = skillAllowedToolNames
-                          ? new Set(
-                              [...skillAllowedToolNames].filter((name) =>
-                                next.has(name),
-                              ),
-                            )
-                          : next;
-                      },
-                      taskPlan: (plan) => {
-                        outputBlockBuilder.upsertTaskPlan(plan);
-                        emitOutputBlocks();
-                      },
-                      workspaceFile: (file) => {
-                        outputBlockBuilder.upsertWorkspaceFile({
-                          path: file.path,
-                          fileName: file.fileName,
-                          mimeType: file.mimeType,
-                          bytes: file.bytes,
-                          url: file.url,
-                          revision: file.revision,
-                          ...(file.title ? { title: file.title } : {}),
-                        });
-                        emitOutputBlocks();
-                      },
-                      archiveFile: (archive) => {
-                        outputBlockBuilder.upsertArchiveFile({
-                          fileName: archive.fileName,
-                          bytes: archive.bytes,
-                          entryCount: archive.entryCount,
-                          url: archive.url,
-                          ...(archive.title ? { title: archive.title } : {}),
-                        });
-                        emitOutputBlocks();
-                      },
-                      longText: (request) => {
-                        const capture =
-                          outputBlockBuilder.startLongTextCapture(request);
-                        if (capture.ok) {
-                          longTextCaptureToolCallId = toolCall.id;
-                        }
-                        return capture;
-                      },
-                    },
-                  })
-                : await executePluginFunction(
-                    offeredPluginFunctionsByName.get(toolCall.name)?.functionDef
-                      .name || toolCall.name,
-                    toolCall.args,
-                    toolCall.auth,
-                    toolCall.pluginId
-                      ? [toolCall.pluginId]
-                      : effectiveActivePlugins,
-                    signal,
-                    toolCall.pluginId &&
-                      toolCall.functionFingerprint &&
-                      toolCall.risk
-                      ? {
-                          pluginId: toolCall.pluginId,
-                          functionFingerprint: toolCall.functionFingerprint,
-                          risk: toolCall.risk,
-                        }
-                      : undefined,
-                  );
+                    })
+                  : await executePluginFunction(
+                      resolvedPluginFunction?.functionDef.name || toolCall.name,
+                      toolCall.args,
+                      toolCall.auth,
+                      toolCall.pluginId
+                        ? [toolCall.pluginId]
+                        : effectiveActivePlugins,
+                      signal,
+                      toolCall.pluginId &&
+                        toolCall.functionFingerprint &&
+                        toolCall.risk
+                        ? {
+                            pluginId: toolCall.pluginId,
+                            functionFingerprint: toolCall.functionFingerprint,
+                            risk: toolCall.risk,
+                          }
+                        : undefined,
+                    );
+              }
+              if (
+                toolCall.name === "start_deep_research" &&
+                resultData &&
+                typeof resultData === "object" &&
+                "taskId" in resultData &&
+                typeof resultData.taskId === "string"
+              ) {
+                outputBlockBuilder.upsertResearchTask(resultData.taskId);
+                emitOutputBlocks();
+              }
             } finally {
               if (awaitsUserInput && agentRun?.status === "awaiting_input") {
                 await updateAgentRun((current) =>
@@ -2273,8 +2569,10 @@ export const streamChatResponse = async (
                 }
               }
             }
-            if (agentRun) {
-              const defaultKind = toolCall.name.includes("mcp")
+            const policy = toolCall.invocationPolicy!;
+            const defaultEvidenceKind = toolCall.pluginId
+              ? "mcp"
+              : toolCall.name.includes("mcp")
                 ? "mcp"
                 : toolCall.name.startsWith("fetch_") ||
                     toolCall.name === "fetch_url"
@@ -2282,18 +2580,7 @@ export const streamChatResponse = async (
                   : toolCall.name.includes("attachment")
                     ? "attachment"
                     : "search";
-              const evidence = collectAgentEvidenceRecords(resultData, {
-                toolCallId: toolCall.id,
-                defaultKind,
-              });
-              if (evidence.length > 0) {
-                await updateAgentRun((current) =>
-                  recordAgentEvidence(current, evidence),
-                );
-              }
-            }
-            const policy = toolCall.invocationPolicy!;
-            const rawEnvelope = normalizeToolResultEnvelope(resultData, {
+            let rawEnvelope = normalizeToolResultEnvelope(resultData, {
               trust: getToolResultTrust(policy),
               provenance: {
                 origin: policy.origin,
@@ -2301,7 +2588,78 @@ export const streamChatResponse = async (
                 retrievedAt: Date.now(),
               },
             });
-            const isError = isToolResultFailure(rawEnvelope);
+            let isError = isToolResultFailure(rawEnvelope);
+            const existingEvidence = agentRun
+              ? collectAgentEvidenceRecords(resultData, {
+                  toolCallId: toolCall.id,
+                  defaultKind: defaultEvidenceKind,
+                })
+              : [];
+            const shouldCreateResearchPluginEvidence =
+              agentRun?.workflowKind === "research" &&
+              options?.executionWorkflow?.kind === "research" &&
+              options.executionWorkflow.phase === "execute" &&
+              Boolean(toolCall.pluginId) &&
+              !isError &&
+              existingEvidence.length === 0 &&
+              policy.effects.length > 0 &&
+              policy.effects.every(
+                (effect) =>
+                  effect === "local_read" || effect === "network_read",
+              );
+            if (shouldCreateResearchPluginEvidence) {
+              const retrievedAt = Date.now();
+              const contentHash = await hashToolArguments(resultData);
+              const scheme = policy.origin === "mcp" ? "mcp" : "plugin";
+              const locator = `${scheme}://${encodeURIComponent(
+                toolCall.pluginId!,
+              )}/${encodeURIComponent(toolCall.name)}`;
+              const identityHash = await hashToolArguments({
+                locator,
+                contentHash,
+              });
+              const researchEvidence = {
+                sourceId: `source-${identityHash.replace(/^[^:]+:/, "").slice(0, 20)}`,
+                url: locator,
+                title: toolCall.pluginTitle || toolCall.name,
+                retrievedAt,
+                contentHash,
+                retrievalKind: "mcp" as const,
+                externalUntrusted: true as const,
+              };
+              resultData =
+                resultData &&
+                typeof resultData === "object" &&
+                !Array.isArray(resultData)
+                  ? {
+                      ...(resultData as Record<string, unknown>),
+                      _researchEvidence: researchEvidence,
+                    }
+                  : { value: resultData, _researchEvidence: researchEvidence };
+              rawEnvelope = normalizeToolResultEnvelope(resultData, {
+                trust: getToolResultTrust(policy),
+                provenance: {
+                  origin: policy.origin,
+                  toolName: toolCall.name,
+                  retrievedAt,
+                },
+              });
+              isError = isToolResultFailure(rawEnvelope);
+            }
+            if (agentRun) {
+              const evidence =
+                existingEvidence.length > 0
+                  ? existingEvidence
+                  : collectAgentEvidenceRecords(resultData, {
+                      toolCallId: toolCall.id,
+                      defaultKind: defaultEvidenceKind,
+                    });
+              if (evidence.length > 0) {
+                await updateAgentRun((current) =>
+                  recordAgentEvidence(current, evidence),
+                );
+              }
+            }
             if (!builtinBinding && !isError) {
               const pluginImages = extractPluginImageAttachments(resultData);
               if (pluginImages.length > 0) {
@@ -2325,6 +2683,9 @@ export const streamChatResponse = async (
                   effect === "external_write" ||
                   effect === "external_destructive",
               );
+            const effectResultHash = !isError
+              ? await hashToolArguments(historyResult.value)
+              : undefined;
             const effectReceipt = hasSideEffect
               ? {
                   committedAt: endedAt,
@@ -2332,7 +2693,7 @@ export const streamChatResponse = async (
                   targetHash: await hashToolArguments(
                     getToolTargetScope(toolCall.args),
                   ),
-                  resultHash: await hashToolArguments(historyResult.value),
+                  resultHash: effectResultHash,
                   reversible:
                     policy.effects.includes("local_write") &&
                     !policy.effects.includes("local_destructive"),
@@ -2361,8 +2722,11 @@ export const streamChatResponse = async (
                 ...(effectReceipt ? { receipt: effectReceipt } : {}),
               },
             );
+            const committedResultHash = !isError
+              ? await hashToolArguments(storedResultData)
+              : undefined;
             if (toolCall.executionRecordId) {
-              if (isError) {
+              if (isError && isToolResultFailure(rawEnvelope)) {
                 await updateAgentRun((current) => {
                   const executionError = {
                     code: rawEnvelope.error.code,
@@ -2397,7 +2761,13 @@ export const streamChatResponse = async (
                     at: endedAt,
                     resultRefs: historyResult.resultRef
                       ? [historyResult.resultRef]
-                      : [{ kind: "tool_cache", id: toolCall.id }],
+                      : [
+                          {
+                            kind: "tool_cache",
+                            id: toolCall.id,
+                            contentHash: committedResultHash!,
+                          },
+                        ],
                     ...(effectReceipt ? { receipt: effectReceipt } : {}),
                   }),
                 );
@@ -2488,6 +2858,77 @@ export const streamChatResponse = async (
           `The effect of ${unknownEffectCall.name} could not be confirmed.`,
         );
       }
+      if (researchPhase === "start") {
+        const startCall = completedToolCalls.find(
+          (toolCall) => toolCall.name === "start_deep_research",
+        );
+        if (!startCall || startCall.status !== "success" || startCall.isError) {
+          throw new ResearchStartRequiredError();
+        }
+        notifyAgentExecutionPhase("idle");
+        return "";
+      }
+      if (requestedChatMode) {
+        const nextConfig = {
+          ...applyChatMode(config, requestedChatMode),
+          useSearch:
+            requestedChatMode === "research" && searchCompatibility.enabled
+              ? true
+              : config.useSearch === true,
+        };
+        const agentRunId =
+          requestedChatMode === "agent"
+            ? options?.agentRun?.id || uuidv7()
+            : undefined;
+        try {
+          options?.onChatModeChange?.(nextConfig, agentRunId);
+        } catch {
+          // UI observers do not own the request's execution semantics.
+        }
+        onToolUpdate?.([]);
+        onOutputBlocks?.([]);
+        onChunk("", "", []);
+        return streamChatResponse(
+          sessionId,
+          model,
+          history,
+          requestedChatMode === "research"
+            ? options?.researchLaunchMessage || newMessage
+            : newMessage,
+          attachments,
+          nextConfig,
+          onChunk,
+          userSystemInstruction,
+          onSearchStatus,
+          onToolUpdate,
+          onImage,
+          onUsage,
+          signal,
+          activePlugins,
+          skillsContext,
+          onOutputBlocks,
+          toolConfirmationController,
+          {
+            ...options,
+            executionWorkflow:
+              requestedChatMode === "research"
+                ? { kind: "research", phase: "start" }
+                : { kind: "agent" },
+            agentRun: agentRunId
+              ? {
+                  ...options?.agentRun,
+                  id: agentRunId,
+                }
+              : requestedChatMode === "research"
+                ? options?.agentRun
+                : undefined,
+            allowedToolIds: undefined,
+            enforceAllowedToolIds: undefined,
+            allowedToolEffects: undefined,
+            resumeAgentRun: false,
+          },
+        );
+      }
       const completedById = new Map(
         [...completedToolCalls, ...nonExecutedToolCalls].map((toolCall) => [
           toolCall.id,
@@ -2543,6 +2984,17 @@ export const streamChatResponse = async (
         }),
         ...budgetSkippedToolCalls,
       ];
+
+      notifyAgentExecutionPhase("idle");
+      let pauseAfterToolBatch = false;
+      try {
+        pauseAfterToolBatch = options?.shouldPauseAfterToolBatch?.() === true;
+      } catch {
+        pauseAfterToolBatch = true;
+      }
+      if (pauseAfterToolBatch) {
+        throw createAbortError();
+      }
 
       committedContent = result.content
         ? `${committedContent}${result.content}\n\n`
@@ -2600,13 +3052,7 @@ export const streamChatResponse = async (
     }
 
     assertForcedPluginsCalled();
-    if (agentRun?.status === "running") {
-      await updateAgentRun((current) =>
-        transitionAgentRunStatus(current, "completed", {
-          stop: { reason: "completed" },
-        }),
-      );
-    }
+    await completeAgentRun();
     return committedContent;
   } catch (error) {
     if (
@@ -2639,6 +3085,11 @@ export const streamChatResponse = async (
           });
         }
         if (isAbortError(error, signal)) {
+          if (options?.abortAgentRunAsInterrupted) {
+            return transitionAgentRunStatus(recovered, "interrupted", {
+              stop: { reason: "page_interrupted" },
+            });
+          }
           return transitionAgentRunStatus(recovered, "cancelled", {
             stop: { reason: "user_stopped" },
           });
@@ -2660,6 +3111,11 @@ export const streamChatResponse = async (
     }
     throw error;
   } finally {
+    try {
+      options?.onAgentExecutionPhase?.("idle");
+    } catch {
+      // UI lifecycle observers must not change cleanup semantics.
+    }
     if (agentRunLease) releaseAgentRunLease(agentRunLease);
   }
 };

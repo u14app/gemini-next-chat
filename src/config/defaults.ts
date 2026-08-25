@@ -40,9 +40,11 @@ export const DEFAULT_MODEL_PARAMS = {
  * 聊天配置默认值
  */
 export const DEFAULT_CHAT_CONFIG = {
+  chatMode: "auto",
   useSearch: false,
   useReasoning: false,
   useAgentMode: false,
+  useDeepResearch: false,
   reasoningMode: "off",
   useRAG: false,
   temperature: 0.7,

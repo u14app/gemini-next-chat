@@ -29,6 +29,7 @@ import About from "./zh/About.json";
 import GlobalSearch from "./zh/GlobalSearch.json";
 import Sync from "./zh/Sync.json";
 import Shortcuts from "./zh/Shortcuts.json";
+import Research from "./zh/Research.json";
 
 const messages = {
   Common,
@@ -62,6 +63,7 @@ const messages = {
   GlobalSearch,
   Sync,
   Shortcuts,
+  Research,
 };
 
 export default messages;

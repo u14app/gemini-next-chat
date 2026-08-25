@@ -9,9 +9,84 @@ import { mapWithConcurrency } from "@/lib/utils/concurrency";
 import { createSearchProvider } from "@/services/api/searchService";
 import type { SearchTimeRange } from "@/types";
 
-import type { BuiltinToolBinding } from "./types";
+import type { BuiltinResearchQueryBudget, BuiltinToolBinding } from "./types";
 
 const WEB_SEARCH_QUERY_MAX_CHARS = 4_000;
+
+interface ResearchSearchBindingOptions {
+  queryBudget?: BuiltinResearchQueryBudget;
+}
+
+function consumeResearchQueries(
+  budget: BuiltinResearchQueryBudget | undefined,
+  queries: string[],
+): "ok" | "exhausted" | "duplicate" | "timed_out" {
+  if (!budget) return "ok";
+  if (budget.deadlineAt !== undefined && Date.now() >= budget.deadlineAt) {
+    return "timed_out";
+  }
+  const normalized = queries.map((query) =>
+    query.normalize("NFKC").trim().replace(/\s+/g, " ").toLowerCase(),
+  );
+  const unique = new Set(normalized);
+  if (
+    unique.size !== normalized.length ||
+    normalized.some((query) => budget.seenQueries?.has(query))
+  ) {
+    return "duplicate";
+  }
+  if (queries.length > budget.remainingQueries) return "exhausted";
+  budget.remainingQueries -= queries.length;
+  normalized.forEach((query) => budget.seenQueries?.add(query));
+  budget.onQueriesExecuted?.([...queries]);
+  return "ok";
+}
+
+function queryBudgetError(
+  result: Exclude<ReturnType<typeof consumeResearchQueries>, "ok">,
+) {
+  if (result === "duplicate") {
+    return errorResult(
+      "RESEARCH_QUERY_DUPLICATE",
+      "The normalized research query was already executed in this run.",
+    );
+  }
+  if (result === "timed_out") {
+    return errorResult(
+      "RESEARCH_RECON_TIMEOUT",
+      "The pre-approval reconnaissance deadline has elapsed.",
+    );
+  }
+  return errorResult(
+    "RESEARCH_QUERY_BUDGET_EXHAUSTED",
+    "The approved research query budget is exhausted.",
+  );
+}
+
+function createQuerySignal(
+  parentSignal: AbortSignal | undefined,
+  deadlineAt: number | undefined,
+): { signal: AbortSignal | undefined; cleanup: () => void } {
+  if (deadlineAt === undefined) {
+    return { signal: parentSignal, cleanup: () => undefined };
+  }
+  const controller = new AbortController();
+  const forwardAbort = () => controller.abort(parentSignal?.reason);
+  if (parentSignal?.aborted) forwardAbort();
+  else parentSignal?.addEventListener("abort", forwardAbort, { once: true });
+  const timeoutId = setTimeout(
+    () =>
+      controller.abort(new DOMException("Recon timed out.", "TimeoutError")),
+    Math.max(0, deadlineAt - Date.now()),
+  );
+  return {
+    signal: controller.signal,
+    cleanup: () => {
+      clearTimeout(timeoutId);
+      parentSignal?.removeEventListener("abort", forwardAbort);
+    },
+  };
+}
 
 function errorResult(code: string, message: string) {
   return {
@@ -24,7 +99,9 @@ function errorResult(code: string, message: string) {
   };
 }
 
-export function createWebSearchBinding(): BuiltinToolBinding {
+export function createWebSearchBinding(
+  options: ResearchSearchBindingOptions = {},
+): BuiltinToolBinding {
   return {
     definition: {
       type: "function",
@@ -87,6 +164,8 @@ export function createWebSearchBinding(): BuiltinToolBinding {
           "web_search requires a non-empty query.",
         );
       }
+      const budgetResult = consumeResearchQueries(options.queryBudget, [query]);
+      if (budgetResult !== "ok") return queryBudgetError(budgetResult);
 
       const requestedMax =
         typeof input.max_results === "number" &&
@@ -95,25 +174,35 @@ export function createWebSearchBinding(): BuiltinToolBinding {
           : undefined;
       const maxResults =
         requestedMax === undefined
-          ? undefined
+          ? options.queryBudget?.maxResultsPerQuery
           : Math.min(
+              options.queryBudget?.maxResultsPerQuery ??
+                SEARCH_CONFIG_LIMITS.maxResultsLimit,
               SEARCH_CONFIG_LIMITS.maxResultsLimit,
               Math.max(SEARCH_CONFIG_LIMITS.minResultsLimit, requestedMax),
             );
 
       context.emit.search?.({ phase: "start" });
+      const querySignal = createQuerySignal(
+        context.signal,
+        options.queryBudget?.deadlineAt,
+      );
       try {
         const result = await createSearchProvider(
           { query, maxResults },
-          context.signal,
+          querySignal.signal,
         );
         context.signal?.throwIfAborted();
-        const sources = normalizeSearchSources(result.sources, {
-          maxSources: Math.min(
-            maxResults ?? SEARCH_RESULT_LIMITS.maxSources,
-            SEARCH_RESULT_LIMITS.maxSources,
+        const sources = await Promise.all(
+          normalizeSearchSources(result.sources, {
+            maxSources: Math.min(
+              maxResults ?? SEARCH_RESULT_LIMITS.maxSources,
+              SEARCH_RESULT_LIMITS.maxSources,
+            ),
+          }).map((source) =>
+            createEvidenceSource(source, { kind: "search", query }),
           ),
-        });
+        );
         const images = normalizeImageSources(
           result.images,
           Math.min(
@@ -124,6 +213,15 @@ export function createWebSearchBinding(): BuiltinToolBinding {
         context.emit.search?.({ phase: "complete", sources, images });
         return { query, sources, images };
       } catch (error) {
+        const timedOut =
+          querySignal.signal?.aborted &&
+          querySignal.signal.reason instanceof Error &&
+          querySignal.signal.reason.name === "TimeoutError";
+        if (timedOut) {
+          const message = "The pre-approval reconnaissance timed out.";
+          context.emit.search?.({ phase: "error", message });
+          return errorResult("RESEARCH_RECON_TIMEOUT", message);
+        }
         if (
           context.signal?.aborted ||
           (error instanceof Error && error.name === "AbortError")
@@ -137,7 +235,12 @@ export function createWebSearchBinding(): BuiltinToolBinding {
             ? error.message
             : "Web search failed.";
         context.emit.search?.({ phase: "error", message });
+        if (error instanceof Error && error.name === "TimeoutError") {
+          return errorResult("RESEARCH_RECON_TIMEOUT", message);
+        }
         return errorResult("WEB_SEARCH_FAILED", message);
+      } finally {
+        querySignal.cleanup();
       }
     },
   };
@@ -186,7 +289,9 @@ function buildFilteredQuery(
 }
 
 /** V2 search while retaining web_search as a compatibility alias. */
-export function createSearchWebV2Binding(): BuiltinToolBinding {
+export function createSearchWebV2Binding(
+  options: ResearchSearchBindingOptions = {},
+): BuiltinToolBinding {
   return {
     definition: {
       type: "function",
@@ -266,6 +371,8 @@ export function createSearchWebV2Binding(): BuiltinToolBinding {
           "search_web requires between one and four non-empty queries.",
         );
       }
+      const budgetResult = consumeResearchQueries(options.queryBudget, queries);
+      if (budgetResult !== "ok") return queryBudgetError(budgetResult);
       const domains = readStringList(input.domains, 8, 253).filter((domain) =>
         /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/i.test(
           domain,
@@ -287,15 +394,21 @@ export function createSearchWebV2Binding(): BuiltinToolBinding {
         : undefined;
       const maxResults = Number.isInteger(input.max_results_per_query)
         ? Math.min(
+            options.queryBudget?.maxResultsPerQuery ??
+              SEARCH_CONFIG_LIMITS.maxResultsLimit,
             SEARCH_CONFIG_LIMITS.maxResultsLimit,
             Math.max(
               SEARCH_CONFIG_LIMITS.minResultsLimit,
               Number(input.max_results_per_query),
             ),
           )
-        : undefined;
+        : options.queryBudget?.maxResultsPerQuery;
 
       context.emit.search?.({ phase: "start" });
+      const querySignal = createQuerySignal(
+        context.signal,
+        options.queryBudget?.deadlineAt,
+      );
       try {
         const batches = await mapWithConcurrency(queries, 3, async (query) => {
           const effectiveQuery = buildFilteredQuery(query, {
@@ -311,7 +424,7 @@ export function createSearchWebV2Binding(): BuiltinToolBinding {
               maxResults,
               timeRange,
             },
-            context.signal,
+            querySignal.signal,
           );
           const normalized = normalizeSearchSources(result.sources, {
             maxSources: Math.min(
@@ -370,6 +483,15 @@ export function createSearchWebV2Binding(): BuiltinToolBinding {
           },
         };
       } catch (error) {
+        const timedOut =
+          querySignal.signal?.aborted &&
+          querySignal.signal.reason instanceof Error &&
+          querySignal.signal.reason.name === "TimeoutError";
+        if (timedOut) {
+          const message = "The pre-approval reconnaissance timed out.";
+          context.emit.search?.({ phase: "error", message });
+          return errorResult("RESEARCH_RECON_TIMEOUT", message);
+        }
         if (
           context.signal?.aborted ||
           (error instanceof Error && error.name === "AbortError")
@@ -380,7 +502,12 @@ export function createSearchWebV2Binding(): BuiltinToolBinding {
         const message =
           error instanceof Error ? error.message : "Web search failed.";
         context.emit.search?.({ phase: "error", message });
+        if (error instanceof Error && error.name === "TimeoutError") {
+          return errorResult("RESEARCH_RECON_TIMEOUT", message);
+        }
         return errorResult("WEB_SEARCH_FAILED", message);
+      } finally {
+        querySignal.cleanup();
       }
     },
   };

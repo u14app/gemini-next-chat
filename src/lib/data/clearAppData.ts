@@ -18,6 +18,7 @@ import {
   APP_RESTORE_CREDENTIAL_NOTICE_KEY,
   runWithExclusiveAppDataClearLock,
 } from "./appRestoreJournal";
+import { getResearchTaskRepository } from "@/services/research";
 
 const APP_OPFS_DIRECTORIES = ["knowledge-base", "workspaces", "images", "chat"];
 const SESSION_MESSAGES_PREFIX = "session_messages_";
@@ -224,6 +225,10 @@ async function clearChatMetadataAndMessages(): Promise<void> {
   }
 }
 
+async function clearResearchTasks(): Promise<void> {
+  await getResearchTaskRepository().clear();
+}
+
 async function clearKnowledgeData(rag: RAGConfig): Promise<void> {
   await cleanupPersistedKnowledgeVectors(rag);
   await cleanupOPFSDirectory("knowledge-base");
@@ -257,6 +262,7 @@ export async function clearBrowserAppDataSources({
           break;
         case "chats":
           await clearChatMetadataAndMessages();
+          await clearResearchTasks();
           break;
         case "chatFiles":
           await cleanupOPFSDirectory("chat");
@@ -296,6 +302,7 @@ export async function clearBrowserAppData(rag: RAGConfig): Promise<void> {
     await cleanupPersistedKnowledgeVectors(rag);
     await cleanupOPFSDirectories();
     await clearLocalStorageKeys();
+    await clearResearchTasks();
     await localforage.clear();
     await appDb.clear();
     await clearLocalSyncState();

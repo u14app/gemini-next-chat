@@ -252,6 +252,7 @@ describe("shortcut settings", () => {
       expect(messages.action_globalSearch).toBeTruthy();
       expect(messages.action_newChat).toBeTruthy();
       expect(messages.action_focusComposer).toBeTruthy();
+      expect(messages.action_cycleChatMode).toBeTruthy();
       expect(messages.action_toggleSidebar).toBeTruthy();
       expect(messages.action_openShortcutSettings).toBeTruthy();
       expect(messages.action_stopGeneration).toBeTruthy();

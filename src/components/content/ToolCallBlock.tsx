@@ -2,6 +2,7 @@
 import React, { useEffect, useId, useMemo, useState } from "react";
 import { useTranslations } from "next-intl";
 import type { Attachment, ToolCall, ToolConfirmationDecision } from "@/types";
+import { formatBytes } from "@/config/limits";
 import {
   FileArchive,
   BookOpen,
@@ -32,9 +33,14 @@ import { Blocks } from "lucide-react";
 import {
   formatToolDisplayName,
   formatToolDisplayValue,
+  getBuiltinToolLabelKey,
 } from "@/lib/utils/toolDisplay";
 import { redactSensitiveToolArgs } from "@/lib/plugin/confirmation";
 import { isToolResultEnvelope } from "@/lib/agent/toolResult";
+import {
+  getWorkspaceToolPresentation,
+  type WorkspaceToolPresentation,
+} from "@/lib/utils/workspaceToolPresentation";
 import { useAttachmentDisplayUrl } from "@/lib/utils/useAttachmentDisplayUrl";
 import { useUIStore } from "@/store/core/uiStore";
 import SafeImage from "../ui/SafeImage";
@@ -51,81 +57,52 @@ interface ToolCallBlockProps {
 
 const EMPTY_TOOL_CALLS: ToolCall[] = [];
 
-const BUILTIN_TOOL_PRESENTATIONS = {
-  web_search: { labelKey: "toolWebSearch", icon: Search },
-  search_web: { labelKey: "toolSearchWebV2", icon: Search },
-  search_knowledge: { labelKey: "toolKnowledgeSearch", icon: BookOpen },
-  memory_list: { labelKey: "toolMemoryList", icon: BookOpen },
-  remember: { labelKey: "toolRemember", icon: FilePlus2 },
-  memory_update: { labelKey: "toolMemoryUpdate", icon: FilePen },
-  forget: { labelKey: "toolForget", icon: FileX2 },
-  memory_restore: { labelKey: "toolMemoryRestore", icon: FolderInput },
-  load_skill: { labelKey: "toolLoadSkill", icon: Sparkles },
-  search_skills: { labelKey: "toolSearchSkills", icon: Search },
-  inspect_skill: { labelKey: "toolInspectSkill", icon: BookOpen },
-  run_javascript: { labelKey: "toolRunJavaScript", icon: SquareCode },
-  fetch_url: { labelKey: "toolFetchUrl", icon: Globe },
-  fetch_urls: { labelKey: "toolFetchUrls", icon: Globe },
-  inspect_attachment: {
-    labelKey: "toolInspectAttachment",
-    icon: FolderSearch,
-  },
-  extract_document: { labelKey: "toolExtractDocument", icon: FileText },
-  update_task_plan: { labelKey: "toolUpdateTaskPlan", icon: ListChecks },
-  request_user_input: {
-    labelKey: "toolRequestUserInput",
-    icon: MessageCircleQuestionMark,
-  },
-  search_tools: { labelKey: "toolSearchTools", icon: Search },
-  load_tools: { labelKey: "toolLoadTools", icon: PackageOpen },
-  inspect_mcp_server: { labelKey: "toolInspectMcpServer", icon: Wrench },
-  list_mcp_resources: {
-    labelKey: "toolListMcpResources",
-    icon: FolderSearch,
-  },
-  read_mcp_resource: { labelKey: "toolReadMcpResource", icon: FileText },
-  list_mcp_prompts: { labelKey: "toolListMcpPrompts", icon: BookOpen },
-  get_mcp_prompt: { labelKey: "toolGetMcpPrompt", icon: BookOpen },
-  start_long_text_output: {
-    labelKey: "toolStartLongTextOutput",
-    icon: FileText,
-  },
-  list_workspace_files: {
-    labelKey: "toolListWorkspaceFiles",
-    icon: FolderOpen,
-  },
-  read_workspace_file: { labelKey: "toolReadWorkspaceFile", icon: FileText },
-  stat_workspace_file: { labelKey: "toolStatWorkspaceFile", icon: FileText },
-  diff_workspace_file: { labelKey: "toolDiffWorkspaceFile", icon: FilePen },
-  write_workspace_file: { labelKey: "toolWriteWorkspaceFile", icon: FilePlus2 },
-  edit_workspace_file: { labelKey: "toolEditWorkspaceFile", icon: FilePen },
-  apply_workspace_patch: { labelKey: "toolApplyWorkspacePatch", icon: FilePen },
-  trash_workspace_file: { labelKey: "toolTrashWorkspaceFile", icon: FileX2 },
-  restore_workspace_file: {
-    labelKey: "toolRestoreWorkspaceFile",
-    icon: FolderInput,
-  },
-  delete_workspace_file: { labelKey: "toolDeleteWorkspaceFile", icon: FileX2 },
-  validate_workspace_file: {
-    labelKey: "toolValidateWorkspaceFile",
-    icon: CheckCircle2,
-  },
-  publish_artifact: { labelKey: "toolPublishArtifact", icon: Share2 },
-  share_workspace_file: { labelKey: "toolShareWorkspaceFile", icon: Share2 },
-  search_workspace_files: {
-    labelKey: "toolSearchWorkspaceFiles",
-    icon: FolderSearch,
-  },
-  move_workspace_file: { labelKey: "toolMoveWorkspaceFile", icon: FolderInput },
-  create_archive: { labelKey: "toolCreateArchive", icon: FileArchive },
+const BUILTIN_TOOL_ICONS = {
+  web_search: Search,
+  search_web: Search,
+  search_knowledge: BookOpen,
+  memory_list: BookOpen,
+  remember: FilePlus2,
+  memory_update: FilePen,
+  forget: FileX2,
+  memory_restore: FolderInput,
+  load_skill: Sparkles,
+  search_skills: Search,
+  inspect_skill: BookOpen,
+  run_javascript: SquareCode,
+  fetch_url: Globe,
+  fetch_urls: Globe,
+  inspect_attachment: FolderSearch,
+  extract_document: FileText,
+  update_task_plan: ListChecks,
+  request_user_input: MessageCircleQuestionMark,
+  search_tools: Search,
+  load_tools: PackageOpen,
+  inspect_mcp_server: Wrench,
+  list_mcp_resources: FolderSearch,
+  read_mcp_resource: FileText,
+  list_mcp_prompts: BookOpen,
+  get_mcp_prompt: BookOpen,
+  start_long_text_output: FileText,
+  list_workspace_files: FolderOpen,
+  read_workspace_file: FileText,
+  stat_workspace_file: FileText,
+  diff_workspace_file: FilePen,
+  write_workspace_file: FilePlus2,
+  edit_workspace_file: FilePen,
+  apply_workspace_patch: FilePen,
+  trash_workspace_file: FileX2,
+  restore_workspace_file: FolderInput,
+  delete_workspace_file: FileX2,
+  validate_workspace_file: CheckCircle2,
+  publish_artifact: Share2,
+  share_workspace_file: Share2,
+  search_workspace_files: FolderSearch,
+  move_workspace_file: FolderInput,
+  create_archive: FileArchive,
 } as const;
 
-type BuiltinToolName = keyof typeof BUILTIN_TOOL_PRESENTATIONS;
-
-const getBuiltinToolPresentation = (
-  name: string,
-): (typeof BUILTIN_TOOL_PRESENTATIONS)[BuiltinToolName] | undefined =>
-  BUILTIN_TOOL_PRESENTATIONS[name as BuiltinToolName];
+type BuiltinToolIconName = keyof typeof BUILTIN_TOOL_ICONS;
 
 function getToolTargetSummary(args: unknown): string | null {
   const redacted = redactSensitiveToolArgs(args);
@@ -153,7 +130,7 @@ function getToolTargetSummary(args: unknown): string | null {
 }
 
 const ToolNameIcon: React.FC<{ name: string }> = ({ name }) => {
-  const Icon = getBuiltinToolPresentation(name)?.icon ?? Wrench;
+  const Icon = BUILTIN_TOOL_ICONS[name as BuiltinToolIconName] ?? Wrench;
   return <Icon size={12} className="text-gray-400" aria-hidden="true" />;
 };
 
@@ -209,7 +186,7 @@ const ToolCallBlock: React.FC<ToolCallBlockProps> = ({
   const displayToolCalls = useMemo(
     () =>
       safeToolCalls.map((toolCall) => {
-        const builtinPresentation = getBuiltinToolPresentation(toolCall.name);
+        const builtinLabelKey = getBuiltinToolLabelKey(toolCall.name);
         const resultValue = isToolResultEnvelope(toolCall.result)
           ? toolCall.result.ok
             ? toolCall.result.data
@@ -217,8 +194,8 @@ const ToolCallBlock: React.FC<ToolCallBlockProps> = ({
           : toolCall.result;
         return {
           ...toolCall,
-          displayName: builtinPresentation
-            ? t(builtinPresentation.labelKey)
+          displayName: builtinLabelKey
+            ? t(builtinLabelKey)
             : formatToolDisplayName(toolCall.name),
           argsDisplay: formatToolDisplayValue(
             redactSensitiveToolArgs(toolCall.args),
@@ -228,6 +205,7 @@ const ToolCallBlock: React.FC<ToolCallBlockProps> = ({
               ? formatToolDisplayValue(resultValue)
               : null,
           targetSummary: getToolTargetSummary(toolCall.args),
+          workspacePresentation: getWorkspaceToolPresentation(toolCall),
         };
       }),
     [safeToolCalls, t],
@@ -296,6 +274,131 @@ const ToolCallBlock: React.FC<ToolCallBlockProps> = ({
     </span>
   );
 
+  const WorkspaceResultCard = ({
+    snapshot,
+  }: {
+    snapshot: WorkspaceToolPresentation;
+  }) => {
+    const metadata = [
+      snapshot.mode
+        ? {
+            label: t("workspaceToolMode"),
+            value: t(`workspaceToolMode_${snapshot.mode}`),
+          }
+        : null,
+      snapshot.revision
+        ? {
+            label: t("workspaceToolRevision"),
+            value: snapshot.revision.replace(/^sha256:/, "").slice(0, 12),
+          }
+        : null,
+      typeof snapshot.bytes === "number"
+        ? {
+            label: t("workspaceToolSize"),
+            value: formatBytes(snapshot.bytes),
+          }
+        : null,
+      typeof snapshot.replacements === "number"
+        ? {
+            label: t("workspaceToolReplacements"),
+            value: String(snapshot.replacements),
+          }
+        : null,
+    ].filter((item): item is { label: string; value: string } => item !== null);
+
+    return (
+      <div className="mb-2 overflow-hidden rounded-md border border-blue-200/80 bg-blue-50/50 dark:border-blue-900/70 dark:bg-blue-950/15">
+        <div className="flex items-start gap-2 border-b border-blue-200/70 px-3 py-2 dark:border-blue-900/60">
+          <FileText
+            size={13}
+            className="mt-0.5 shrink-0 text-blue-600 dark:text-blue-300"
+            aria-hidden="true"
+          />
+          <div className="min-w-0 flex-1">
+            <div className="truncate font-mono text-[11px] font-semibold text-foreground">
+              {snapshot.target || t("workspaceToolWorkspaceTarget")}
+            </div>
+            {snapshot.from && snapshot.to ? (
+              <div className="mt-0.5 truncate font-mono text-[10px] text-muted-foreground">
+                {t("workspaceToolMove", {
+                  from: snapshot.from,
+                  to: snapshot.to,
+                })}
+              </div>
+            ) : null}
+          </div>
+        </div>
+
+        {metadata.length > 0 ? (
+          <dl className="grid grid-cols-2 gap-x-3 gap-y-2 px-3 py-2 sm:grid-cols-4">
+            {metadata.map((item) => (
+              <div key={item.label} className="min-w-0">
+                <dt className="text-[9px] font-medium text-muted-foreground">
+                  {item.label}
+                </dt>
+                <dd className="mt-0.5 truncate font-mono text-[10px] text-foreground/85">
+                  {item.value}
+                </dd>
+              </div>
+            ))}
+          </dl>
+        ) : null}
+
+        {snapshot.previews.map((preview, index) => (
+          <div
+            key={`${preview.kind}-${index}`}
+            className="border-t border-blue-200/70 px-3 py-2 dark:border-blue-900/60"
+          >
+            <div className="text-[9px] font-medium text-muted-foreground">
+              {t(`workspaceToolPreview_${preview.kind}`)}
+            </div>
+            <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap break-words font-mono text-[11px] leading-5 text-foreground/85 custom-scrollbar">
+              {preview.text || t("workspaceToolEmptyContent")}
+            </pre>
+            {preview.truncated ? (
+              <span className="mt-1 inline-block text-[9px] font-medium text-amber-700 dark:text-amber-300">
+                {t("workspaceToolPreviewTruncated")}
+              </span>
+            ) : null}
+          </div>
+        ))}
+      </div>
+    );
+  };
+
+  const renderRawPayload = (tc: (typeof displayToolCalls)[number]) => (
+    <>
+      <div className="mb-1 max-h-72 overflow-auto rounded bg-gray-100 p-2 font-mono text-gray-600 dark:bg-muted dark:text-foreground/85">
+        <span className="opacity-50 select-none">{t("argsLabel")}</span>
+        {tc.argsDisplay.truncated ? <TruncatedBadge /> : null}
+        <pre className="mt-1 whitespace-pre-wrap break-words">
+          {tc.argsDisplay.text}
+        </pre>
+      </div>
+
+      {tc.result !== undefined || tc.resultImages?.length ? (
+        <div
+          className={`max-h-72 overflow-auto rounded border-l-2 p-2 font-mono ${tc.isError ? "border-red-500 bg-red-50 text-red-600 dark:bg-red-900/10 dark:text-red-300" : "border-green-500 bg-green-50 text-gray-600 dark:bg-green-900/10 dark:text-foreground/85"}`}
+        >
+          <span className="opacity-50 select-none">{t("resultLabel")}</span>
+          {tc.resultDisplay?.truncated ? <TruncatedBadge /> : null}
+          {tc.result !== undefined ? (
+            <pre className="mt-1 whitespace-pre-wrap break-words">
+              {tc.resultDisplay?.text || ""}
+            </pre>
+          ) : null}
+          {tc.resultImages?.length ? (
+            <div className="mt-2 flex flex-wrap gap-2">
+              {tc.resultImages.map((image) => (
+                <ToolResultImage key={image.id} image={image} />
+              ))}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+    </>
+  );
+
   return (
     <div className="mb-3 overflow-hidden rounded-lg border border-gray-200 bg-gray-50/50 transition-[border-color,background-color,box-shadow] duration-300 dark:border-border dark:bg-muted/30">
       <Button
@@ -305,10 +408,10 @@ const ToolCallBlock: React.FC<ToolCallBlockProps> = ({
         aria-controls={panelId}
         aria-busy={isLoading || undefined}
         onClick={() => setIsExpanded(!isExpanded)}
-        className="flex min-h-11 w-full cursor-pointer select-none items-center gap-2 px-3 py-2 text-xs font-medium text-gray-600 transition-colors hover:bg-gray-100/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/50 motion-reduce:transition-none dark:text-muted-foreground dark:hover:bg-accent/30"
+        className="flex w-full cursor-pointer select-none items-center gap-2 px-3 py-2 text-xs font-medium text-gray-600 transition-colors hover:bg-gray-100/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/50 motion-reduce:transition-none dark:text-muted-foreground dark:hover:bg-accent/30"
       >
         <div
-          className={`p-1 rounded ${awaitingConfirmation ? "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300" : isLoading ? "bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400" : isError ? "bg-red-100 text-red-600" : "bg-green-100 text-green-600 dark:bg-green-900/30 dark:text-green-400"}`}
+          className={`p-1 rounded ${awaitingConfirmation ? "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300" : isLoading ? "text-blue-600 dark:bg-blue-900/30 dark:text-blue-400" : isError ? "text-red-600" : "dark:text-green-400"}`}
         >
           {awaitingConfirmation ? (
             <ShieldAlert size={12} aria-hidden="true" />
@@ -503,37 +606,19 @@ const ToolCallBlock: React.FC<ToolCallBlockProps> = ({
                   </Button>
                 ) : null}
 
-                <div className="mb-1 max-h-72 overflow-auto rounded bg-gray-100 p-2 font-mono text-gray-600 dark:bg-muted dark:text-foreground/85">
-                  <span className="opacity-50 select-none">
-                    {t("argsLabel")}
-                  </span>
-                  {tc.argsDisplay.truncated ? <TruncatedBadge /> : null}
-                  <pre className="mt-1 whitespace-pre-wrap break-words">
-                    {tc.argsDisplay.text}
-                  </pre>
-                </div>
+                {tc.workspacePresentation ? (
+                  <WorkspaceResultCard snapshot={tc.workspacePresentation} />
+                ) : null}
 
-                {(tc.result !== undefined || tc.resultImages?.length) && (
-                  <div
-                    className={`max-h-72 overflow-auto rounded p-2 font-mono border-l-2 ${tc.isError ? "bg-red-50 dark:bg-red-900/10 border-red-500 text-red-600 dark:text-red-300" : "bg-green-50 dark:bg-green-900/10 border-green-500 text-gray-600 dark:text-foreground/85"}`}
-                  >
-                    <span className="opacity-50 select-none">
-                      {t("resultLabel")}
-                    </span>
-                    {tc.resultDisplay?.truncated ? <TruncatedBadge /> : null}
-                    {tc.result !== undefined ? (
-                      <pre className="mt-1 whitespace-pre-wrap break-words">
-                        {tc.resultDisplay?.text || ""}
-                      </pre>
-                    ) : null}
-                    {tc.resultImages?.length ? (
-                      <div className="mt-2 flex flex-wrap gap-2">
-                        {tc.resultImages.map((image) => (
-                          <ToolResultImage key={image.id} image={image} />
-                        ))}
-                      </div>
-                    ) : null}
-                  </div>
+                {tc.workspacePresentation ? (
+                  <details className="rounded-md border border-border bg-background/60 px-2.5 py-2">
+                    <summary className="cursor-pointer select-none text-[10px] font-medium text-muted-foreground transition-colors hover:text-foreground">
+                      {t("workspaceToolRawDetails")}
+                    </summary>
+                    <div className="mt-2">{renderRawPayload(tc)}</div>
+                  </details>
+                ) : (
+                  renderRawPayload(tc)
                 )}
               </div>
             ))}

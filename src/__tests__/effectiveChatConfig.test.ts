@@ -56,4 +56,33 @@ describe("effective chat request config", () => {
 
     expect(config.useAgentMode).toBe(false);
   });
+
+  it("derives Research independently from Agent mode", () => {
+    const config = resolveEffectiveChatRequestConfig({
+      chatConfig: {
+        chatMode: "research",
+        useSearch: true,
+        useReasoning: false,
+        useAgentMode: true,
+        useDeepResearch: true,
+        reasoningMode: "off",
+        temperature: 0.7,
+      },
+      selectedModel: "openai:gpt-tools",
+      modelMetadata: {
+        "gpt-tools": {
+          id: "gpt-tools",
+          name: "GPT Tools",
+          tool_call: true,
+        },
+      },
+      customModelMetadata: {},
+    });
+
+    expect(config).toMatchObject({
+      chatMode: "research",
+      useAgentMode: false,
+      useDeepResearch: true,
+    });
+  });
 });

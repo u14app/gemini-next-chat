@@ -132,6 +132,7 @@ describe("browser backup export", () => {
       kind: "zip-v3",
       fileCount: 1,
       totalFileBytes: 5,
+      skippedLegacyResearchTaskCount: 0,
       incomplete: false,
     });
     expect(data).toContain("installedPlugins");
@@ -212,6 +213,7 @@ describe("browser backup export", () => {
     await expect(inspectBrowserAppBackup(backup.blob)).resolves.toMatchObject({
       fileCount: 3,
       totalFileBytes: 18,
+      skippedLegacyResearchTaskCount: 0,
       incomplete: false,
     });
   });

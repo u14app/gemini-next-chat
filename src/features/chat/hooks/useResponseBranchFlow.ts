@@ -179,6 +179,7 @@ export function useResponseBranchFlow(deps: ChatFlowDeps) {
       const sessionMeta = getCurrentSession();
       const {
         finalText,
+        researchLaunchText,
         finalAttachments,
         ragSources,
         ragError,
@@ -211,20 +212,23 @@ export function useResponseBranchFlow(deps: ChatFlowDeps) {
         injectedMemoryIds,
       );
       const skillResolution =
-        recordedSkillResolution ||
+        (!effectiveContext.researchModeEnabled && recordedSkillResolution) ||
         (await resolveSkillsForMessage({
           message: promptText,
           selectedModel: generationModel,
           locale,
           installedSkills,
-          activeSkillIds: effectiveContext.agentModeEnabled
+          activeSkillIds: effectiveContext.orchestratedModeEnabled
             ? []
             : effectiveContext.activeSkillIds,
           skillBundles,
-          activeSkillBundleIds,
+          activeSkillBundleIds: effectiveContext.researchModeEnabled
+            ? []
+            : activeSkillBundleIds,
           skillParameterValues: skillParameterValuesRef.current,
           skillBundleParameterValues: skillBundleParameterValuesRef.current,
-          autoSelect: skillAutoSelect && !effectiveContext.agentModeEnabled,
+          autoSelect:
+            skillAutoSelect && !effectiveContext.orchestratedModeEnabled,
           signal: generation.controller.signal,
         }));
       if (!isGenerationRunActive(generation)) return;
@@ -419,14 +423,13 @@ export function useResponseBranchFlow(deps: ChatFlowDeps) {
                 agentBudget: effectiveContext.agentBudget,
                 memoryScopes: effectiveContext.memoryScopes,
                 memoryScopeIds: effectiveContext.memoryScopeIds,
-                agentRun: effectiveContext.agentModeEnabled
-                  ? {
-                      id: requestId,
-                      userMessageId: lastUserMsg.id,
-                      modelMessageId: branchMessageId,
-                    }
-                  : undefined,
+                agentRun: {
+                  id: requestId,
+                  userMessageId: lastUserMsg.id,
+                  modelMessageId: branchMessageId,
+                },
               }),
+              researchLaunchMessage: researchLaunchText,
               forcedPluginIds: lastUserMsg.forcedPluginIds,
             },
           ),

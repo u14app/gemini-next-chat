@@ -1,4 +1,5 @@
 import { PROMPT_CONTEXT_LIMITS, RAG_LIMITS } from "@/config/limits";
+import { createEvidenceSource } from "@/lib/agent/evidence";
 import {
   retrieveKnowledgeSources,
   type KnowledgeLexicalIndexCache,
@@ -11,7 +12,12 @@ import {
 } from "@/lib/utils/knowledgeAttachments";
 import type { Attachment, Source } from "@/types";
 
-import type { BuiltinKnowledgeScope, BuiltinToolBinding } from "./types";
+import {
+  consumeBuiltinResearchSourceBodies,
+  type BuiltinKnowledgeScope,
+  type BuiltinResearchSourceBudget,
+  type BuiltinToolBinding,
+} from "./types";
 
 const KNOWLEDGE_QUERY_MAX_CHARS = 4_000;
 const MAX_COLLECTION_FILTERS = 20;
@@ -109,7 +115,9 @@ function createRagFailure(message: string): RagQueryError {
   return { code: "RAG_QUERY_FAILED", message };
 }
 
-export function createKnowledgeSearchBinding(): BuiltinToolBinding {
+export function createKnowledgeSearchBinding({
+  sourceBudget,
+}: { sourceBudget?: BuiltinResearchSourceBudget } = {}): BuiltinToolBinding {
   const lexicalCache: KnowledgeLexicalIndexCache = new Map();
 
   return {
@@ -195,6 +203,12 @@ export function createKnowledgeSearchBinding(): BuiltinToolBinding {
           "The requested collection_ids are outside the selected knowledge scope.",
         );
       }
+      if (sourceBudget && sourceBudget.remainingSourceBodies <= 0) {
+        return errorResult(
+          "RESEARCH_SOURCE_BUDGET_EXHAUSTED",
+          "The approved full-source reading budget is exhausted.",
+        );
+      }
 
       try {
         const result = await retrieveKnowledgeSources({
@@ -206,7 +220,43 @@ export function createKnowledgeSearchBinding(): BuiltinToolBinding {
           lexicalCache,
         });
         context.signal?.throwIfAborted();
-        const sources = boundKnowledgeSources(result.sources);
+        if (sourceBudget && sourceBudget.remainingSourceBodies <= 0) {
+          return errorResult(
+            "RESEARCH_SOURCE_BUDGET_EXHAUSTED",
+            "The approved full-source reading budget is exhausted.",
+          );
+        }
+        const boundedSources = boundKnowledgeSources(result.sources).slice(
+          0,
+          sourceBudget?.remainingSourceBodies ?? RAG_LIMITS.maxTopK,
+        );
+        const sources = await Promise.all(
+          boundedSources.map((source, index) =>
+            createEvidenceSource(
+              {
+                ...source,
+                url:
+                  source.url ||
+                  `knowledge://search/${encodeURIComponent(query)}/${index + 1}`,
+              },
+              {
+                kind: "attachment",
+                query,
+              },
+            ),
+          ),
+        );
+        if (
+          !consumeBuiltinResearchSourceBodies(
+            sourceBudget,
+            sources.map((source) => source.url),
+          )
+        ) {
+          return errorResult(
+            "RESEARCH_SOURCE_BUDGET_EXHAUSTED",
+            "The approved full-source reading budget is exhausted.",
+          );
+        }
         context.emit.knowledgeSources?.(sources, result.ragError);
         return {
           query,

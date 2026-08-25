@@ -313,6 +313,7 @@ describe("app export helpers", () => {
       session1: storedMessageTree,
       orphan: orphanMessageTree,
     });
+    expect(payload.data.research).toEqual([]);
     expect(
       (payload.data.sessionMessages.session1 as typeof storedMessageTree)
         .nodesById.message1.message.attachments[0].url,

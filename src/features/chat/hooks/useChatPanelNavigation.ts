@@ -12,6 +12,7 @@ import {
 interface UseChatPanelNavigationResult {
   viewMode: ChatPanel;
   settingsTab: SettingsTabId;
+  researchTaskId: string | null;
   isSidebarOpen: boolean;
   isNonDesktopViewport: boolean;
   isSidebarDrawerOpen: boolean;
@@ -21,7 +22,7 @@ interface UseChatPanelNavigationResult {
     panel: ChatPanel,
     nextSettingsTab?: SettingsTabId | null,
     historyMode?: "push" | "replace",
-    options?: { keepSidebarOpen?: boolean },
+    options?: { keepSidebarOpen?: boolean; researchTaskId?: string | null },
   ) => void;
   handleSettingsTabChange: (tab: SettingsTabId) => void;
 }
@@ -34,6 +35,7 @@ export function useChatPanelNavigation(): UseChatPanelNavigationResult {
   const [isNonDesktopViewport, setIsNonDesktopViewport] = useState(false);
   const [viewMode, setViewMode] = useState<ChatPanel>("chat");
   const [settingsTab, setSettingsTab] = useState<SettingsTabId>("providers");
+  const [researchTaskId, setResearchTaskId] = useState<string | null>(null);
 
   const updateBrowserSearch = useCallback(
     (params: URLSearchParams, historyMode: "push" | "replace") => {
@@ -60,12 +62,17 @@ export function useChatPanelNavigation(): UseChatPanelNavigationResult {
       panel: ChatPanel,
       nextSettingsTab?: SettingsTabId | null,
       historyMode: "push" | "replace" = "push",
+      nextResearchTaskId?: string | null,
     ) => {
       if (typeof window === "undefined") return;
 
       const nextParams = setChatPanelUrlState(
         new URLSearchParams(window.location.search),
-        { panel, settingsTab: nextSettingsTab },
+        {
+          panel,
+          settingsTab: nextSettingsTab,
+          researchTaskId: nextResearchTaskId,
+        },
       );
       updateBrowserSearch(nextParams, historyMode);
     },
@@ -77,7 +84,7 @@ export function useChatPanelNavigation(): UseChatPanelNavigationResult {
       panel: ChatPanel,
       nextSettingsTab?: SettingsTabId | null,
       historyMode: "push" | "replace" = "push",
-      options?: { keepSidebarOpen?: boolean },
+      options?: { keepSidebarOpen?: boolean; researchTaskId?: string | null },
     ) => {
       const resolvedSettingsTab =
         panel === "settings" ? (nextSettingsTab ?? settingsTab) : null;
@@ -86,7 +93,15 @@ export function useChatPanelNavigation(): UseChatPanelNavigationResult {
       if (resolvedSettingsTab) {
         setSettingsTab(resolvedSettingsTab);
       }
-      updatePanelUrl(panel, resolvedSettingsTab, historyMode);
+      setResearchTaskId(
+        panel === "research" ? (options?.researchTaskId ?? null) : null,
+      );
+      updatePanelUrl(
+        panel,
+        resolvedSettingsTab,
+        historyMode,
+        options?.researchTaskId,
+      );
       if (isNonDesktopViewport && !options?.keepSidebarOpen) {
         setIsSidebarOpen(false);
       }
@@ -113,6 +128,7 @@ export function useChatPanelNavigation(): UseChatPanelNavigationResult {
       );
       setViewMode(parsed.panel);
       setSettingsTab(parsed.settingsTab ?? "providers");
+      setResearchTaskId(parsed.researchTaskId);
       if (parsed.needsReplace) {
         updateBrowserSearch(parsed.normalizedSearchParams, "replace");
       }
@@ -170,6 +186,7 @@ export function useChatPanelNavigation(): UseChatPanelNavigationResult {
   return {
     viewMode,
     settingsTab,
+    researchTaskId,
     isSidebarOpen,
     isNonDesktopViewport,
     isSidebarDrawerOpen,

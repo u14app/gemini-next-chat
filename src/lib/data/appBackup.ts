@@ -43,6 +43,11 @@ import {
   getSessionWorkspaceRoot,
   normalizeWorkspacePath,
 } from "@/lib/agent/workspace";
+import { recoverResearchTask, type ResearchTask } from "@/lib/research";
+import {
+  getResearchTaskRepository,
+  parseResearchTaskValue,
+} from "@/services/research";
 
 const BACKUP_FORMAT = "neo-chat-backup";
 const BACKUP_MIME_TYPE = "application/zip";
@@ -120,6 +125,7 @@ export interface BrowserBackupInspection {
   totalFileBytes: number;
   missingFileCount: number;
   credentialsIncluded: false;
+  skippedLegacyResearchTaskCount: number;
   incomplete: boolean;
 }
 
@@ -140,8 +146,30 @@ interface ParsedBackup {
   archiveEntries: Record<string, Uint8Array>;
 }
 
+interface ParsedResearchTaskBatch {
+  tasks: ResearchTask[];
+  skippedLegacyResearchTaskCount: number;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function parseResearchTaskBatch(value: unknown): ParsedResearchTaskBatch {
+  if (value === undefined || value === null) {
+    return { tasks: [], skippedLegacyResearchTaskCount: 0 };
+  }
+  if (!Array.isArray(value)) {
+    return { tasks: [], skippedLegacyResearchTaskCount: 1 };
+  }
+  const tasks: ResearchTask[] = [];
+  let skippedLegacyResearchTaskCount = 0;
+  for (const item of value) {
+    const task = parseResearchTaskValue(item);
+    if (task) tasks.push(task);
+    else skippedLegacyResearchTaskCount += 1;
+  }
+  return { tasks, skippedLegacyResearchTaskCount };
 }
 
 function throwIfAborted(signal?: AbortSignal): void {
@@ -558,6 +586,9 @@ async function parseBrowserBackup(
     const legacy = asLegacyPayload(parseJsonEntry(bytes, "Legacy backup"));
     const payload = legacyPayloadToV3(legacy);
     const missing = collectReferencedOpfsUrls({ data: payload.data });
+    const { skippedLegacyResearchTaskCount } = parseResearchTaskBatch(
+      payload.data.research,
+    );
     return {
       payload,
       archiveEntries: {},
@@ -569,6 +600,7 @@ async function parseBrowserBackup(
         totalFileBytes: 0,
         missingFileCount: missing.size,
         credentialsIncluded: false,
+        skippedLegacyResearchTaskCount,
         incomplete: true,
       },
     };
@@ -626,6 +658,9 @@ async function parseBrowserBackup(
   const payloadReferences = collectReferencedOpfsUrls({
     data: payloadValue.data,
   });
+  const { skippedLegacyResearchTaskCount } = parseResearchTaskBatch(
+    payloadValue.data.research,
+  );
   const manifestReferences = new Set([
     ...manifest.files.map((fileEntry) => fileEntry.originalUrl),
     ...manifest.missingReferences,
@@ -679,7 +714,10 @@ async function parseBrowserBackup(
       totalFileBytes,
       missingFileCount: manifest.missingReferences.length,
       credentialsIncluded: false,
-      incomplete: manifest.missingReferences.length > 0,
+      skippedLegacyResearchTaskCount,
+      incomplete:
+        manifest.missingReferences.length > 0 ||
+        skippedLegacyResearchTaskCount > 0,
     },
   };
 }
@@ -727,6 +765,9 @@ function rewriteOpfsUrls(
     referenceKeys.add("contentPath");
     referenceKeys.add("path");
   }
+  if (typeof value.artifactId === "string") {
+    referenceKeys.add("artifactId");
+  }
 
   let missingAttachmentUrl = false;
   const output: Record<string, unknown> = {};
@@ -742,6 +783,7 @@ function rewriteOpfsUrls(
         output[key] = replacement;
       } else if (missingUrls.has(nested)) {
         if (isAttachment && key === "url") missingAttachmentUrl = true;
+        if (key === "artifactId") output[key] = nested;
       } else {
         output[key] = nested;
       }
@@ -761,6 +803,18 @@ function rewriteOpfsUrls(
     if (restoredPath) output.path = restoredPath;
   }
   return output;
+}
+
+async function replaceResearchTasks(
+  value: unknown,
+): Promise<ParsedResearchTaskBatch> {
+  const repository = getResearchTaskRepository();
+  const parsed = parseResearchTaskBatch(value);
+  await repository.clear();
+  await Promise.all(
+    parsed.tasks.map((task) => repository.save(recoverResearchTask(task))),
+  );
+  return parsed;
 }
 
 function workspaceRelativePathFromUrl(url: string): string | null {
@@ -905,6 +959,20 @@ function restoredOpfsUrl(
     return `opfs://${archiveRoot}/${uuidv7()}.zip`;
   }
 
+  if (root === "chat" && segments[1] === "research-artifacts") {
+    const storedName = segments[2] ?? "";
+    if (
+      segments.length !== 3 ||
+      !/^[a-f0-9]{8,64}(?:-__restore_[a-z0-9_]+__)?\.md$/i.test(storedName)
+    ) {
+      throw new Error(
+        "Backup contains an invalid research Artifact reference.",
+      );
+    }
+    const contentHash = storedName.replace(/\.md$/i, "").split("-")[0];
+    return `opfs://chat/research-artifacts/${contentHash.toLowerCase()}-__restore_${transactionId}_${String(index).padStart(6, "0")}__.md`;
+  }
+
   if (root === "chat" && segments[1] === "artifacts") {
     const artifactRoot = getSessionArtifactRoot(segments[2] ?? "");
     const storedName = segments[3] ?? "";
@@ -959,6 +1027,7 @@ async function readSnapshot(options: {
   transactionId: string;
   targetDbKeys: string[];
   stagedOpfsUrls: string[];
+  additionalPreviousOpfsUrls?: string[];
 }): Promise<AppRestoreSnapshot> {
   const currentKeys = await appDb.keys();
   const currentManagedKeys = currentKeys.filter(
@@ -990,6 +1059,7 @@ async function readSnapshot(options: {
         ...dbEntries.map((entry) => parseStoredValue(entry.value)),
       ],
     }),
+    ...(options.additionalPreviousOpfsUrls || []),
   ].filter(isAppOwnedOpfsUrl);
 
   return {
@@ -1120,6 +1190,14 @@ export async function restoreBrowserAppBackup(
     let journalWritten = false;
     let writeGateAcquired = false;
     let snapshotWrittenByThisTransaction = false;
+    const previousResearchTasks = await getResearchTaskRepository().list();
+    const previousResearchArtifactUrls = Array.from(
+      new Set(
+        previousResearchTasks.flatMap((task) =>
+          task.reportVersions.map((report) => report.artifactId),
+        ),
+      ),
+    );
 
     try {
       acquireAppRestoreWriteGate(window.localStorage, transactionId);
@@ -1128,6 +1206,7 @@ export async function restoreBrowserAppBackup(
         transactionId,
         targetDbKeys,
         stagedOpfsUrls: stagedUrls,
+        additionalPreviousOpfsUrls: previousResearchArtifactUrls,
       });
       const snapshotBytes = strToU8(JSON.stringify(snapshot)).byteLength;
       await preflightStorage(
@@ -1176,6 +1255,9 @@ export async function restoreBrowserAppBackup(
         total: 1,
       });
       await applyRestoredData(rewrittenData, snapshot);
+      const restoredResearch = await replaceResearchTasks(
+        rewrittenData.research,
+      );
       writeAppRestoreCredentialNotice(
         window.localStorage,
         new Date().toISOString(),
@@ -1192,10 +1274,13 @@ export async function restoreBrowserAppBackup(
 
       return {
         ...parsed.inspection,
+        skippedLegacyResearchTaskCount:
+          restoredResearch.skippedLegacyResearchTaskCount,
         restoredFileCount: stagedUrls.length,
         requiresReload: true,
       };
     } catch (error) {
+      await replaceResearchTasks(previousResearchTasks).catch(() => undefined);
       if (journalWritten) {
         await ensureInterruptedAppRestoreRecovery({
           db: appDb,

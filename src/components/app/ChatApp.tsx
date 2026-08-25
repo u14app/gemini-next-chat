@@ -73,6 +73,10 @@ import type {
   ChatFlowDeps,
   StreamRenderSnapshot,
 } from "@/features/chat/hooks/chatFlowTypes";
+import {
+  ResearchRuntimeProvider,
+  cancelResearchTasksForSession,
+} from "@/features/research";
 
 const logChatAppError = logDevError;
 const EMPTY_MESSAGES: Message[] = [];
@@ -98,6 +102,7 @@ function createProfileSessionConfig(
   return {
     agentProfileId: identifier,
     agentProfile: profile,
+    chatMode: profile.runtime.agentEnabled ? "agent" : "chat",
     useAgentMode: profile.runtime.agentEnabled,
     approvalMode: profile.runtime.approvalMode,
     ...(profile.runtime.budget ? { agentBudget: profile.runtime.budget } : {}),
@@ -222,6 +227,7 @@ const ChatApp = () => {
   const {
     viewMode,
     settingsTab,
+    researchTaskId,
     isSidebarOpen,
     isNonDesktopViewport,
     isSidebarDrawerOpen,
@@ -528,8 +534,10 @@ const ChatApp = () => {
     settingsHasHydrated: _hasHydrated,
     coreHasHydrated,
     useSearch: chatConfig.useSearch,
+    useDeepResearch: chatConfig.useDeepResearch === true,
     currentSearchCompatibility,
     setChatConfig,
+    updateSessionConfig,
     fetchModelMetadata,
     ensureBuiltInPlugins,
     applyCoreServerConfig,
@@ -864,6 +872,7 @@ const ChatApp = () => {
     }
     if (profileConfig) {
       setChatConfig({
+        chatMode: profileConfig.chatMode,
         useAgentMode: profileConfig.useAgentMode,
         ...(profileConfig.useSearch !== undefined
           ? { useSearch: profileConfig.useSearch }
@@ -906,6 +915,7 @@ const ChatApp = () => {
 
   const handleDeleteSession = async (sessionId: string) => {
     try {
+      await cancelResearchTasksForSession(sessionId);
       if (sessionId === currentSessionId) {
         abortBackgroundPostProcessing();
       }
@@ -1082,7 +1092,12 @@ const ChatApp = () => {
   // --- Render ---
 
   return (
-    <>
+    <ResearchRuntimeProvider
+      userInputController={agentUserInputController}
+      toolConfirmationController={toolConfirmationController}
+      onError={showActionError}
+      onNotice={showActionNotice}
+    >
       <ChatAppShell
         actionError={actionError}
         actionNotice={actionNotice}
@@ -1099,6 +1114,7 @@ const ChatApp = () => {
         isSearchEnabled={chatConfig.useSearch}
         viewMode={viewMode}
         settingsTab={settingsTab}
+        researchTaskId={researchTaskId}
         isSidebarOpen={isSidebarOpen}
         isNonDesktopViewport={isNonDesktopViewport}
         isSidebarDrawerOpen={isSidebarDrawerOpen}
@@ -1159,7 +1175,7 @@ const ChatApp = () => {
         request={pendingAgentUserInputRequests[0]}
         onRespond={respondToAgentUserInput}
       />
-    </>
+    </ResearchRuntimeProvider>
   );
 };
 

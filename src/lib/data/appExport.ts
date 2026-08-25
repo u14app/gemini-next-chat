@@ -4,6 +4,7 @@ import {
   STORAGE_VERSION,
 } from "@/store/storage/storageConfig";
 import { flushSessionMessageWrites } from "@/store/sessionMessagePersistence";
+import { getResearchTaskRepository } from "@/services/research";
 
 export const APP_EXPORT_VERSION = 3;
 export const LEGACY_APP_EXPORT_VERSION = 2;
@@ -120,6 +121,7 @@ export interface AppExportInput {
   sessionMessages?: Record<string, unknown>;
   knowledge?: unknown;
   memory?: unknown;
+  research?: unknown;
 }
 
 export interface AppExportPayload {
@@ -143,6 +145,7 @@ export interface AppExportPayload {
     sessionMessages: Record<string, unknown>;
     knowledge?: unknown;
     memory?: unknown;
+    research?: unknown;
   };
 }
 
@@ -249,7 +252,8 @@ function resolveChildScrubContext(
       key === "chat" ||
       key === "sessionMessages" ||
       key === "knowledge" ||
-      key === "memory"
+      key === "memory" ||
+      key === "research"
     ) {
       return "content";
     }
@@ -361,6 +365,7 @@ export function createAppExportPayload(
     sessionMessages: input.sessionMessages ?? {},
     knowledge: input.knowledge,
     memory: input.memory,
+    research: input.research,
   }) as AppExportPayload["data"];
 
   return {
@@ -388,13 +393,16 @@ export async function createBrowserAppExportPayload(
   if (options.flushMessageWrites !== false) {
     await flushSessionMessageWrites();
   }
-  const [settings, chat, knowledge, memory, keys] = await Promise.all([
-    appDb.getItem<unknown>(STORAGE_KEYS.SETTINGS),
-    appDb.getItem<unknown>(STORAGE_KEYS.CHAT),
-    appDb.getItem<unknown>(STORAGE_KEYS.KNOWLEDGE),
-    appDb.getItem<unknown>(STORAGE_KEYS.MEMORY),
-    appDb.keys(),
-  ]);
+  const [settings, chat, knowledge, memory, research, keys] = await Promise.all(
+    [
+      appDb.getItem<unknown>(STORAGE_KEYS.SETTINGS),
+      appDb.getItem<unknown>(STORAGE_KEYS.CHAT),
+      appDb.getItem<unknown>(STORAGE_KEYS.KNOWLEDGE),
+      appDb.getItem<unknown>(STORAGE_KEYS.MEMORY),
+      getResearchTaskRepository().list(),
+      appDb.keys(),
+    ],
+  );
   const sessionMessageKeys = keys.filter((key) =>
     key.startsWith(SESSION_MESSAGES_PREFIX),
   );
@@ -418,6 +426,7 @@ export async function createBrowserAppExportPayload(
     sessionMessages,
     knowledge: parseStoredValue(knowledge),
     memory: parseStoredValue(memory),
+    research,
   });
 }
 
@@ -464,6 +473,9 @@ function collectOpfsUrls(value: unknown, output: Set<string>): void {
     addOpfsUrl(value.contentPath, output);
     addOpfsUrl(value.path, output);
   }
+  if (typeof value.artifactId === "string") {
+    addOpfsUrl(value.artifactId, output);
+  }
 
   for (const [key, nested] of Object.entries(value)) {
     if (key === "displayCache") continue;
@@ -483,6 +495,7 @@ export function collectReferencedOpfsUrls(input: {
   sessionMessages?: unknown;
   knowledge?: unknown;
   memory?: unknown;
+  research?: unknown;
 }): Set<string> {
   const urls = new Set<string>();
   collectOpfsUrls(input, urls);

@@ -38,7 +38,7 @@ export function buildAgentSystemInstruction({
 
   if (available.has("update_task_plan")) {
     instructions.push(
-      "For a genuinely multi-step task, create a concise plan with update_task_plan before substantial work and keep its statuses current. Do not create a plan for a simple one-step answer.",
+      "For a genuinely multi-step task, create a concise plan with update_task_plan before substantial work. Whenever any step changes status, immediately call update_task_plan again with the complete current snapshot. Do not create a plan for a simple one-step answer.",
     );
   }
   if (available.has("web_search") || available.has("search_knowledge")) {
@@ -125,7 +125,7 @@ export function buildAgentSystemInstruction({
 
   if (available.has("update_task_plan")) {
     instructions.push(
-      "Before your final answer, leave no plan step in progress: mark each one completed, and check the result against what the user actually asked for.",
+      "Before your final answer, leave no plan step pending or in progress: send a complete snapshot with every fulfilled step marked completed, and check the result against what the user actually asked for.",
     );
   }
 

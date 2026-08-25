@@ -606,6 +606,7 @@ export const BUILT_IN_PLUGINS: Plugin[] = [
  * 插件分类
  */
 export const PLUGIN_CATEGORIES = {
+  research: "Research",
   utilities: "Utilities",
   imageSearch: "Image Search",
   imageProcessing: "Image Processing",

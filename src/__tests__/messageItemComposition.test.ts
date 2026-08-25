@@ -51,6 +51,25 @@ describe("MessageItem composition", () => {
     expect(workspaceFileBlock).toContain("!forceExpanded && isText && onOpen");
   });
 
+  it("places the model reply action immediately after read aloud", () => {
+    const messageItem = readFileSync(
+      resolve(process.cwd(), "src/components/chat/MessageItem.tsx"),
+      "utf8",
+    );
+    const readAloud = messageItem.lastIndexOf(
+      'tooltip={isPlaying ? t("stop") : t("readAloud")}',
+    );
+    const reply = messageItem.lastIndexOf('tooltip={t("reply")}');
+    const nextModelAction = messageItem.indexOf(
+      "icon={<Maximize2 size={13} />}",
+      reply,
+    );
+
+    expect(readAloud).toBeGreaterThan(-1);
+    expect(reply).toBeGreaterThan(readAloud);
+    expect(nextModelAction).toBeGreaterThan(reply);
+  });
+
   it("keeps attachment/media rendering in a dedicated component", () => {
     const messageItem = readFileSync(
       resolve(process.cwd(), "src/components/chat/MessageItem.tsx"),
@@ -163,8 +182,10 @@ describe("MessageItem composition", () => {
     expect(messageItem).toContain("hideToolCalls");
     expect(messageOutputRenderer).toContain("hideReasoning?: boolean");
     expect(messageOutputRenderer).toContain("hideToolCalls?: boolean");
-    expect(messageOutputRenderer).toContain("if (hideReasoning) return null;");
-    expect(messageOutputRenderer).toContain("if (hideToolCalls) return null;");
+    expect(messageOutputRenderer).toContain(
+      "if (hideReasoning || !block.content) return;",
+    );
+    expect(messageOutputRenderer).toContain("if (hideToolCalls) return;");
     expect(messageItem).toContain("handleDownloadImage");
     expect(messageItem).toContain("imageExportError");
     expect(messageItem).toContain('t("downloadImageFailed")');

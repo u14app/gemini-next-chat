@@ -90,6 +90,10 @@ Neo Chat 是一个可自托管、本地优先的 AI 对话应用，基于 Next.j
 - 支持面向工具调用模型的会话级 Agent 模式，由浏览器编排研究、分 Scope Memory、
   revision 工作区与 Artifact、声明式 Skill、MCP Resources/Prompts、沙箱
   JavaScript、结构化提问和持久化运行/授权状态。
+- 支持独立深度研究模式：在计划批准前执行有明确上限的公开摘要侦察，经结构化计划
+  确认后按 breadth/depth 自适应推进研究波次，显式审计主张与证据关系，并支持安全
+  暂停、手动恢复、报告版本、本地引用和响应式研究工作台。完整报告以不可变 Artifact
+  保存，不会膨胀聊天消息。
 - 支持参数化文本技能：本地化公共目录、安装/卸载、编辑内置技能、本地自定义
   技能、自动选择、工作区预设，以及最多四个普通技能组成的有序非嵌套 bundle。
 - 支持 OpenAPI 风格插件工具，以及 remote Streamable HTTP 与 legacy SSE MCP

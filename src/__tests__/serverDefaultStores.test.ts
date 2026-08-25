@@ -581,6 +581,47 @@ describe("server default store injection", () => {
     expect(hasLocalSecret(savedAuth?.localValueSecret)).toBe(true);
   });
 
+  it("removes the legacy built-in Deep Research plugin", async () => {
+    const { useSettingsStore } = await import("../store/core/settingsStore");
+    const legacyPlugin: Plugin = {
+      id: "deep-research",
+      title: "Deep Research",
+      description: "Legacy internal plugin",
+      logoUrl: "/logo.png",
+      manifestUrl: "",
+      category: "Research",
+      source: "builtin",
+      builtIn: true,
+      added: new Date(0).toISOString(),
+      functions: [],
+      auth: { type: "none", required: false },
+    };
+
+    useSettingsStore.setState((state) => ({
+      ...state,
+      installedPlugins: [...state.installedPlugins, legacyPlugin],
+      activePlugins: [...state.activePlugins, legacyPlugin.id],
+      pluginConfigs: {
+        ...state.pluginConfigs,
+        [legacyPlugin.id]: { disabledFunctions: [] },
+      },
+    }));
+
+    useSettingsStore.getState().ensureBuiltInPlugins();
+
+    expect(
+      useSettingsStore
+        .getState()
+        .installedPlugins.some((plugin) => plugin.id === legacyPlugin.id),
+    ).toBe(false);
+    expect(useSettingsStore.getState().activePlugins).not.toContain(
+      legacyPlugin.id,
+    );
+    expect(useSettingsStore.getState().pluginConfigs).not.toHaveProperty(
+      legacyPlugin.id,
+    );
+  });
+
   it("adds every configured built-in plugin to installed plugins", async () => {
     const { useSettingsStore } = await import("../store/core/settingsStore");
     const {

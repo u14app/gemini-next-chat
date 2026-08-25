@@ -71,6 +71,8 @@ import {
 import { flushSessionMessageWrites } from "../store/sessionMessagePersistence";
 import { normalizeMessage } from "../store/storage/migrations";
 import { deleteFromOPFS, writeBlobToOPFS } from "../utils/opfs";
+import { createResearchTask } from "../lib/research";
+import { getResearchTaskRepository } from "../services/research";
 
 function createLocalStorage(initial: Record<string, string>) {
   const values = new Map(Object.entries(initial));
@@ -248,6 +250,13 @@ function makeBackup(): Blob {
         version: 5,
       },
       memory: { state: { memories: [] }, version: 5 },
+      research: [
+        {
+          schemaVersion: 1,
+          id: "legacy-research-task",
+          sessionId: "new-session",
+        },
+      ],
     },
   };
   const bytes = zipSync({
@@ -256,6 +265,38 @@ function makeBackup(): Blob {
     "files/000000": content,
   });
   return new Blob([bytes], { type: "application/zip" });
+}
+
+function makeLegacyResearchBackup(): Blob {
+  return new Blob(
+    [
+      JSON.stringify({
+        exportVersion: 2,
+        storageVersion: 5,
+        exportedAt: "2026-07-16T00:00:00.000Z",
+        data: {
+          settings: { state: { theme: "dark" }, version: 5 },
+          chat: {
+            state: { sessions: [{ id: "legacy-session" }] },
+            version: 5,
+          },
+          sessionMessages: {
+            "legacy-session": { nodesById: {}, rootMessageIds: [] },
+          },
+          knowledge: { state: { collections: [] }, version: 5 },
+          memory: { state: { memories: [] }, version: 5 },
+          research: [
+            {
+              schemaVersion: 1,
+              id: "legacy-json-research",
+              sessionId: "legacy-session",
+            },
+          ],
+        },
+      }),
+    ],
+    { type: "application/json" },
+  );
 }
 
 function makeWorkspaceOutputBackup(): Blob {
@@ -267,6 +308,11 @@ function makeWorkspaceOutputBackup(): Blob {
     .update(artifactContent)
     .digest("hex");
   const artifactUrl = `opfs://chat/artifacts/new-session/${artifactHash}-published.md`;
+  const researchArtifactContent = strToU8("shared research report");
+  const researchArtifactHash = createHash("sha256")
+    .update(researchArtifactContent)
+    .digest("hex");
+  const researchArtifactUrl = `opfs://chat/research-artifacts/${researchArtifactHash}.md`;
   const workspaceContent = strToU8("restored report");
   const archiveContent = strToU8("zip bytes");
   const files = [
@@ -288,7 +334,164 @@ function makeWorkspaceOutputBackup(): Blob {
       mimeType: "text/markdown",
       content: artifactContent,
     },
+    {
+      originalUrl: researchArtifactUrl,
+      archivePath: "files/000003",
+      mimeType: "text/markdown",
+      content: researchArtifactContent,
+    },
   ];
+  const researchTask = {
+    ...createResearchTask({
+      id: "research-backup",
+      sessionId: "new-session",
+      goal: "Restore a research report",
+      now: 1,
+    }),
+    status: "completed" as const,
+    updatedAt: 5,
+    endedAt: 5,
+    planVersions: [
+      {
+        id: "plan-backup",
+        version: 1,
+        title: "Restore plan",
+        summary: "Verify report backup and restore.",
+        objective: "Verify research report backup and restore.",
+        scope: {
+          audience: "The backup owner",
+          includes: ["Report Artifact availability"],
+          excludes: [],
+          allowedSourceTypes: ["workspace" as const],
+        },
+        assumptions: [],
+        deliverable: {
+          kind: "exact_answer" as const,
+          description: "A restorable report.",
+          requiredSections: ["Answer", "Sources"],
+        },
+        strategy: {
+          initialBreadth: 1,
+          maxDepth: 1,
+          maxQueries: 2,
+          resultsPerQuery: 3,
+        },
+        recon: {
+          status: "unavailable" as const,
+          sourceFeasibility: "unverified" as const,
+          startedAt: 1,
+          completedAt: 1,
+          timeoutMs: 30_000,
+          queryLimit: 2,
+          resultsPerQuery: 5,
+          usage: { queryCount: 0, resultCount: 0, wallTimeMs: 0 },
+          queries: [],
+        },
+        steps: [
+          {
+            id: "step-backup",
+            title: "Verify report availability",
+            objective: "Confirm the report Artifact remains available.",
+            questions: ["Does the report remain available?"],
+            queryTopics: ["research report backup"],
+            sourcePriorities: [
+              { sourceType: "workspace" as const, priority: "high" as const },
+            ],
+            evidenceCriteria: ["The immutable Artifact can be read."],
+            priority: "high" as const,
+          },
+          {
+            id: "step-backup-context",
+            title: "Check backup context",
+            objective: "Confirm backup context remains readable.",
+            questions: ["Is backup context preserved?"],
+            queryTopics: ["backup context"],
+            sourcePriorities: [
+              { sourceType: "workspace" as const, priority: "low" as const },
+            ],
+            evidenceCriteria: ["The backup context can be read."],
+            priority: "low" as const,
+          },
+          {
+            id: "step-backup-reference",
+            title: "Check report reference",
+            objective: "Confirm the report run reference remains valid.",
+            questions: ["Is the report run reference preserved?"],
+            queryTopics: ["report run reference"],
+            sourcePriorities: [
+              { sourceType: "workspace" as const, priority: "low" as const },
+            ],
+            evidenceCriteria: ["The run reference is consistent."],
+            priority: "low" as const,
+          },
+        ],
+        completionCriteria: ["The report Artifact is restored."],
+        createdAt: 2,
+      },
+    ],
+    activePlanVersion: 1,
+    reportRuns: [
+      {
+        id: "run-backup",
+        taskId: "research-backup",
+        planVersion: 1,
+        reportKind: "initial" as const,
+        phase: "completed" as const,
+        strategy: {
+          initialBreadth: 1,
+          maxDepth: 1,
+          maxQueries: 2,
+          resultsPerQuery: 3,
+        },
+        waves: [],
+        nodes: [],
+        learningPackets: [],
+        claims: [],
+        frontierNodeIds: [],
+        executedQueries: [],
+        coverage: {
+          requiredStepCount: 1,
+          coveredStepCount: 1,
+          majorClaimCount: 0,
+          verifiedMajorClaimCount: 0,
+          unresolvedMajorClaimCount: 0,
+          stepRatio: 1,
+          claimRatio: 1,
+          overallRatio: 1,
+          complete: true,
+        },
+        usage: {
+          queryCount: 0,
+          sourceBodyCount: 0,
+          toolRounds: 0,
+          toolCalls: 0,
+          wallTimeMs: 0,
+          totalTokens: 0,
+        },
+        startedAt: 3,
+        updatedAt: 4,
+        endedAt: 4,
+        stopReason: { code: "coverage_satisfied" as const, at: 4 },
+      },
+    ],
+    activeReportRunId: "run-backup",
+    reportVersions: [
+      {
+        id: "report-backup",
+        version: 1,
+        artifactId: researchArtifactUrl,
+        planVersion: 1,
+        researchRunId: "run-backup",
+        createdAt: 4,
+        summary: "The report is restorable.",
+        keyFindings: ["The report Artifact is included."],
+        gaps: [],
+        coveredStepIds: ["step-backup"],
+        kind: "initial" as const,
+      },
+    ],
+    activeReportVersion: 1,
+  };
   const manifest: BackupManifestV3 = {
     format: "neo-chat-backup",
     exportVersion: 3,
@@ -372,6 +575,7 @@ function makeWorkspaceOutputBackup(): Blob {
       },
       knowledge: { state: { collections: [] }, version: 5 },
       memory: { state: { memories: [] }, version: 5 },
+      research: [researchTask],
     },
   };
   const bytes = zipSync({
@@ -470,6 +674,8 @@ describe("browser backup restore", () => {
 
     expect(result).toMatchObject({
       restoredFileCount: 1,
+      skippedLegacyResearchTaskCount: 1,
+      incomplete: true,
       requiresReload: true,
     });
     expect(writtenFiles.size).toBe(1);
@@ -508,6 +714,9 @@ describe("browser backup restore", () => {
     );
     expect(storedItems.has("session_messages_old-session")).toBe(false);
     expect(storedItems.has("session_messages_new-session")).toBe(true);
+    await expect(
+      getResearchTaskRepository().get("legacy-research-task"),
+    ).resolves.toBeNull();
     expect(localStorage.values.get(APP_RESTORE_JOURNAL_KEY)).toContain(
       '"phase":"applied_pending_boot"',
     );
@@ -546,8 +755,11 @@ describe("browser backup restore", () => {
     const restoredTree = storedItems.get("session_messages_new-session") as any;
     const [fileBlock, artifactBlock, archiveBlock] =
       restoredTree.nodesById.message.message.outputBlocks;
+    const restoredResearchTask =
+      await getResearchTaskRepository().get("research-backup");
 
-    expect(result.restoredFileCount).toBe(3);
+    expect(result.restoredFileCount).toBe(4);
+    expect(result.skippedLegacyResearchTaskCount).toBe(0);
     expect(fileBlock.file.url).toMatch(
       /^opfs:\/\/chat\/workspace\/new-session\/restored-[a-z0-9]+\/000000\/report\.md$/,
     );
@@ -572,6 +784,22 @@ describe("browser backup restore", () => {
       /^opfs:\/\/chat\/artifacts\/new-session\/[a-f0-9]{64}-__restore_[a-z0-9]+_000002__published\.md$/,
     );
     expect(writtenFiles.has(artifactBlock.file.url)).toBe(true);
+    expect(restoredResearchTask).toMatchObject({
+      id: "research-backup",
+      status: "completed",
+      reportVersions: [
+        {
+          artifactId: expect.stringMatching(
+            /^opfs:\/\/chat\/research-artifacts\/[a-f0-9]{64}-__restore_[a-z0-9]+_000003__\.md$/,
+          ),
+        },
+      ],
+    });
+    expect(
+      writtenFiles.has(
+        restoredResearchTask?.reportVersions[0]?.artifactId || "",
+      ),
+    ).toBe(true);
     expect(
       normalizeMessage(restoredTree.nodesById.message.message).outputBlocks,
     ).toEqual([
@@ -579,6 +807,32 @@ describe("browser backup restore", () => {
       expect.objectContaining({ type: "workspace_file" }),
       expect.objectContaining({ type: "workspace_archive" }),
     ]);
+  });
+
+  it("restores unrelated legacy JSON data while skipping v1 research tasks", async () => {
+    const localStorage = createLocalStorage({});
+    vi.stubGlobal("window", { localStorage });
+    vi.stubGlobal("navigator", {
+      storage: {
+        estimate: vi.fn(async () => ({ quota: 1_000_000_000, usage: 0 })),
+      },
+    });
+
+    const result = await restoreBrowserAppBackup(makeLegacyResearchBackup());
+
+    expect(result).toMatchObject({
+      kind: "legacy-json-v2",
+      restoredFileCount: 0,
+      skippedLegacyResearchTaskCount: 1,
+      incomplete: true,
+      requiresReload: true,
+    });
+    expect(storedItems.has("session_messages_legacy-session")).toBe(true);
+    await expect(
+      getResearchTaskRepository().get("legacy-json-research"),
+    ).resolves.toBeNull();
+
+    await confirmAppliedRestore(localStorage);
   });
 
   it("rolls current data back when applying imported stores fails", async () => {

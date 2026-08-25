@@ -6,7 +6,10 @@ const DEFAULT_TTL_MS = 2 * 60 * 1_000;
 export interface AgentRunLease {
   version: typeof LEASE_VERSION;
   sessionId: string;
+  /** The run this handle belongs to. Stored records use the first held run. */
   runId: string;
+  /** Every run the owning tab currently holds for this session. */
+  runIds: string[];
   ownerId: string;
   acquiredAt: number;
   checkpointAt: number;
@@ -66,10 +69,19 @@ function parseLease(value: string | null): AgentRunLease | null {
   if (!value) return null;
   try {
     const lease = JSON.parse(value) as Partial<AgentRunLease>;
+    const storedRunIds =
+      Array.isArray(lease.runIds) &&
+      lease.runIds.length > 0 &&
+      lease.runIds.every((id) => typeof id === "string")
+        ? lease.runIds
+        : null;
+    const legacyRunId =
+      typeof lease.runId === "string" ? lease.runId : undefined;
+    const runId = legacyRunId || storedRunIds?.[0];
     if (
       lease.version !== LEASE_VERSION ||
       typeof lease.sessionId !== "string" ||
-      typeof lease.runId !== "string" ||
+      typeof runId !== "string" ||
       typeof lease.ownerId !== "string" ||
       typeof lease.acquiredAt !== "number" ||
       typeof lease.checkpointAt !== "number" ||
@@ -77,7 +89,18 @@ function parseLease(value: string | null): AgentRunLease | null {
     ) {
       return null;
     }
-    return lease as AgentRunLease;
+    // Records written before the lease became reentrant carry a single runId.
+    const runIds = storedRunIds || [runId];
+    return {
+      version: LEASE_VERSION,
+      sessionId: lease.sessionId,
+      runId,
+      runIds: runIds.includes(runId) ? runIds : [runId, ...runIds],
+      ownerId: lease.ownerId,
+      acquiredAt: lease.acquiredAt,
+      checkpointAt: lease.checkpointAt,
+      expiresAt: lease.expiresAt,
+    };
   } catch {
     return null;
   }
@@ -102,6 +125,7 @@ export function acquireAgentRunLease({
     version: LEASE_VERSION,
     sessionId,
     runId,
+    runIds: [runId],
     ownerId,
     acquiredAt: now,
     checkpointAt: now,
@@ -111,23 +135,37 @@ export function acquireAgentRunLease({
 
   const key = leaseKey(sessionId);
   const current = parseLease(storage.getItem(key));
-  if (
-    current &&
-    current.expiresAt > now &&
-    (current.ownerId !== ownerId || current.runId !== runId)
-  ) {
-    return { acquired: false, durable: true, holder: current };
+  const live = current && current.expiresAt > now ? current : null;
+  // Only another tab conflicts. A tab may nest runs on one session because research
+  // prepares its plan inside the chat turn that started it.
+  if (live && live.ownerId !== ownerId) {
+    return { acquired: false, durable: true, holder: live };
   }
-  storage.setItem(key, JSON.stringify(lease));
+  const next: AgentRunLease = live
+    ? {
+        ...live,
+        runId: live.runId,
+        runIds: live.runIds.includes(runId)
+          ? live.runIds
+          : [...live.runIds, runId],
+        checkpointAt: now,
+        expiresAt: now + ttlMs,
+      }
+    : lease;
+  storage.setItem(key, JSON.stringify(next));
   const verified = parseLease(storage.getItem(key));
-  if (!verified || verified.ownerId !== ownerId || verified.runId !== runId) {
+  if (
+    !verified ||
+    verified.ownerId !== ownerId ||
+    !verified.runIds.includes(runId)
+  ) {
     return {
       acquired: false,
       durable: true,
       holder: verified || current || lease,
     };
   }
-  return { acquired: true, durable: true, lease: verified };
+  return { acquired: true, durable: true, lease: { ...verified, runId } };
 }
 
 export function checkpointAgentRunLease(
@@ -146,13 +184,15 @@ export function checkpointAgentRunLease(
   if (
     !current ||
     current.ownerId !== lease.ownerId ||
-    current.runId !== lease.runId
+    !current.runIds.includes(lease.runId)
   ) {
     throw new AgentRunLeaseConflictError(current || lease);
   }
-  const next = { ...lease, checkpointAt: now, expiresAt: now + ttlMs };
+  // Extend from the stored record so a sibling run registered after this handle
+  // was created is not dropped.
+  const next = { ...current, checkpointAt: now, expiresAt: now + ttlMs };
   storage.setItem(key, JSON.stringify(next));
-  return next;
+  return { ...next, runId: lease.runId };
 }
 
 export function releaseAgentRunLease(
@@ -162,7 +202,18 @@ export function releaseAgentRunLease(
   if (!storage) return;
   const key = leaseKey(lease.sessionId);
   const current = parseLease(storage.getItem(key));
-  if (current?.ownerId === lease.ownerId && current.runId === lease.runId) {
+  if (!current || current.ownerId !== lease.ownerId) return;
+  const remaining = current.runIds.filter((id) => id !== lease.runId);
+  if (remaining.length === 0) {
     storage.removeItem(key);
+    return;
   }
+  storage.setItem(
+    key,
+    JSON.stringify({
+      ...current,
+      runId: remaining.includes(current.runId) ? current.runId : remaining[0],
+      runIds: remaining,
+    }),
+  );
 }

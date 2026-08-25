@@ -11,6 +11,7 @@ import { normalizePluginIdRefs } from "../plugin/config";
 import { normalizeSkillIdRefs } from "../skills";
 import { normalizeCompressedContentWithMemoryIds } from "../utils/contextCompression";
 import { isReasoningEnabled, normalizeReasoningMode } from "./reasoning";
+import { normalizeChatMode } from "./mode";
 import {
   normalizeAgentProfile,
   normalizeAgentSkillPolicies,
@@ -341,11 +342,13 @@ export function normalizeSessionConfig(
 ): SessionConfig | undefined {
   if (!config) return undefined;
   const {
+    chatMode: rawChatMode,
     activePlugins: rawActivePlugins,
     activeSkills: rawActiveSkills,
     reasoningMode: rawReasoningMode,
     useReasoning: rawUseReasoning,
     useAgentMode: rawUseAgentMode,
+    useDeepResearch: rawUseDeepResearch,
     toolApprovals: rawToolApprovals,
     agentProfileId: rawAgentProfileId,
     agentProfile: rawAgentProfile,
@@ -373,11 +376,27 @@ export function normalizeSessionConfig(
     capabilities: {},
   })?.runtime.budget;
   const skillPolicies = normalizeAgentSkillPolicies(rawSkillPolicies);
+  const hasChatModeConfig =
+    rawChatMode === "auto" ||
+    rawChatMode === "chat" ||
+    rawChatMode === "research" ||
+    rawChatMode === "agent" ||
+    typeof rawUseAgentMode === "boolean" ||
+    typeof rawUseDeepResearch === "boolean";
+  const chatMode = normalizeChatMode(
+    rawChatMode,
+    rawUseAgentMode,
+    rawUseDeepResearch,
+  );
 
   return {
     ...rest,
-    ...(typeof rawUseAgentMode === "boolean"
-      ? { useAgentMode: rawUseAgentMode }
+    ...(hasChatModeConfig
+      ? {
+          chatMode,
+          useAgentMode: chatMode === "agent",
+          useDeepResearch: chatMode === "research",
+        }
       : {}),
     ...(reasoningMode
       ? {

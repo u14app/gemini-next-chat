@@ -97,10 +97,15 @@ See [CHANGELOG.md](CHANGELOG.md) for the complete release notes.
   device identity, recovery code, convergent CRDT documents, and encrypted OPFS
   chunks.
 - Assistant presets from the LobeHub agent registry plus local custom assistants.
-- Per-chat Agent mode for tool-call-capable models, with browser-orchestrated
-  research, scoped Memory, revisioned workspace and Artifact operations,
-  declarative Skills, MCP resources/prompts, sandboxed JavaScript, structured
-  user input, and persistent run/approval state.
+- Per-chat Agent mode for tool-call-capable models, with scoped Memory,
+  revisioned workspace and Artifact operations, declarative Skills, MCP
+  resources/prompts, sandboxed JavaScript, structured user input, and
+  persistent run/approval state.
+- Independent Deep Research mode with bounded public-summary reconnaissance,
+  structured plan approval, adaptive breadth/depth research waves, explicit
+  claim-to-evidence auditing, safe foreground pause and manual resume,
+  versioned reports, local citations, and a responsive Research workbench. Full
+  reports remain immutable Artifacts instead of chat content.
 - Parameterized text Skills with localized public catalogs, install/uninstall
   flows, local edits, custom skills, auto-selection, workspace presets, and
   ordered non-nested bundles of up to four Skills.
@@ -115,7 +120,8 @@ See [CHANGELOG.md](CHANGELOG.md) for the complete release notes.
   attachments, workspaces, knowledge, and memories, with source/date/role
   filters and direct result navigation; Settings has its own localized search.
 - Customizable, page-scoped keyboard shortcuts for search, chat creation,
-  composer focus, sidebar visibility, shortcut settings, and stopping generation.
+  composer focus, chat mode switching, sidebar visibility, shortcut settings,
+  and stopping generation.
 - Knowledge-base RAG with preserved original files, editable extracted content,
   configurable Markdown-aware chunking, hybrid lexical/vector retrieval,
   Mineru/LlamaParse document parsing, filename/status filters, serial batch
@@ -177,6 +183,7 @@ cleared under **Settings > Shortcuts**. `Mod` means `Command` on macOS and
 | Global search          | `Mod+K`          |
 | New chat               | `Mod+Alt+N`      |
 | Focus the composer     | `Mod+/`          |
+| Switch chat mode       | `Mod+M`          |
 | Toggle the sidebar     | `Mod+\`          |
 | Open shortcut settings | `Mod+Alt+S`      |
 | Stop generation        | `Mod+Alt+.`      |

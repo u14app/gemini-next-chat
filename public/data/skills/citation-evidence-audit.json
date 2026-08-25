@@ -37,7 +37,6 @@
     "acceptsPlaintextSecrets": false
   },
   "requiredCapabilities": ["evidence_ledger"],
-  "allowedTools": ["fetch_urls", "fetch_url", "search_web", "web_search"],
   "parameters": [],
   "outputContract": {
     "format": "markdown",

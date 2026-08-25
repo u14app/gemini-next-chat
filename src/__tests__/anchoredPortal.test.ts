@@ -1,7 +1,20 @@
+// @vitest-environment jsdom
+
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { describe, expect, it } from "vitest";
-import { computeAnchoredPortalStyle } from "../components/ui/AnchoredPortal";
+import React from "react";
+import { cleanup, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  computeAnchoredPortalStyle,
+  computeHiddenAnchoredPortalStyle,
+  default as AnchoredPortal,
+} from "../components/ui/AnchoredPortal";
+
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
 
 describe("anchored portal positioning", () => {
   it("positions long top-end menus using the bounded max height", () => {
@@ -73,14 +86,90 @@ describe("anchored portal positioning", () => {
   });
 
   it("measures before making portal content visible", () => {
+    const measurementStyle = computeHiddenAnchoredPortalStyle({
+      anchorRect: {
+        left: 120,
+        right: 440,
+        top: 500,
+        bottom: 540,
+        width: 320,
+      },
+      viewportHeight: 700,
+      matchAnchorWidth: true,
+      maxHeight: 296,
+    });
     const source = readFileSync(
       resolve(process.cwd(), "src/components/ui/AnchoredPortal.tsx"),
       "utf8",
     );
 
+    expect(measurementStyle).toMatchObject({
+      left: 120,
+      width: 320,
+      maxHeight: 296,
+      visibility: "hidden",
+      pointerEvents: "none",
+    });
     expect(source).toContain("useIsomorphicLayoutEffect");
-    expect(source).toContain("HIDDEN_PORTAL_STYLE");
-    expect(source).toContain("setIsPositioned(false)");
-    expect(source).toContain("isPositioned ? style : HIDDEN_PORTAL_STYLE");
+    expect(source).toContain('setPositionPhase("measuring")');
+    expect(source).toContain('positionPhase !== "measuring"');
+    expect(source).toContain("new ResizeObserver(scheduleUpdate)");
+  });
+
+  it("keeps the command menu free of transform or position animations", () => {
+    const source = readFileSync(
+      resolve(process.cwd(), "src/components/chat/ComposerCommandMenu.tsx"),
+      "utf8",
+    );
+
+    expect(source).not.toContain("zoom-in");
+    expect(source).not.toContain("slide-in");
+    expect(source).not.toContain("animate-in");
+    expect(source).not.toContain("transition-transform");
+  });
+
+  it("reveals portal content only with the anchor's final width applied", () => {
+    vi.stubGlobal(
+      "ResizeObserver",
+      class ResizeObserverMock {
+        observe() {}
+        disconnect() {}
+      },
+    );
+    const anchor = document.createElement("div");
+    document.body.append(anchor);
+    vi.spyOn(anchor, "getBoundingClientRect").mockReturnValue({
+      left: 40,
+      right: 360,
+      top: 500,
+      bottom: 540,
+      width: 320,
+      height: 40,
+      x: 40,
+      y: 500,
+      toJSON: () => ({}),
+    });
+
+    render(
+      React.createElement(
+        AnchoredPortal,
+        {
+          anchorRef: { current: anchor },
+          open: true,
+          onClose: () => undefined,
+          role: "listbox",
+          matchAnchorWidth: true,
+          placement: "top-start",
+          maxHeight: 296,
+        },
+        React.createElement("div", null, "Commands"),
+      ),
+    );
+
+    const menu = screen.getByRole("listbox");
+    expect(menu.style.width).toBe("320px");
+    expect(menu.style.visibility).toBe("visible");
+    expect(menu.getAttribute("aria-hidden")).toBeNull();
+    anchor.remove();
   });
 });

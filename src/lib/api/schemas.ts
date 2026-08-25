@@ -290,6 +290,7 @@ export const ChatRequestSchema = z
         reasoningMode: ReasoningModeSchema.optional(),
         useSearch: z.boolean().optional(),
         useAgentMode: z.boolean().optional(),
+        useDeepResearch: z.boolean().optional(),
         useRAG: z.boolean().optional(),
         imageCount: z
           .number()

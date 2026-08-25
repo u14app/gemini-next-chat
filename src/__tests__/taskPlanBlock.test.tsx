@@ -104,6 +104,45 @@ describe("TaskPlanBlock", () => {
     expect(container.textContent).toContain("1/1");
   });
 
+  it("collapses when work completes without overriding a later manual choice", async () => {
+    const user = userEvent.setup();
+    const view = renderTaskPlan();
+    const button = screen.getByRole("button", { name: /Task plan/ });
+
+    expect(button.getAttribute("aria-expanded")).toBe("true");
+    view.rerender(
+      <NextIntlClientProvider
+        locale="en"
+        messages={{ Content: contentMessages }}
+      >
+        <TaskPlanBlock
+          steps={activeSteps.map((step) => ({
+            ...step,
+            status: "completed" as const,
+          }))}
+        />
+      </NextIntlClientProvider>,
+    );
+    expect(button.getAttribute("aria-expanded")).toBe("false");
+
+    await user.click(button);
+    expect(button.getAttribute("aria-expanded")).toBe("true");
+    view.rerender(
+      <NextIntlClientProvider
+        locale="en"
+        messages={{ Content: contentMessages }}
+      >
+        <TaskPlanBlock
+          steps={activeSteps.map((step) => ({
+            ...step,
+            status: "completed" as const,
+          }))}
+        />
+      </NextIntlClientProvider>,
+    );
+    expect(button.getAttribute("aria-expanded")).toBe("true");
+  });
+
   it("registers task plan output blocks in the message renderer", () => {
     render(
       <NextIntlClientProvider

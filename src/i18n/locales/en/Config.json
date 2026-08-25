@@ -1,4 +1,6 @@
 {
+  "pluginDeepResearchTitle": "Deep Research",
+  "pluginDeepResearchDescription": "Plan and run bounded multi-source research with traceable evidence and approval before source access.",
   "pluginJinaTitle": "Web Reader (Jina AI)",
   "pluginJinaDescription": "Converts any URL into LLM-friendly markdown content. Useful for reading documentation, articles, or any webpage context.",
   "pluginWeatherTitle": "Real-time Weather",

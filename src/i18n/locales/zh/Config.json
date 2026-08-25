@@ -1,4 +1,6 @@
 {
+  "pluginDeepResearchTitle": "深度研究",
+  "pluginDeepResearchDescription": "通过可追溯证据开展有边界的多来源研究，并在访问来源前确认计划。",
   "pluginJinaTitle": "网页阅读器 (Jina AI)",
   "pluginJinaDescription": "将任意网址转换为对大模型友好的 Markdown 内容。适用于阅读文档、文章或任意网页内容。",
   "pluginWeatherTitle": "实时天气",

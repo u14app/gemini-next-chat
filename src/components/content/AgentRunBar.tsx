@@ -14,6 +14,10 @@ import { useTranslations } from "next-intl";
 
 import type { AgentRun } from "@/lib/agent";
 import { Button } from "@/components/ui/primitives";
+import {
+  formatToolDisplayName,
+  getBuiltinToolLabelKey,
+} from "@/lib/utils/toolDisplay";
 
 interface AgentRunBarProps {
   run: AgentRun;
@@ -32,10 +36,17 @@ const ACTIVE_STATUSES = new Set<AgentRun["status"]>([
   "awaiting_approval",
 ]);
 
+const shouldExpandStatus = (status: AgentRun["status"]) =>
+  ACTIVE_STATUSES.has(status) ||
+  status === "failed" ||
+  status === "interrupted";
+
 const AgentRunBar: React.FC<AgentRunBarProps> = ({ run, onStop }) => {
   const t = useTranslations("Content");
   const isActive = ACTIVE_STATUSES.has(run.status);
-  const [expanded, setExpanded] = useState(isActive);
+  const [expanded, setExpanded] = useState(() =>
+    shouldExpandStatus(run.status),
+  );
   const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
@@ -45,8 +56,8 @@ const AgentRunBar: React.FC<AgentRunBarProps> = ({ run, onStop }) => {
   }, [isActive]);
 
   useEffect(() => {
-    if (isActive || run.status === "failed") setExpanded(true);
-  }, [isActive, run.status]);
+    setExpanded(shouldExpandStatus(run.status));
+  }, [run.status]);
 
   const elapsedMs = isActive
     ? Math.max(run.usage.wallTimeMs, now - run.startedAt)
@@ -64,6 +75,10 @@ const AgentRunBar: React.FC<AgentRunBarProps> = ({ run, onStop }) => {
     return [...groups.entries()].reverse();
   }, [run.toolExecutions]);
   const statusLabel = t(`agentRunStatus_${run.status}`);
+  const getToolDisplayName = (name: string) => {
+    const labelKey = getBuiltinToolLabelKey(name);
+    return labelKey ? t(labelKey) : formatToolDisplayName(name);
+  };
   const StatusIcon =
     run.status === "completed"
       ? CheckCircle2
@@ -105,7 +120,9 @@ const AgentRunBar: React.FC<AgentRunBarProps> = ({ run, onStop }) => {
             </span>
             <span className="block truncate text-[11px] text-muted-foreground">
               {latestTool
-                ? t("agentRunLatestTool", { name: latestTool.toolName })
+                ? t("agentRunLatestTool", {
+                    name: getToolDisplayName(latestTool.toolName),
+                  })
                 : t("agentRunNoTool")}
             </span>
           </span>
@@ -210,7 +227,7 @@ const AgentRunBar: React.FC<AgentRunBarProps> = ({ run, onStop }) => {
                           aria-hidden="true"
                         />
                         <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-foreground">
-                          {execution.toolName}
+                          {getToolDisplayName(execution.toolName)}
                           {execution.targetSummary &&
                           execution.targetSummary !== "*" ? (
                             <span className="ml-2 font-sans text-[10px] text-muted-foreground">

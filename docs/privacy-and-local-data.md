@@ -14,6 +14,15 @@ Neo Chat uses several browser storage layers:
 | IndexedDB through `localforage` | Chat metadata, messages, app settings, installed plugins, installed/custom skills, skill catalog and definition caches, assistants, knowledge metadata, and local memories. |
 | OPFS                            | Uploaded chat/workspace files, knowledge originals and extracted text, and file-backed user-sent or model-generated images.                                                 |
 
+Deep Research tasks use a separate versioned IndexedDB database. Their
+checkpoints live under the owning chat workspace, while published reports use a
+global content-addressed `chat/research-artifacts` OPFS namespace. On the first
+v2 initialization, only v1 Research task records, orphaned Research
+checkpoints, and unreferenced Research report Artifacts are removed. Chats,
+settings, knowledge, ordinary Agent data, and user workspace files are not part
+of that reset. Old chat output blocks remain visible as removable “legacy
+record cleared” placeholders.
+
 Clearing browser data can remove local chats, settings, plugin configuration,
 assistant records, memories, and uploaded files.
 
@@ -51,7 +60,9 @@ successful restore, System Settings keeps a credential checklist for providers,
 search, RAG/document parsing, voice, and plugin/MCP auth until the user
 acknowledges it. Legacy v2 JSON exports can restore metadata, but their
 referenced OPFS files are marked unavailable because those exports did not
-contain file blobs.
+contain file blobs. Backup inspection also counts v1 Deep Research payloads;
+restore skips those incompatible Research records with an explicit warning
+while still restoring all other compatible data.
 
 ZIP import uses a bounded synchronous decompression step in the browser. To
 keep peak memory predictable, backups are limited to 128 MiB compressed, 256
@@ -169,6 +180,14 @@ Depending on configuration, user content may be sent to:
 - Remote MCP servers installed from the Registry or configured through a custom
   endpoint, and local stdio MCP servers explicitly enabled through the Docker
   bridge.
+
+When Deep Research is selected, the composer discloses that the research
+question may be sent to the configured public search provider before plan
+approval. This pre-approval reconnaissance is limited to two summary-only
+queries with five results each and a 30-second deadline. The query, result
+domains, timing, and failure state are stored with the plan audit record, but
+the summaries do not enter the formal evidence ledger and cannot be cited in a
+report.
 
 Text-only skills themselves are local prompt instructions, but applied skill
 content can be sent to the selected model provider as part of the prompt.

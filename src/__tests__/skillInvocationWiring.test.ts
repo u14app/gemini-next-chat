@@ -30,19 +30,18 @@ describe("skill invocation wiring", () => {
       streamCallCount - 1,
     );
     expect(
-      countOccurrences(
-        chatApp,
-        "autoSelect: skillAutoSelect && !effectiveContext.agentModeEnabled",
-      ),
-    ).toBe(streamCallCount - 1);
+      chatApp.match(
+        /autoSelect:\s*skillAutoSelect && !effectiveContext\.orchestratedModeEnabled/g,
+      ) || [],
+    ).toHaveLength(streamCallCount - 1);
     expect(
       countOccurrences(
         chatApp,
-        "activeSkillIds: effectiveContext.agentModeEnabled",
+        "activeSkillIds: effectiveContext.orchestratedModeEnabled",
       ),
     ).toBe(streamCallCount - 1);
     expect(chatApp).toContain(
-      "skillAutoSelect && !effectiveContext.agentModeEnabled",
+      "skillAutoSelect && !effectiveContext.orchestratedModeEnabled",
     );
     // Continuation has no new Skill resolution, but resumes the same AgentRun.
     expect(countOccurrences(chatApp, "createAgentToolStreamOptions({")).toBe(
@@ -59,7 +58,7 @@ describe("skill invocation wiring", () => {
     expect(requestPreparation).toContain("onKnowledgeSources:");
     expect(requestPreparation).toContain("onSkillInvocation:");
     expect(requestPreparation).toContain(
-      "skillAutoSelect || effectiveContext.agentModeEnabled",
+      "skillAutoSelect || effectiveContext.orchestratedModeEnabled",
     );
     expect(chatApp).toContain("processedData.knowledgeScope");
   });

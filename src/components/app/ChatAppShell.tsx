@@ -49,6 +49,15 @@ import {
   type KnowledgeSourceNavigationDetail,
 } from "@/lib/knowledge/navigation";
 import { Button } from "@/components/ui/primitives";
+import {
+  ConnectedResearchGlobalBar,
+  ConnectedResearchTaskList,
+  ConnectedResearchWorkbench,
+} from "@/features/research";
+import {
+  RESEARCH_TASK_NAVIGATE_EVENT,
+  type ResearchTaskNavigationDetail,
+} from "@/lib/research/navigation";
 
 const ImagePreview = dynamic(() => import("@/components/media/ImagePreview"), {
   ssr: false,
@@ -101,6 +110,7 @@ interface ChatAppShellProps {
   isSearchEnabled: boolean;
   viewMode: ChatPanel;
   settingsTab: SettingsTabId;
+  researchTaskId: string | null;
   isSidebarOpen: boolean;
   isNonDesktopViewport: boolean;
   isSidebarDrawerOpen: boolean;
@@ -115,7 +125,7 @@ interface ChatAppShellProps {
     panel: ChatPanel,
     nextSettingsTab?: SettingsTabId | null,
     historyMode?: "push" | "replace",
-    options?: { keepSidebarOpen?: boolean },
+    options?: { keepSidebarOpen?: boolean; researchTaskId?: string | null },
   ) => void;
   handleSettingsTabChange: (tab: SettingsTabId) => void;
   stopActiveGenerationWithFeedback: () => Promise<void>;
@@ -178,6 +188,7 @@ const ChatAppShell = ({
   isSearchEnabled,
   viewMode,
   settingsTab,
+  researchTaskId,
   isSidebarOpen,
   isNonDesktopViewport,
   isSidebarDrawerOpen,
@@ -227,6 +238,8 @@ const ChatAppShell = ({
   );
   const [focusedMessageId, setFocusedMessageId] = React.useState<string>();
   const searchReturnFocusRef = React.useRef<HTMLElement | null>(null);
+  const researchReturnFocusRef = React.useRef<HTMLElement | null>(null);
+  const previousViewModeRef = React.useRef(viewMode);
   const shouldFocusComposerRef = React.useRef(false);
   const [replyTarget, setReplyTarget] = React.useState<MessageReplyReference>();
   const timelineRef = React.useRef<VirtualizedMessageTimelineRef>(null);
@@ -357,6 +370,7 @@ const ChatAppShell = ({
         return true;
       },
       focusComposer,
+      cycleChatMode: () => messageInputRef.current?.cycleChatMode() ?? false,
       toggleSidebar: () => {
         setIsSidebarOpen((open) => !open);
         return true;
@@ -376,6 +390,7 @@ const ChatAppShell = ({
       handleNewChat,
       handleStopGeneration,
       isGenerating,
+      messageInputRef,
       navigateToPanel,
       openGlobalSearch,
       setIsSidebarOpen,
@@ -431,6 +446,43 @@ const ChatAppShell = ({
         handleKnowledgeSourceNavigate,
       );
   }, [navigateToPanel]);
+
+  React.useEffect(() => {
+    const handleResearchNavigate = (event: Event) => {
+      const taskId = (event as CustomEvent<ResearchTaskNavigationDetail>).detail
+        ?.taskId;
+      if (!taskId) return;
+      if (viewMode !== "research") {
+        researchReturnFocusRef.current =
+          document.activeElement instanceof HTMLElement
+            ? document.activeElement
+            : null;
+      }
+      navigateToPanel("research", null, "push", { researchTaskId: taskId });
+    };
+    window.addEventListener(
+      RESEARCH_TASK_NAVIGATE_EVENT,
+      handleResearchNavigate,
+    );
+    return () =>
+      window.removeEventListener(
+        RESEARCH_TASK_NAVIGATE_EVENT,
+        handleResearchNavigate,
+      );
+  }, [navigateToPanel, viewMode]);
+
+  React.useEffect(() => {
+    const previousViewMode = previousViewModeRef.current;
+    previousViewModeRef.current = viewMode;
+    if (previousViewMode !== "research" || viewMode === "research") return;
+    const frameId = window.requestAnimationFrame(() => {
+      const target = researchReturnFocusRef.current;
+      researchReturnFocusRef.current = null;
+      if (target?.isConnected) target.focus({ preventScroll: true });
+      else messageInputRef.current?.focus();
+    });
+    return () => window.cancelAnimationFrame(frameId);
+  }, [messageInputRef, viewMode]);
 
   React.useEffect(() => {
     const handleShortcut = (event: KeyboardEvent) => {
@@ -649,7 +701,19 @@ const ChatAppShell = ({
             </Button>
           </div>
         ) : null}
-        {viewMode === "plugins" ? (
+        {viewMode !== "research" ? <ConnectedResearchGlobalBar /> : null}
+        {viewMode === "research" ? (
+          researchTaskId ? (
+            <ConnectedResearchWorkbench
+              taskId={researchTaskId}
+              onClose={() => navigateToPanel("chat")}
+            />
+          ) : (
+            <ConnectedResearchTaskList
+              onClose={() => navigateToPanel("chat")}
+            />
+          )
+        ) : viewMode === "plugins" ? (
           <PluginMarket onClose={() => navigateToPanel("chat")} />
         ) : viewMode === "skills" ? (
           <SkillMarket onClose={() => navigateToPanel("chat")} />

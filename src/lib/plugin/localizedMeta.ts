@@ -14,6 +14,8 @@ import { DEFAULT_MCP_SERVER_LOGO_URL } from "../mcp/defaults";
 export type ConfigPluginKey =
   | "pluginJinaTitle"
   | "pluginJinaDescription"
+  | "pluginDeepResearchTitle"
+  | "pluginDeepResearchDescription"
   | "pluginWeatherTitle"
   | "pluginWeatherDescription"
   | "pluginUnsplashTitle"
@@ -33,6 +35,10 @@ const BUILT_IN_PLUGIN_I18N: Record<
   string,
   { titleKey: ConfigPluginKey; descriptionKey: ConfigPluginKey }
 > = {
+  "deep-research": {
+    titleKey: "pluginDeepResearchTitle",
+    descriptionKey: "pluginDeepResearchDescription",
+  },
   "jina-web-reader": {
     titleKey: "pluginJinaTitle",
     descriptionKey: "pluginJinaDescription",

@@ -8,6 +8,7 @@ import type {
   ToolConfirmationController,
   ToolConfirmationDecision,
 } from "../types";
+import type { BuiltinResearchHostContext } from "../services/api/chat/builtinTools";
 import { createKnowledgeCollectionAttachment } from "../lib/utils/knowledgeAttachments";
 
 const mocks = vi.hoisted(() => ({
@@ -376,6 +377,246 @@ describe("chat service tool execution", () => {
     vi.mocked(createSearchProvider).mockReset();
   });
 
+  it("lets Auto mode switch the current request without a preflight classifier", async () => {
+    const onChatModeChange = vi.fn();
+    const onToolUpdate = vi.fn();
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementationOnce(async (_url, init) => {
+        const body = JSON.parse(String(init?.body));
+        expect(body.config.useAgentMode).toBe(false);
+        expect(body.config).not.toHaveProperty("chatMode");
+        expect(body.tools.map((tool: any) => tool.function.name)).toContain(
+          "switch_chat_mode",
+        );
+        return sseResponse([
+          {
+            type: "tool_call",
+            toolCall: {
+              id: "switch-1",
+              name: "switch_chat_mode",
+              args: { mode: "research" },
+              status: "pending",
+            },
+          },
+          { type: "done" },
+        ]);
+      })
+      .mockImplementationOnce(async (_url, init) => {
+        const body = JSON.parse(String(init?.body));
+        expect(body.config).toMatchObject({
+          useAgentMode: false,
+          useDeepResearch: true,
+          useSearch: false,
+        });
+        expect(body.config).not.toHaveProperty("chatMode");
+        expect(body.tools.map((tool: any) => tool.function.name)).toEqual([
+          "start_deep_research",
+        ]);
+        expect(body.attachments).toEqual([]);
+        expect(body.history).toEqual([]);
+        expect(body.newMessage).not.toContain("SKILL INSTRUCTIONS");
+        expect(body.newMessage).toBe("Clean research request.");
+        expect(body.systemInstruction).not.toContain("<agent-mode>");
+        expect(body.systemInstruction).toContain(
+          "first-class Deep Research workflow",
+        );
+        return sseResponse([
+          {
+            type: "tool_call",
+            toolCall: {
+              id: "research-start-1",
+              name: "start_deep_research",
+              args: {
+                query: "Clean research request.",
+                budgetPreset: "standard",
+              },
+              status: "pending",
+            },
+          },
+          { type: "done" },
+        ]);
+      });
+
+    const { streamChatResponse } = await import("../services/api/chatService");
+    const { registerResearchToolEmitters } =
+      await import("../services/research/runtime");
+    let startContext: BuiltinResearchHostContext | undefined;
+    const start = vi.fn(
+      async (_request: unknown, context: BuiltinResearchHostContext) => {
+        startContext = context;
+        return {
+          taskId: "research-1",
+          status: "draft" as const,
+        };
+      },
+    );
+    const unregister = registerResearchToolEmitters({
+      start,
+      adjustPlan: vi.fn(),
+    });
+    let result = "unreached";
+    try {
+      result = await streamChatResponse(
+        "session-auto",
+        "openai:gpt-4",
+        [],
+        "Research this topic thoroughly.",
+        [],
+        {
+          chatMode: "auto",
+          useSearch: false,
+          useReasoning: false,
+          useAgentMode: false,
+          useDeepResearch: false,
+          reasoningMode: "off",
+          temperature: 0.7,
+        },
+        () => undefined,
+        undefined,
+        undefined,
+        onToolUpdate,
+        undefined,
+        undefined,
+        undefined,
+        [],
+        "SKILL INSTRUCTIONS MUST NOT LOAD",
+        undefined,
+        undefined,
+        {
+          agentRun: {
+            id: "auto-run",
+            userMessageId: "user-1",
+            modelMessageId: "model-1",
+          },
+          researchLaunchMessage: "Clean research request.",
+          onChatModeChange,
+        },
+      );
+    } finally {
+      unregister();
+    }
+
+    expect(result).toBe("");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(onChatModeChange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        chatMode: "research",
+        useAgentMode: false,
+        useDeepResearch: true,
+        useSearch: true,
+      }),
+      undefined,
+    );
+    expect(start).toHaveBeenCalledOnce();
+    expect(start.mock.calls[0]?.[0]).toMatchObject({
+      query: "Clean research request.",
+    });
+    expect(startContext).toMatchObject({
+      sessionId: "session-auto",
+      userMessageId: "user-1",
+      modelMessageId: "model-1",
+    });
+    expect(startContext).not.toHaveProperty("agentRunId");
+  });
+
+  it("starts Research deterministically when the model omits its start tool", async () => {
+    const onChunk = vi.fn();
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementationOnce(async (_url, init) => {
+        const body = JSON.parse(String(init?.body));
+        expect(body.config).toMatchObject({
+          useAgentMode: false,
+          useDeepResearch: true,
+          useSearch: false,
+        });
+        expect(body.tools.map((tool: any) => tool.function.name)).toEqual([
+          "start_deep_research",
+        ]);
+        expect(body.attachments).toEqual([]);
+        expect(body.history).toEqual([]);
+        expect(body.systemInstruction).not.toContain("<agent-mode>");
+        return sseResponse([
+          { type: "content", content: "An ordinary answer is not allowed." },
+          { type: "done" },
+        ]);
+      });
+
+    const { streamChatResponse } = await import("../services/api/chatService");
+    const { registerResearchToolEmitters } =
+      await import("../services/research/runtime");
+    let startRequest: unknown;
+    let startContext: BuiltinResearchHostContext | undefined;
+    const start = vi.fn(
+      async (request: unknown, context: BuiltinResearchHostContext) => {
+        startRequest = request;
+        startContext = context;
+        return {
+          taskId: "research-fallback",
+          status: "draft" as const,
+        };
+      },
+    );
+    const unregister = registerResearchToolEmitters({
+      start,
+      adjustPlan: vi.fn(),
+    });
+    let result = "unreached";
+    try {
+      result = await streamChatResponse(
+        "session-research",
+        "openai:gpt-4",
+        [],
+        "Research this topic with augmented context.",
+        [
+          {
+            id: "attachment-1",
+            fileName: "private.txt",
+            mimeType: "text/plain",
+            data: "not read before approval",
+          },
+        ],
+        {
+          chatMode: "research",
+          useSearch: false,
+          useReasoning: false,
+          useAgentMode: false,
+          useDeepResearch: true,
+          reasoningMode: "off",
+          temperature: 0.7,
+        },
+        onChunk,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        [],
+        undefined,
+        undefined,
+        undefined,
+        {
+          executionWorkflow: { kind: "research", phase: "start" },
+          researchLaunchMessage: "Research this topic.",
+        },
+      );
+    } finally {
+      unregister();
+    }
+
+    expect(result).toBe("");
+    expect(start).toHaveBeenCalledOnce();
+    expect(startRequest).toEqual({
+      query: "Research this topic.",
+      budgetPreset: "standard",
+    });
+    expect(startContext).toMatchObject({ sessionId: "session-research" });
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(onChunk).not.toHaveBeenCalled();
+  });
+
   it("does not expose memory_search for ordinary prompts", async () => {
     mocks.memoryState = {
       settings: {
@@ -495,6 +736,150 @@ describe("chat service tool execution", () => {
         risk: "read",
       }),
     );
+  });
+
+  it("turns committed read-only plugin output into Research evidence", async () => {
+    const runId = "run-research-plugin-evidence";
+    const onSourceBodiesRead = vi.fn();
+    const researchSourceBudget = {
+      remainingSourceBodies: 1,
+      onSourceBodiesRead,
+    };
+    mocks.settingsState = {
+      ...mocks.settingsState,
+      installedPlugins: [memoryNamedPlugin],
+    };
+    mocks.executePluginFunction.mockResolvedValueOnce({
+      result: "Committed plugin evidence",
+    });
+    vi.spyOn(globalThis, "fetch")
+      .mockImplementationOnce(async () =>
+        sseResponse([
+          {
+            type: "tool_call",
+            toolCall: {
+              id: "call_research_plugin_evidence",
+              name: "memory_search",
+              args: {},
+              status: "pending",
+            },
+          },
+          { type: "done" },
+        ]),
+      )
+      .mockImplementationOnce(async (_url, init) => {
+        const body = JSON.parse(String(init?.body));
+        const serializedHistory = JSON.stringify(body.history);
+        expect(serializedHistory).toContain("_researchEvidence");
+        expect(serializedHistory).toMatch(/source-[a-z0-9]+/i);
+        return sseResponse([
+          { type: "content", content: "Evidence recorded." },
+          { type: "done" },
+        ]);
+      });
+
+    const { streamChatResponse } = await import("../services/api/chatService");
+    await streamChatResponse(
+      "session-1",
+      "openai:gpt-4",
+      [],
+      "Read the approved plugin source",
+      [],
+      { useAgentMode: true, useDeepResearch: true },
+      () => undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      ["memory-plugin"],
+      undefined,
+      undefined,
+      createAllowOnceController(),
+      {
+        executionWorkflow: { kind: "research", phase: "execute" },
+        allowedToolIds: ["memory_search"],
+        enforceAllowedToolIds: true,
+        allowedToolEffects: ["local_read", "network_read"],
+        researchSourceBudget,
+        agentRun: { id: runId },
+      },
+    );
+
+    expect(researchSourceBudget.remainingSourceBodies).toBe(0);
+    expect(onSourceBodiesRead).toHaveBeenCalledWith([
+      "plugin://memory-plugin/memory_search",
+    ]);
+
+    const { useAgentRunStore } = await import("../store/core/agentRunStore");
+    expect(useAgentRunStore.getState().runsById[runId]).toMatchObject({
+      workflowKind: "research",
+      evidence: [
+        {
+          sourceId: expect.stringMatching(/^source-/),
+          url: "plugin://memory-plugin/memory_search",
+          retrievalKind: "mcp",
+          toolCallId: "call_research_plugin_evidence",
+          contentHash: expect.any(String),
+        },
+      ],
+    });
+  });
+
+  it("commits the current Tool batch before honoring a safe-pause request", async () => {
+    mocks.executePluginFunction.mockResolvedValueOnce({ saved: true });
+    const phases: string[] = [];
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementationOnce(async () =>
+        sseResponse([
+          {
+            type: "tool_call",
+            toolCall: {
+              id: "call_safe_pause",
+              name: "create_record",
+              args: { title: "Committed before pause" },
+              status: "pending",
+            },
+          },
+          { type: "done" },
+        ]),
+      );
+    const { streamChatResponse } = await import("../services/api/chatService");
+
+    await expect(
+      streamChatResponse(
+        "session-1",
+        "openai:gpt-4",
+        [],
+        "Create a record and then continue",
+        [],
+        { useAgentMode: true },
+        () => undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        ["writer"],
+        undefined,
+        undefined,
+        createAllowOnceController(),
+        {
+          abortAgentRunAsInterrupted: true,
+          forcedPluginIds: ["writer"],
+          onAgentExecutionPhase: (phase) => phases.push(phase),
+          shouldPauseAfterToolBatch: () => true,
+        },
+      ),
+    ).rejects.toMatchObject({ name: "AbortError" });
+
+    expect(mocks.executePluginFunction).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(phases).toContain("tool_execution");
+    expect(phases.at(-1)).toBe("idle");
   });
 
   it("fails before requesting the model when a forced plugin has no available tool", async () => {
@@ -2361,6 +2746,48 @@ describe("chat service tool execution", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it("can enforce an explicitly empty Tool allowlist for bounded workflows", async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementationOnce(async (_url, init) => {
+        const body = JSON.parse(String(init?.body));
+        expect(body.tools).toEqual([]);
+        return sseResponse([
+          { type: "content", content: "No tools offered." },
+          { type: "done" },
+        ]);
+      });
+
+    const { streamChatResponse } = await import("../services/api/chatService");
+    await expect(
+      streamChatResponse(
+        "session-1",
+        "openai:gpt-4",
+        [],
+        "Use no tools.",
+        [],
+        { useAgentMode: true },
+        () => undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        {
+          allowedToolIds: [],
+          enforceAllowedToolIds: true,
+          allowedToolEffects: ["local_read", "network_read"],
+        },
+      ),
+    ).resolves.toBe("No tools offered.");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it("clamps Agent mode when the selected model cannot call tools", async () => {
     mocks.supportsToolCalls.mockReturnValue(false);
     const fetchMock = vi
@@ -2455,7 +2882,7 @@ describe("chat service tool execution", () => {
           type: "task_plan",
           steps: [
             { title: "Inspect", status: "completed" },
-            { title: "Implement", status: "in_progress" },
+            { title: "Implement", status: "completed" },
           ],
         }),
         expect.objectContaining({
@@ -2467,6 +2894,124 @@ describe("chat service tool execution", () => {
               risk: "write",
             }),
           ],
+        }),
+      ]),
+    );
+  });
+
+  it("preserves unfinished task-plan steps when a later Agent round fails", async () => {
+    const outputSnapshots: MessageOutputBlock[][] = [];
+    vi.spyOn(globalThis, "fetch")
+      .mockImplementationOnce(async () =>
+        sseResponse([
+          {
+            type: "tool_call",
+            toolCall: {
+              id: "call_plan_failure",
+              name: "update_task_plan",
+              args: {
+                steps: [{ title: "Investigate", status: "in_progress" }],
+              },
+              status: "pending",
+            },
+          },
+          { type: "done" },
+        ]),
+      )
+      .mockImplementationOnce(async () =>
+        sseResponse([{ type: "error", error: "Provider failed" }]),
+      );
+
+    const { streamChatResponse } = await import("../services/api/chatService");
+    await expect(
+      streamChatResponse(
+        "session-plan-failure",
+        "openai:gpt-4",
+        [],
+        "Investigate the failure.",
+        [],
+        { useAgentMode: true },
+        () => undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        (blocks) => outputSnapshots.push(blocks),
+      ),
+    ).rejects.toThrow("Provider failed");
+
+    expect(outputSnapshots.at(-1)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "task_plan",
+          steps: [{ title: "Investigate", status: "in_progress" }],
+        }),
+      ]),
+    );
+  });
+
+  it("preserves unfinished task-plan steps when an Agent run is interrupted", async () => {
+    const controller = new AbortController();
+    const outputSnapshots: MessageOutputBlock[][] = [];
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementationOnce(async () =>
+        sseResponse([
+          {
+            type: "tool_call",
+            toolCall: {
+              id: "call_plan_interrupted",
+              name: "update_task_plan",
+              args: {
+                steps: [{ title: "Wait for data", status: "in_progress" }],
+              },
+              status: "pending",
+            },
+          },
+          { type: "done" },
+        ]),
+      )
+      .mockImplementationOnce(async (_url, init) =>
+        abortableSseResponse(init?.signal as AbortSignal, [
+          { type: "content", content: "Still working" },
+        ]),
+      );
+
+    const { streamChatResponse } = await import("../services/api/chatService");
+    const response = streamChatResponse(
+      "session-plan-interrupted",
+      "openai:gpt-4",
+      [],
+      "Wait for the result.",
+      [],
+      { useAgentMode: true },
+      () => undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      controller.signal,
+      undefined,
+      undefined,
+      (blocks) => outputSnapshots.push(blocks),
+      undefined,
+      { abortAgentRunAsInterrupted: true },
+    );
+
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    controller.abort();
+    await expect(response).rejects.toMatchObject({ name: "AbortError" });
+
+    expect(outputSnapshots.at(-1)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "task_plan",
+          steps: [{ title: "Wait for data", status: "in_progress" }],
         }),
       ]),
     );
@@ -3265,6 +3810,17 @@ describe("chat service tool execution", () => {
       writePlugin,
       writePlugin.functions[0],
     );
+    const cachedResult = {
+      ok: true,
+      trust: "external_untrusted",
+      provenance: {
+        origin: "plugin",
+        toolName: "create_record",
+        retrievedAt: 130,
+      },
+      data: { id: "record-existing" },
+      receipt: { committedAt: 130, effectId: "call-old", reversible: false },
+    };
     let run = prepareToolExecution(
       createAgentRun({ id: runId, sessionId: "session-1", now: 100 }),
       {
@@ -3287,7 +3843,13 @@ describe("chat service tool execution", () => {
     run = markToolExecutionRunning(run, "execution-old", 120);
     run = commitToolExecution(run, "execution-old", {
       at: 130,
-      resultRefs: [{ kind: "tool_cache", id: "call-old" }],
+      resultRefs: [
+        {
+          kind: "tool_cache",
+          id: "call-old",
+          contentHash: await hashToolArguments(cachedResult),
+        },
+      ],
       receipt: { committedAt: 130, effectId: "call-old", reversible: false },
     });
     run = transitionAgentRunStatus(run, "interrupted", {
@@ -3318,18 +3880,6 @@ describe("chat service tool execution", () => {
           { type: "done" },
         ]),
       );
-    const cachedResult = {
-      ok: true,
-      trust: "external_untrusted",
-      provenance: {
-        origin: "plugin",
-        toolName: "create_record",
-        retrievedAt: 130,
-      },
-      data: { id: "record-existing" },
-      receipt: { committedAt: 130, effectId: "call-old", reversible: false },
-    };
-
     const { streamChatResponse } = await import("../services/api/chatService");
     await expect(
       streamChatResponse(

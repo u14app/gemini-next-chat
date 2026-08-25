@@ -106,6 +106,7 @@
   "restoreCredentialRestoredAt": "恢复完成时间：{date}",
   "restoreCredentialDismiss": "我已检查此清单",
   "legacyBackupWarning": "此旧版 JSON 备份不包含 OPFS 文件，相关文件引用将被标记为不可用。",
+  "legacyResearchSkippedWarning": "有 {count} 条旧版深度研究记录使用已移除的 v1 架构，将在恢复时跳过；其他兼容数据仍会正常恢复。",
   "incompleteBackupWarning": "创建此备份时有 {count} 个本地引用文件缺失。",
   "cancelRestore": "取消",
   "cancelRestoreOperation": "取消恢复",

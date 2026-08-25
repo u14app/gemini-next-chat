@@ -22,6 +22,8 @@
   "description_newChat": "Start a new conversation.",
   "action_focusComposer": "Focus message input",
   "description_focusComposer": "Return to chat and place the cursor in the message composer.",
+  "action_cycleChatMode": "Switch chat mode",
+  "description_cycleChatMode": "Move to the next mode supported by the selected model.",
   "action_toggleSidebar": "Toggle sidebar",
   "description_toggleSidebar": "Show or hide the main navigation sidebar.",
   "action_openShortcutSettings": "Open shortcut settings",

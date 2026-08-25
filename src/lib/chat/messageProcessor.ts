@@ -37,6 +37,7 @@ export interface ProcessMessageOptions {
   };
   ragEnabled?: boolean;
   deferKnowledgeRetrieval?: boolean;
+  deferAttachmentReading?: boolean;
   knowledgeCollections: any[];
   workspaceKnowledgeCollectionIds?: string[];
   signal?: AbortSignal;
@@ -66,6 +67,7 @@ export async function processMessageForSending(
     ragConfig,
     ragEnabled = true,
     deferKnowledgeRetrieval = false,
+    deferAttachmentReading = false,
     knowledgeCollections,
     workspaceKnowledgeCollectionIds = [],
     signal,
@@ -157,13 +159,15 @@ export async function processMessageForSending(
   }
 
   // Process other attachments
-  const attachmentResult = await processAttachmentsForModel(
-    otherAttachments,
-    supportAttachment,
-    resolveOPFSUrl,
-  );
-  finalAttachments.push(...attachmentResult.finalAttachments);
-  convertedContent += attachmentResult.convertedContent;
+  if (!deferAttachmentReading) {
+    const attachmentResult = await processAttachmentsForModel(
+      otherAttachments,
+      supportAttachment,
+      resolveOPFSUrl,
+    );
+    finalAttachments.push(...attachmentResult.finalAttachments);
+    convertedContent += attachmentResult.convertedContent;
+  }
 
   // Combine text with converted content
   finalText = appendContextToChatInput(finalText, convertedContent);

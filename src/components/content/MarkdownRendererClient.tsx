@@ -74,6 +74,7 @@ export interface MarkdownRendererProps {
   className?: string;
   searchSources?: Source[];
   ragSources?: Source[];
+  onCitationClick?: (source: Source, index: number) => void;
   onFileClick?: (file: MarkdownGeneratedFile) => void;
   isStreaming?: boolean;
   forcedTheme?: DiagramTheme;
@@ -356,10 +357,12 @@ const CitationLink = ({
   href,
   children,
   sources,
+  onCitationClick,
 }: {
   href: string | undefined;
   children?: React.ReactNode;
   sources: Source[];
+  onCitationClick?: (source: Source, index: number) => void;
 }) => {
   const [hoverPos, setHoverPos] = useState<{ x: number; y: number } | null>(
     null,
@@ -430,6 +433,7 @@ const CitationLink = ({
       ? source.metadata.chunkIndex
       : undefined;
   const canNavigateKnowledge = Boolean(collectionId);
+  const canHandleCitation = Boolean(onCitationClick);
 
   return (
     <span
@@ -440,10 +444,19 @@ const CitationLink = ({
       onTouchStart={showPreview}
     >
       <a
-        href={safeSourceUrl || (canNavigateKnowledge ? "#" : undefined)}
-        target={canNavigateKnowledge ? undefined : "_blank"}
-        rel={canNavigateKnowledge ? undefined : "noopener noreferrer"}
-        aria-disabled={!safeSourceUrl && !canNavigateKnowledge}
+        href={
+          safeSourceUrl ||
+          (canNavigateKnowledge || canHandleCitation ? "#" : undefined)
+        }
+        target={safeSourceUrl && !canHandleCitation ? "_blank" : undefined}
+        rel={
+          safeSourceUrl && !canHandleCitation
+            ? "noopener noreferrer"
+            : undefined
+        }
+        aria-disabled={
+          !safeSourceUrl && !canNavigateKnowledge && !canHandleCitation
+        }
         onFocus={showPreview}
         onBlur={hidePreview}
         onKeyDown={(event) => {
@@ -452,7 +465,10 @@ const CitationLink = ({
           }
         }}
         onClick={(event) => {
-          if (canNavigateKnowledge) {
+          if (onCitationClick) {
+            event.preventDefault();
+            onCitationClick(source, index);
+          } else if (canNavigateKnowledge) {
             event.preventDefault();
             requestKnowledgeSourceNavigation({
               collectionId,
@@ -465,7 +481,7 @@ const CitationLink = ({
           }
         }}
         className={`markdown-citation-badge ${
-          safeSourceUrl || canNavigateKnowledge
+          safeSourceUrl || canNavigateKnowledge || canHandleCitation
             ? "cursor-pointer"
             : "markdown-citation-badge-disabled"
         }`}
@@ -1350,6 +1366,7 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
   className,
   searchSources,
   ragSources,
+  onCitationClick,
   onFileClick,
   isStreaming,
   forcedTheme,
@@ -1421,7 +1438,11 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
       code: MarkdownCode,
       a: ({ href, children }: any) => {
         return (
-          <CitationLink href={href} sources={citationSources}>
+          <CitationLink
+            href={href}
+            sources={citationSources}
+            onCitationClick={onCitationClick}
+          >
             {children}
           </CitationLink>
         );
@@ -1512,7 +1533,7 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
         );
       },
     }),
-    [citationSources, imageGallery, t],
+    [citationSources, imageGallery, onCitationClick, t],
   );
 
   // Process content line by line for <file> tags

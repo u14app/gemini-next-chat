@@ -4,6 +4,7 @@ export const CHAT_PANEL_VALUES = [
   "plugins",
   "skills",
   "knowledge",
+  "research",
   "search",
   "settings",
 ] as const;
@@ -29,6 +30,7 @@ export type SettingsTabId = (typeof SETTINGS_TAB_VALUES)[number];
 export interface ChatPanelUrlState {
   panel: ChatPanel;
   settingsTab: SettingsTabId | null;
+  researchTaskId: string | null;
   needsReplace: boolean;
   normalizedSearchParams: URLSearchParams;
 }
@@ -38,6 +40,7 @@ const QUERY_PANEL_VALUES: readonly ChatPanel[] = [
   "plugins",
   "skills",
   "knowledge",
+  "research",
   "search",
   "settings",
 ];
@@ -61,8 +64,10 @@ export const parseChatPanelUrlState = (
   const normalizedSearchParams = cloneSearchParams(input);
   const rawPanel = originalParams.get("panel");
   const rawSettingsTab = originalParams.get("settingsTab");
+  const rawResearchTaskId = originalParams.get("task");
   let panel: ChatPanel = "chat";
   let settingsTab: SettingsTabId | null = null;
+  let researchTaskId: string | null = null;
   let needsReplace = false;
 
   if (isQueryPanel(rawPanel)) {
@@ -87,9 +92,28 @@ export const parseChatPanelUrlState = (
     needsReplace = true;
   }
 
+  if (panel === "research") {
+    const normalizedTaskId = rawResearchTaskId?.trim() || "";
+    if (!normalizedTaskId) {
+      if (rawResearchTaskId !== null) {
+        normalizedSearchParams.delete("task");
+        needsReplace = true;
+      }
+    } else if (/^[a-zA-Z0-9._:-]{1,240}$/.test(normalizedTaskId)) {
+      researchTaskId = normalizedTaskId;
+    } else {
+      normalizedSearchParams.delete("task");
+      needsReplace = true;
+    }
+  } else if (rawResearchTaskId !== null) {
+    normalizedSearchParams.delete("task");
+    needsReplace = true;
+  }
+
   return {
     panel,
     settingsTab,
+    researchTaskId,
     needsReplace,
     normalizedSearchParams,
   };
@@ -97,12 +121,17 @@ export const parseChatPanelUrlState = (
 
 export const setChatPanelUrlState = (
   input: URLSearchParams | string,
-  state: { panel: ChatPanel; settingsTab?: SettingsTabId | null },
+  state: {
+    panel: ChatPanel;
+    settingsTab?: SettingsTabId | null;
+    researchTaskId?: string | null;
+  },
 ): URLSearchParams => {
   const params = cloneSearchParams(input);
 
   params.delete("panel");
   params.delete("settingsTab");
+  params.delete("task");
 
   if (state.panel === "chat") {
     return params;
@@ -112,6 +141,8 @@ export const setChatPanelUrlState = (
 
   if (state.panel === "settings") {
     params.set("settingsTab", state.settingsTab ?? "providers");
+  } else if (state.panel === "research" && state.researchTaskId) {
+    params.set("task", state.researchTaskId);
   }
 
   return params;

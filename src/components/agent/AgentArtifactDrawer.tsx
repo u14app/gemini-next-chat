@@ -1,9 +1,12 @@
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useId, useMemo, useState } from "react";
 import {
+  AlertTriangle,
   Archive,
   Download,
+  Eye,
+  EyeOff,
   FileClock,
   FileDiff,
   Loader2,
@@ -13,10 +16,10 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 
 import { formatBytes } from "@/config/limits";
-import { Dialog, IconButton } from "@/components/ui/primitives";
+import { Button, IconButton } from "@/components/ui/primitives";
 import { isTextWorkspaceMimeType } from "@/lib/agent/workspace";
 import {
   listSessionArtifacts,
@@ -33,18 +36,60 @@ import {
   trashWorkspaceFile,
 } from "@/services/workspace/workspaceTrash";
 import { resolveOPFSBlob } from "@/utils/opfs";
+import MarkdownRenderer from "@/components/content/MarkdownRenderer";
 
-interface AgentArtifactDrawerProps {
-  open: boolean;
+interface AgentArtifactWorkspaceProps {
+  active: boolean;
   sessionId?: string | null;
-  onClose: () => void;
 }
 
-interface DrawerData {
+interface WorkspaceData {
   scratch: WorkspaceFileEntry[];
   trash: WorkspaceFileEntry[];
   artifacts: SessionArtifactEntry[];
   usage?: WorkspaceUsage;
+}
+
+interface PreviewTarget {
+  key: string;
+  title: string;
+  url: string;
+  revision: string;
+  mimeType: string;
+}
+
+type WorkspaceTab = "scratch" | "artifacts" | "trash";
+
+const WORKSPACE_TABS: WorkspaceTab[] = ["scratch", "artifacts", "trash"];
+const PREVIEW_MAX_CHARS = 2_400;
+
+function handleWorkspaceTabKeyDown({
+  event,
+  index,
+  select,
+}: {
+  event: React.KeyboardEvent<HTMLButtonElement>;
+  index: number;
+  select: (tab: WorkspaceTab) => void;
+}) {
+  let nextIndex = index;
+  if (event.key === "ArrowRight") {
+    nextIndex = (index + 1) % WORKSPACE_TABS.length;
+  } else if (event.key === "ArrowLeft") {
+    nextIndex = (index - 1 + WORKSPACE_TABS.length) % WORKSPACE_TABS.length;
+  } else if (event.key === "Home") {
+    nextIndex = 0;
+  } else if (event.key === "End") {
+    nextIndex = WORKSPACE_TABS.length - 1;
+  } else {
+    return;
+  }
+
+  event.preventDefault();
+  select(WORKSPACE_TABS[nextIndex]);
+  event.currentTarget.parentElement
+    ?.querySelectorAll<HTMLElement>('[role="tab"]')
+    [nextIndex]?.focus();
 }
 
 function shortRevision(revision: string): string {
@@ -85,28 +130,132 @@ function compactLineDiff(before: string, after: string): string {
     .join("\n");
 }
 
-export default function AgentArtifactDrawer({
-  open,
-  sessionId,
-  onClose,
-}: AgentArtifactDrawerProps) {
+function InlineFilePreview({ target }: { target: PreviewTarget }) {
   const t = useTranslations("Content");
-  const [data, setData] = useState<DrawerData>({
+  const [state, setState] = useState<
+    | { status: "loading" }
+    | { status: "error" }
+    | { status: "ready"; content: string; truncated: boolean }
+  >({ status: "loading" });
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const blob = await resolveOPFSBlob(target.url);
+        if (cancelled) return;
+        if (!blob) {
+          setState({ status: "error" });
+          return;
+        }
+        const content = await blob.text();
+        if (cancelled) return;
+        setState({
+          status: "ready",
+          content: content.slice(0, PREVIEW_MAX_CHARS),
+          truncated: content.length > PREVIEW_MAX_CHARS,
+        });
+      } catch {
+        if (!cancelled) setState({ status: "error" });
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [target.revision, target.url]);
+
+  if (state.status === "loading") {
+    return (
+      <div
+        className="flex items-center gap-2 border-t border-border bg-muted/20 px-3 py-4 text-xs text-muted-foreground"
+        role="status"
+      >
+        <Loader2
+          size={13}
+          className="motion-safe:animate-spin"
+          aria-hidden="true"
+        />
+        {t("artifactDrawerPreviewLoading")}
+      </div>
+    );
+  }
+
+  if (state.status === "error") {
+    return (
+      <div
+        className="flex items-start gap-2 border-t border-amber-200 bg-amber-50/70 px-3 py-3 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950/25 dark:text-amber-200"
+        role="status"
+      >
+        <AlertTriangle
+          size={14}
+          className="mt-0.5 shrink-0"
+          aria-hidden="true"
+        />
+        {t("artifactDrawerPreviewUnavailable")}
+      </div>
+    );
+  }
+
+  return (
+    <div className="border-t border-border bg-muted/15 px-3 py-4">
+      {target.mimeType === "text/markdown" ? (
+        <div className="max-h-72 overflow-auto pr-1 custom-scrollbar">
+          <MarkdownRenderer content={state.content} />
+        </div>
+      ) : (
+        <pre className="max-h-72 overflow-auto whitespace-pre-wrap wrap-break-word font-mono text-xs leading-5 text-foreground/90 custom-scrollbar">
+          {state.content}
+        </pre>
+      )}
+      {state.truncated ? (
+        <p className="mt-3 text-[10px] font-medium text-muted-foreground">
+          {t("artifactDrawerPreviewTruncated")}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+export default function AgentArtifactWorkspace({
+  active,
+  sessionId,
+}: AgentArtifactWorkspaceProps) {
+  const t = useTranslations("Content");
+  const locale = useLocale();
+  const tabsId = useId();
+  const [data, setData] = useState<WorkspaceData>({
     scratch: [],
     trash: [],
     artifacts: [],
   });
+  const [hasLoaded, setHasLoaded] = useState(false);
   const [loading, setLoading] = useState(false);
   const [busyPath, setBusyPath] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [diff, setDiff] = useState<{ title: string; content: string } | null>(
     null,
   );
+  const [previewTarget, setPreviewTarget] = useState<PreviewTarget | null>(
+    null,
+  );
+  const [activeTab, setActiveTab] = useState<WorkspaceTab>("scratch");
+
+  const dateFormatter = useMemo(
+    () =>
+      new Intl.DateTimeFormat(locale, {
+        dateStyle: "short",
+        timeStyle: "short",
+      }),
+    [locale],
+  );
 
   const refresh = useCallback(async () => {
     if (!sessionId) return;
     setLoading(true);
     setError(null);
+    setPreviewTarget(null);
+    setDiff(null);
     try {
       const [workspace, trash, artifacts] = await Promise.all([
         listWorkspace(sessionId),
@@ -122,6 +271,7 @@ export default function AgentArtifactDrawer({
         artifacts: artifacts.value,
         usage: workspace.value.usage,
       });
+      setHasLoaded(true);
     } catch (refreshError) {
       setError(
         refreshError instanceof Error
@@ -134,8 +284,8 @@ export default function AgentArtifactDrawer({
   }, [sessionId, t]);
 
   useEffect(() => {
-    if (open) void refresh();
-  }, [open, refresh]);
+    if (active && !hasLoaded) void refresh();
+  }, [active, hasLoaded, refresh]);
 
   const usagePercent = useMemo(() => {
     if (!data.usage?.maxTotalBytes) return 0;
@@ -199,209 +349,367 @@ export default function AgentArtifactDrawer({
     });
   };
 
+  const togglePreview = (target: PreviewTarget) => {
+    setPreviewTarget((current) =>
+      current?.key === target.key ? null : target,
+    );
+  };
+
+  const selectTab = (tab: WorkspaceTab) => {
+    setActiveTab(tab);
+    setPreviewTarget(null);
+    if (tab !== "artifacts") setDiff(null);
+  };
+
+  const sourceLabel = (source: WorkspaceFileEntry["source"]) =>
+    t(`artifactDrawerSource_${source}`);
+
+  if (!sessionId) {
+    return (
+      <p className="px-4 py-8 text-sm text-muted-foreground" role="status">
+        {t("artifactDrawerWorkspaceUnavailable")}
+      </p>
+    );
+  }
+
   return (
-    <Dialog
-      open={open}
-      onClose={onClose}
-      title={t("artifactDrawerTitle")}
-      placement="responsive-sheet"
-      className="sm:max-w-3xl"
-    >
-      <div className="flex max-h-[calc(92dvh-3.25rem)] min-h-0 flex-col">
-        <div className="flex items-center justify-between gap-3 border-b border-border px-4 py-3">
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <span>
-                {t("artifactDrawerScratchCount", {
-                  count: data.scratch.length,
-                })}
-              </span>
-              <span aria-hidden="true">·</span>
-              <span>
-                {t("artifactDrawerPublishedCount", {
-                  count: data.artifacts.length,
-                })}
-              </span>
-              <span aria-hidden="true">·</span>
-              <span>{formatBytes(data.usage?.totalBytes || 0)}</span>
-            </div>
-            <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-muted">
-              <div
-                className="h-full bg-blue-500 transition-[width] motion-reduce:transition-none"
-                style={{ width: `${usagePercent}%` }}
-              />
-            </div>
+    <div className="flex min-h-0 flex-1 flex-col">
+      <div className="flex items-center justify-between gap-3 border-border px-4 py-4">
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+            <span>
+              {t("artifactDrawerScratchCount", { count: data.scratch.length })}
+            </span>
+            <span aria-hidden="true">/</span>
+            <span>
+              {t("artifactDrawerPublishedCount", {
+                count: data.artifacts.length,
+              })}
+            </span>
+            <span aria-hidden="true">/</span>
+            <span>{formatBytes(data.usage?.totalBytes || 0)}</span>
           </div>
-          <IconButton
-            size="lg"
-            className="h-11 w-11"
-            label={t("artifactDrawerRefresh")}
-            icon={
-              <RefreshCw
-                size={16}
-                className={loading ? "motion-safe:animate-spin" : ""}
-                aria-hidden="true"
-              />
-            }
-            onClick={() => void refresh()}
-            disabled={loading}
-          />
-          <IconButton
-            size="lg"
-            className="h-11 w-11"
-            label={t("artifactDrawerClose")}
-            icon={<X size={17} aria-hidden="true" />}
-            onClick={onClose}
-          />
-        </div>
-
-        {error ? (
-          <p
-            role="alert"
-            className="border-b border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200"
+          <div
+            className="mt-2 h-1.5 overflow-hidden rounded-full bg-muted"
+            aria-label={t("artifactDrawerUsageAria", {
+              percent: Math.round(usagePercent),
+            })}
+            role="meter"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={Math.round(usagePercent)}
           >
-            {error}
-          </p>
-        ) : null}
+            <div
+              className="h-full bg-blue-500 transition-[width] motion-reduce:transition-none"
+              style={{ width: `${usagePercent}%` }}
+            />
+          </div>
+        </div>
+        <IconButton
+          size="sm"
+          label={t("artifactDrawerRefresh")}
+          icon={
+            <RefreshCw
+              size={16}
+              className={loading ? "motion-safe:animate-spin" : ""}
+              aria-hidden="true"
+            />
+          }
+          onClick={() => void refresh()}
+          disabled={loading}
+        />
+      </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 custom-scrollbar">
-          {loading && data.scratch.length === 0 ? (
-            <div className="flex min-h-40 items-center justify-center gap-2 text-sm text-muted-foreground">
-              <Loader2
-                size={16}
-                className="motion-safe:animate-spin"
-                aria-hidden="true"
-              />
-              {t("artifactDrawerLoading")}
-            </div>
-          ) : (
-            <div className="grid gap-5 lg:grid-cols-2">
-              <section className="min-w-0">
-                <h3 className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-                  <FileClock size={14} aria-hidden="true" />
-                  {t("artifactDrawerScratch")}
-                </h3>
-                <div className="overflow-hidden rounded-lg border border-border bg-background">
-                  {data.scratch.length ? (
-                    data.scratch.map((file) => (
-                      <article
-                        key={file.path}
-                        className="flex min-h-14 items-center gap-3 border-b border-border px-3 py-2 last:border-b-0"
-                      >
-                        <div className="min-w-0 flex-1">
-                          <div className="truncate text-xs font-medium text-foreground">
-                            {file.path}
+      <div
+        className="flex min-w-0 gap-1 overflow-x-auto border-b border-border px-2 py-1.5 sm:px-3"
+        role="tablist"
+        aria-label={t("artifactDrawerTabsAria")}
+      >
+        {WORKSPACE_TABS.map((tab, index) => {
+          const count =
+            tab === "scratch"
+              ? data.scratch.length
+              : tab === "artifacts"
+                ? data.artifacts.length
+                : data.trash.length;
+          const label =
+            tab === "scratch"
+              ? t("artifactDrawerScratch")
+              : tab === "artifacts"
+                ? t("artifactDrawerPublished")
+                : t("artifactDrawerTrashSection");
+          return (
+            <Button
+              key={tab}
+              variant="bare"
+              type="button"
+              id={`${tabsId}-${tab}-tab`}
+              role="tab"
+              tabIndex={activeTab === tab ? 0 : -1}
+              aria-selected={activeTab === tab}
+              aria-controls={`${tabsId}-${tab}-panel`}
+              onClick={() => selectTab(tab)}
+              onKeyDown={(event) =>
+                handleWorkspaceTabKeyDown({ event, index, select: selectTab })
+              }
+              className={`inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 ${
+                activeTab === tab
+                  ? "bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-200"
+                  : "text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+              }`}
+            >
+              {tab === "scratch" ? (
+                <FileClock size={14} aria-hidden="true" />
+              ) : tab === "artifacts" ? (
+                <Archive size={14} aria-hidden="true" />
+              ) : (
+                <Trash2 size={14} aria-hidden="true" />
+              )}
+              <span>{label}</span>
+              <span className="min-w-4 rounded bg-background/80 px-1 text-center font-mono text-[10px] leading-4 text-current ring-1 ring-border/70">
+                {count}
+              </span>
+            </Button>
+          );
+        })}
+      </div>
+
+      {error ? (
+        <p
+          role="alert"
+          className="border-b border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200"
+        >
+          {error}
+        </p>
+      ) : null}
+
+      <div className="min-h-0 flex-1 overflow-y-auto p-3 custom-scrollbar">
+        {loading && !hasLoaded ? (
+          <div className="flex min-h-40 items-center justify-center gap-2 text-sm text-muted-foreground">
+            <Loader2
+              size={16}
+              className="motion-safe:animate-spin"
+              aria-hidden="true"
+            />
+            {t("artifactDrawerLoading")}
+          </div>
+        ) : (
+          <div>
+            <section
+              id={`${tabsId}-scratch-panel`}
+              role="tabpanel"
+              aria-labelledby={`${tabsId}-scratch-tab`}
+              hidden={activeTab !== "scratch"}
+              className="min-w-0"
+            >
+              <div className="divide-y divide-border overflow-hidden rounded-lg border border-border bg-background">
+                {data.scratch.length ? (
+                  data.scratch.map((file) => {
+                    const previewKey = `scratch:${file.path}:${file.revision}`;
+                    const previewOpen = previewTarget?.key === previewKey;
+                    return (
+                      <article key={file.path}>
+                        <div className="flex min-h-12 items-center gap-2 px-2.5 py-1.5">
+                          <div className="min-w-0 flex-1">
+                            <div
+                              className="truncate text-xs font-semibold text-foreground"
+                              title={file.path}
+                            >
+                              {file.path}
+                            </div>
+                            <div className="mt-0.5 flex flex-wrap gap-x-2 gap-y-0.5 font-mono text-[10px] text-muted-foreground">
+                              <span>{formatBytes(file.bytes)}</span>
+                              <span>r:{shortRevision(file.revision)}</span>
+                              <span>{sourceLabel(file.source)}</span>
+                              <span>
+                                {dateFormatter.format(file.updatedAt)}
+                              </span>
+                            </div>
                           </div>
-                          <div className="mt-0.5 flex gap-2 font-mono text-[10px] text-muted-foreground">
-                            <span>r:{shortRevision(file.revision)}</span>
-                            <span>{formatBytes(file.bytes)}</span>
-                          </div>
+                          {busyPath === file.path ? (
+                            <Loader2
+                              size={15}
+                              className="motion-safe:animate-spin"
+                              aria-hidden="true"
+                            />
+                          ) : (
+                            <div className="flex items-center gap-0.5">
+                              {isTextWorkspaceMimeType(file.mimeType) ? (
+                                <IconButton
+                                  size="sm"
+                                  aria-expanded={previewOpen}
+                                  label={t(
+                                    previewOpen
+                                      ? "artifactDrawerClosePreview"
+                                      : "artifactDrawerPreview",
+                                    { name: file.fileName },
+                                  )}
+                                  icon={
+                                    previewOpen ? (
+                                      <EyeOff size={15} aria-hidden="true" />
+                                    ) : (
+                                      <Eye size={15} aria-hidden="true" />
+                                    )
+                                  }
+                                  onClick={() =>
+                                    togglePreview({
+                                      key: previewKey,
+                                      title: file.path,
+                                      url: file.url,
+                                      revision: file.revision,
+                                      mimeType: file.mimeType,
+                                    })
+                                  }
+                                />
+                              ) : null}
+                              <IconButton
+                                size="sm"
+                                label={t("artifactDrawerDownload", {
+                                  name: file.fileName,
+                                })}
+                                icon={<Download size={15} aria-hidden="true" />}
+                                onClick={() =>
+                                  void runAction(file.path, () =>
+                                    download(file),
+                                  )
+                                }
+                              />
+                              <IconButton
+                                size="sm"
+                                label={t("artifactDrawerPublish", {
+                                  name: file.fileName,
+                                })}
+                                icon={
+                                  <PackageCheck size={15} aria-hidden="true" />
+                                }
+                                onClick={() =>
+                                  void runAction(file.path, async () => {
+                                    const result =
+                                      await publishWorkspaceArtifact(
+                                        sessionId,
+                                        file.path,
+                                      );
+                                    if (!result.ok) {
+                                      throw new Error(result.error.message);
+                                    }
+                                  })
+                                }
+                              />
+                              <IconButton
+                                size="sm"
+                                label={t("artifactDrawerTrash", {
+                                  name: file.fileName,
+                                })}
+                                icon={<Trash2 size={15} aria-hidden="true" />}
+                                onClick={() =>
+                                  void runAction(file.path, async () => {
+                                    const result = await trashWorkspaceFile(
+                                      sessionId,
+                                      file.path,
+                                      file.revision,
+                                    );
+                                    if (!result.ok) {
+                                      throw new Error(result.error.message);
+                                    }
+                                  })
+                                }
+                              />
+                            </div>
+                          )}
                         </div>
-                        {busyPath === file.path ? (
-                          <Loader2
-                            size={15}
-                            className="motion-safe:animate-spin"
-                            aria-hidden="true"
+                        {previewOpen && previewTarget ? (
+                          <InlineFilePreview
+                            key={previewTarget.key}
+                            target={previewTarget}
                           />
-                        ) : (
-                          <div className="flex items-center">
-                            <IconButton
-                              size="lg"
-                              className="h-11 w-11"
-                              label={t("artifactDrawerDownload", {
-                                name: file.fileName,
-                              })}
-                              icon={<Download size={15} aria-hidden="true" />}
-                              onClick={() =>
-                                void runAction(file.path, () => download(file))
-                              }
-                            />
-                            <IconButton
-                              size="lg"
-                              className="h-11 w-11"
-                              label={t("artifactDrawerPublish", {
-                                name: file.fileName,
-                              })}
-                              icon={
-                                <PackageCheck size={15} aria-hidden="true" />
-                              }
-                              onClick={() =>
-                                void runAction(file.path, async () => {
-                                  if (!sessionId) return;
-                                  const result = await publishWorkspaceArtifact(
-                                    sessionId,
-                                    file.path,
-                                  );
-                                  if (!result.ok)
-                                    throw new Error(result.error.message);
-                                })
-                              }
-                            />
-                            <IconButton
-                              size="lg"
-                              className="h-11 w-11"
-                              label={t("artifactDrawerTrash", {
-                                name: file.fileName,
-                              })}
-                              icon={<Trash2 size={15} aria-hidden="true" />}
-                              onClick={() =>
-                                void runAction(file.path, async () => {
-                                  if (!sessionId) return;
-                                  const result = await trashWorkspaceFile(
-                                    sessionId,
-                                    file.path,
-                                    file.revision,
-                                  );
-                                  if (!result.ok)
-                                    throw new Error(result.error.message);
-                                })
-                              }
-                            />
-                          </div>
-                        )}
+                        ) : null}
                       </article>
-                    ))
-                  ) : (
-                    <p className="px-3 py-5 text-xs text-muted-foreground">
-                      {t("artifactDrawerEmptyScratch")}
-                    </p>
-                  )}
-                </div>
-              </section>
+                    );
+                  })
+                ) : (
+                  <p className="px-3 py-5 text-xs text-muted-foreground">
+                    {t("artifactDrawerEmptyScratch")}
+                  </p>
+                )}
+              </div>
+            </section>
 
-              <div className="min-w-0 space-y-5">
-                <section>
-                  <h3 className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-                    <Archive size={14} aria-hidden="true" />
-                    {t("artifactDrawerPublished")}
-                  </h3>
-                  <div className="overflow-hidden rounded-lg border border-border bg-background">
-                    {data.artifacts.length ? (
-                      data.artifacts.map((artifact) => {
-                        const scratch = data.scratch.find(
-                          (file) => file.fileName === artifact.fileName,
-                        );
-                        return (
-                          <article
-                            key={artifact.url}
-                            className="flex min-h-14 items-center gap-3 border-b border-border px-3 py-2 last:border-b-0"
-                          >
+            <>
+              <section
+                id={`${tabsId}-artifacts-panel`}
+                role="tabpanel"
+                aria-labelledby={`${tabsId}-artifacts-tab`}
+                hidden={activeTab !== "artifacts"}
+                className="min-w-0"
+              >
+                <div className="divide-y divide-border overflow-hidden rounded-lg border border-border bg-background">
+                  {data.artifacts.length ? (
+                    data.artifacts.map((artifact) => {
+                      const scratchMatches = data.scratch.filter(
+                        (file) => file.fileName === artifact.fileName,
+                      );
+                      const scratch =
+                        scratchMatches.length === 1
+                          ? scratchMatches[0]
+                          : undefined;
+                      const ambiguous = scratchMatches.length > 1;
+                      const previewKey = `artifact:${artifact.url}`;
+                      const previewOpen = previewTarget?.key === previewKey;
+                      return (
+                        <article key={artifact.url}>
+                          <div className="flex min-h-12 items-center gap-2 px-2.5 py-1.5">
                             <div className="min-w-0 flex-1">
-                              <div className="truncate text-xs font-medium text-foreground">
+                              <div
+                                className="truncate text-xs font-semibold text-foreground"
+                                title={artifact.fileName}
+                              >
                                 {artifact.fileName}
                               </div>
-                              <div className="mt-0.5 flex gap-2 font-mono text-[10px] text-muted-foreground">
+                              <div className="mt-0.5 flex flex-wrap gap-x-2 gap-y-0.5 font-mono text-[10px] text-muted-foreground">
+                                <span>{formatBytes(artifact.bytes)}</span>
                                 <span>
                                   sha:{shortRevision(artifact.revision)}
                                 </span>
-                                <span>{formatBytes(artifact.bytes)}</span>
+                                <span>{t("artifactDrawerImmutable")}</span>
                               </div>
+                              {ambiguous ? (
+                                <p className="mt-1 text-[10px] text-amber-700 dark:text-amber-300">
+                                  {t("artifactDrawerDiffAmbiguous")}
+                                </p>
+                              ) : null}
                             </div>
-                            <div className="flex items-center">
+                            <div className="flex items-center gap-0.5">
+                              {isTextWorkspaceMimeType(artifact.mimeType) ? (
+                                <IconButton
+                                  size="sm"
+                                  aria-expanded={previewOpen}
+                                  label={t(
+                                    previewOpen
+                                      ? "artifactDrawerClosePreview"
+                                      : "artifactDrawerPreview",
+                                    { name: artifact.fileName },
+                                  )}
+                                  icon={
+                                    previewOpen ? (
+                                      <EyeOff size={15} aria-hidden="true" />
+                                    ) : (
+                                      <Eye size={15} aria-hidden="true" />
+                                    )
+                                  }
+                                  onClick={() =>
+                                    togglePreview({
+                                      key: previewKey,
+                                      title: artifact.fileName,
+                                      url: artifact.url,
+                                      revision: artifact.revision,
+                                      mimeType: artifact.mimeType,
+                                    })
+                                  }
+                                />
+                              ) : null}
                               {scratch ? (
                                 <IconButton
-                                  size="lg"
-                                  className="h-11 w-11"
+                                  size="sm"
                                   label={t("artifactDrawerDiff", {
                                     name: artifact.fileName,
                                   })}
@@ -416,8 +724,7 @@ export default function AgentArtifactDrawer({
                                 />
                               ) : null}
                               <IconButton
-                                size="lg"
-                                className="h-11 w-11"
+                                size="sm"
                                 label={t("artifactDrawerDownload", {
                                   name: artifact.fileName,
                                 })}
@@ -429,91 +736,103 @@ export default function AgentArtifactDrawer({
                                 }
                               />
                             </div>
-                          </article>
-                        );
-                      })
-                    ) : (
-                      <p className="px-3 py-5 text-xs text-muted-foreground">
-                        {t("artifactDrawerEmptyPublished")}
-                      </p>
-                    )}
-                  </div>
-                </section>
-
-                <section>
-                  <h3 className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-                    <Trash2 size={14} aria-hidden="true" />
-                    {t("artifactDrawerTrashSection")}
-                  </h3>
-                  <div className="overflow-hidden rounded-lg border border-border bg-background">
-                    {data.trash.length ? (
-                      data.trash.map((file) => (
-                        <article
-                          key={file.path}
-                          className="flex min-h-14 items-center gap-3 border-b border-border px-3 py-2 last:border-b-0"
-                        >
-                          <div className="min-w-0 flex-1">
-                            <div className="truncate text-xs font-medium text-foreground">
-                              {restoredFileName(file.path)}
-                            </div>
-                            <div className="mt-0.5 font-mono text-[10px] text-muted-foreground">
-                              r:{shortRevision(file.revision)}
-                            </div>
                           </div>
-                          <IconButton
-                            size="lg"
-                            className="h-11 w-11"
-                            label={t("artifactDrawerRestore", {
-                              name: file.fileName,
-                            })}
-                            icon={<RotateCcw size={15} aria-hidden="true" />}
-                            disabled={busyPath === file.path}
-                            onClick={() =>
-                              void runAction(file.path, async () => {
-                                if (!sessionId) return;
-                                const result = await restoreWorkspaceFile(
-                                  sessionId,
-                                  file.path,
-                                  restoredFileName(file.path),
-                                  file.revision,
-                                );
-                                if (!result.ok)
-                                  throw new Error(result.error.message);
-                              })
-                            }
-                          />
+                          {previewOpen && previewTarget ? (
+                            <InlineFilePreview
+                              key={previewTarget.key}
+                              target={previewTarget}
+                            />
+                          ) : null}
                         </article>
-                      ))
-                    ) : (
-                      <p className="px-3 py-5 text-xs text-muted-foreground">
-                        {t("artifactDrawerEmptyTrash")}
-                      </p>
-                    )}
-                  </div>
-                </section>
-              </div>
-            </div>
-          )}
+                      );
+                    })
+                  ) : (
+                    <p className="px-3 py-5 text-xs text-muted-foreground">
+                      {t("artifactDrawerEmptyPublished")}
+                    </p>
+                  )}
+                </div>
+              </section>
 
-          {diff ? (
-            <section className="mt-5 overflow-hidden rounded-lg border border-border bg-zinc-950 text-zinc-100">
-              <header className="flex items-center justify-between border-b border-white/10 px-3 py-2">
-                <h3 className="truncate font-mono text-xs">{diff.title}</h3>
-                <IconButton
-                  size="lg"
-                  label={t("artifactDrawerCloseDiff")}
-                  icon={<X size={15} aria-hidden="true" />}
-                  onClick={() => setDiff(null)}
-                  className="h-11 w-11 text-zinc-300 hover:bg-white/10 hover:text-white"
-                />
-              </header>
-              <pre className="max-h-56 overflow-auto whitespace-pre-wrap px-3 py-3 font-mono text-[11px] leading-5 custom-scrollbar">
-                {diff.content}
-              </pre>
-            </section>
-          ) : null}
-        </div>
+              <section
+                id={`${tabsId}-trash-panel`}
+                role="tabpanel"
+                aria-labelledby={`${tabsId}-trash-tab`}
+                hidden={activeTab !== "trash"}
+                className="min-w-0"
+              >
+                <div className="divide-y divide-border overflow-hidden rounded-lg border border-border bg-background">
+                  {data.trash.length ? (
+                    data.trash.map((file) => (
+                      <article
+                        key={file.path}
+                        className="flex min-h-12 items-center gap-2 px-2.5 py-1.5"
+                      >
+                        <div className="min-w-0 flex-1">
+                          <div
+                            className="truncate text-xs font-medium text-foreground"
+                            title={restoredFileName(file.path)}
+                          >
+                            {restoredFileName(file.path)}
+                          </div>
+                          <div className="mt-0.5 flex flex-wrap gap-x-2 font-mono text-[10px] text-muted-foreground">
+                            <span>{formatBytes(file.bytes)}</span>
+                            <span>r:{shortRevision(file.revision)}</span>
+                            <span>{dateFormatter.format(file.updatedAt)}</span>
+                          </div>
+                        </div>
+                        <IconButton
+                          size="sm"
+                          label={t("artifactDrawerRestore", {
+                            name: file.fileName,
+                          })}
+                          icon={<RotateCcw size={15} aria-hidden="true" />}
+                          disabled={busyPath === file.path}
+                          onClick={() =>
+                            void runAction(file.path, async () => {
+                              const result = await restoreWorkspaceFile(
+                                sessionId,
+                                file.path,
+                                restoredFileName(file.path),
+                                file.revision,
+                              );
+                              if (!result.ok) {
+                                throw new Error(result.error.message);
+                              }
+                            })
+                          }
+                        />
+                      </article>
+                    ))
+                  ) : (
+                    <p className="px-3 py-5 text-xs text-muted-foreground">
+                      {t("artifactDrawerEmptyTrash")}
+                    </p>
+                  )}
+                </div>
+              </section>
+            </>
+          </div>
+        )}
+
+        {diff && activeTab === "artifacts" ? (
+          <section className="mt-3 overflow-hidden rounded-lg border border-border bg-zinc-950 text-zinc-100">
+            <header className="flex items-center justify-between border-b border-white/10 px-3 py-2">
+              <h3 className="truncate font-mono text-xs">{diff.title}</h3>
+              <IconButton
+                size="sm"
+                label={t("artifactDrawerCloseDiff")}
+                icon={<X size={15} aria-hidden="true" />}
+                onClick={() => setDiff(null)}
+                className="text-zinc-300 hover:bg-white/10 hover:text-white"
+              />
+            </header>
+            <pre className="max-h-56 overflow-auto whitespace-pre-wrap px-3 py-3 font-mono text-[11px] leading-5 custom-scrollbar">
+              {diff.content}
+            </pre>
+          </section>
+        ) : null}
       </div>
-    </Dialog>
+    </div>
   );
 }

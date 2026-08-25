@@ -11,7 +11,11 @@ import {
 import { mapWithConcurrency } from "@/lib/utils/concurrency";
 import { writeWorkspaceText } from "@/services/workspace/sessionWorkspace";
 
-import type { BuiltinToolBinding } from "./types";
+import {
+  consumeBuiltinResearchSourceBodies,
+  type BuiltinResearchSourceBudget,
+  type BuiltinToolBinding,
+} from "./types";
 
 /** Head of the page returned alongside a saved file, so the model can confirm it fetched the right thing without the full body entering the transcript. */
 const SAVED_EXCERPT_CHARS = 1_000;
@@ -48,7 +52,11 @@ async function fetchReadableUrl(
 
 export function createFetchUrlBinding({
   workspaceEnabled = true,
-}: { workspaceEnabled?: boolean } = {}): BuiltinToolBinding {
+  sourceBudget,
+}: {
+  workspaceEnabled?: boolean;
+  sourceBudget?: BuiltinResearchSourceBudget;
+} = {}): BuiltinToolBinding {
   return {
     definition: {
       type: "function",
@@ -130,6 +138,12 @@ export function createFetchUrlBinding({
           "Provide an absolute http(s) URL to fetch.",
         );
       }
+      if (!consumeBuiltinResearchSourceBodies(sourceBudget, [url])) {
+        return errorResult(
+          "RESEARCH_SOURCE_BUDGET_EXHAUSTED",
+          "The approved full-source reading budget is exhausted.",
+        );
+      }
 
       let data: FetchUrlResponse;
       try {
@@ -207,7 +221,11 @@ export function createFetchUrlBinding({
 
 export function createFetchUrlsBinding({
   workspaceEnabled = true,
-}: { workspaceEnabled?: boolean } = {}): BuiltinToolBinding {
+  sourceBudget,
+}: {
+  workspaceEnabled?: boolean;
+  sourceBudget?: BuiltinResearchSourceBudget;
+} = {}): BuiltinToolBinding {
   return {
     definition: {
       type: "function",
@@ -288,6 +306,12 @@ export function createFetchUrlsBinding({
         return errorResult(
           "FETCH_URL_INVALID",
           "fetch_urls requires between one and six URLs.",
+        );
+      }
+      if (!consumeBuiltinResearchSourceBodies(sourceBudget, urls)) {
+        return errorResult(
+          "RESEARCH_SOURCE_BUDGET_EXHAUSTED",
+          "The approved full-source reading budget is exhausted.",
         );
       }
       const directory =

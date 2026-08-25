@@ -3,7 +3,7 @@
 Neo Chat plugins expose executable tools to compatible model providers. A
 plugin can come from an OpenAPI manifest, a built-in definition, or a remote
 HTTP-based MCP server. Enabled plugin functions are sent to the model as tools,
-and runtime tool calls execute through server routes. Plugins are
+and normal runtime tool calls execute through server routes. Plugins are
 different from Skills: Skills are text-only prompt-context instructions stored
 locally, while plugins and MCP servers are network-capable tools executed by
 the server-side plugin route.
@@ -31,6 +31,17 @@ use `openapi`, and MCP-backed plugins use `mcp`.
 
 Plugin IDs must be stable. Built-in plugin IDs are reserved; a custom plugin or
 manifest import cannot replace a built-in tool definition.
+
+### Deep Research is not a plugin
+
+Deep Research is a first-class chat mode with a browser-owned emitter bridge.
+Its start and planning tools are internal and it does not reserve a plugin
+definition or appear in `installedPlugins`. During approved execution, the
+runtime may expose enabled Plugin functions only when their verified policy is
+read-only; both registration and invocation reject effects outside
+`local_read` and `network_read`. Plugin manifests should not imitate the host
+context or claim access to ResearchTask internals. The `deep-research` Skill
+remains a normal text Skill and is never loaded by Research mode.
 
 ## Function Shape
 

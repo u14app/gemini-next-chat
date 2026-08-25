@@ -16,14 +16,17 @@ describe("app config normalization", () => {
         useSearch: "yes",
         useReasoning: true,
         useAgentMode: "yes",
+        useDeepResearch: "yes",
         reasoningMode: "medium",
         useRAG: true,
         temperature: 99,
       }),
     ).toEqual({
+      chatMode: "auto",
       useSearch: false,
       useReasoning: true,
       useAgentMode: false,
+      useDeepResearch: false,
       reasoningMode: "medium",
       useRAG: true,
       temperature: CHAT_CONFIG_LIMITS.maxTemperature,
@@ -33,6 +36,23 @@ describe("app config normalization", () => {
       DEFAULT_CHAT_CONFIG.temperature,
     );
     expect(normalizeChatConfig({ useAgentMode: true }).useAgentMode).toBe(true);
+    expect(normalizeChatConfig({ useAgentMode: true }).chatMode).toBe("agent");
+    expect(normalizeChatConfig({ useDeepResearch: true })).toMatchObject({
+      chatMode: "research",
+      useAgentMode: false,
+      useDeepResearch: true,
+    });
+    expect(
+      normalizeChatConfig({
+        chatMode: "auto",
+        useAgentMode: true,
+        useDeepResearch: true,
+      }),
+    ).toMatchObject({
+      chatMode: "auto",
+      useAgentMode: false,
+      useDeepResearch: false,
+    });
   });
 
   it("uses shared defaults for missing app config fields", () => {

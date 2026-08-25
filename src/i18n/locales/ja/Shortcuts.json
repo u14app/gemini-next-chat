@@ -22,6 +22,8 @@
   "description_newChat": "新しい会話を開始します。",
   "action_focusComposer": "メッセージ入力欄にフォーカス",
   "description_focusComposer": "チャットに戻り、メッセージ入力欄にカーソルを移します。",
+  "action_cycleChatMode": "チャットモードを切り替え",
+  "description_cycleChatMode": "選択中のモデルが対応する次のモードへ切り替えます。",
   "action_toggleSidebar": "サイドバーの表示切替",
   "description_toggleSidebar": "メインナビゲーションのサイドバーを表示または非表示にします。",
   "action_openShortcutSettings": "ショートカット設定を開く",

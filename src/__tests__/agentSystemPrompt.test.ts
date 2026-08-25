@@ -30,6 +30,16 @@ describe("Agent system instruction", () => {
     expect(instruction.length).toBeLessThan(14_000);
   });
 
+  it("requires complete task-plan snapshots through the final answer", () => {
+    const instruction = buildAgentSystemInstruction({
+      toolNames: ["update_task_plan"],
+    });
+
+    expect(instruction).toContain("immediately call update_task_plan again");
+    expect(instruction).toContain("complete current snapshot");
+    expect(instruction).toContain("no plan step pending or in progress");
+  });
+
   it("does not append Agent instructions when no tools are offered", () => {
     const instruction = buildAgentSystemInstruction({ toolNames: [] });
 

@@ -1,5 +1,8 @@
+import { CHAT_MODE_SWITCH_TOOL_NAME } from "@/lib/chat/mode";
+
 export interface AgentBuiltinCatalogInput {
   agentModeEnabled: boolean;
+  automaticModeEnabled?: boolean;
   memoryEnabled: boolean;
   externalSearchEnabled: boolean;
   knowledgeEnabled: boolean;
@@ -65,7 +68,12 @@ const AGENT_WORKSPACE_TOOLS = [
 export function getAgentBuiltinToolNames(
   input: AgentBuiltinCatalogInput,
 ): string[] {
-  if (!input.agentModeEnabled) return ["start_long_text_output"];
+  if (!input.agentModeEnabled) {
+    return [
+      ...(input.automaticModeEnabled ? [CHAT_MODE_SWITCH_TOOL_NAME] : []),
+      "start_long_text_output",
+    ];
+  }
   const names = [
     ...(input.memoryEnabled ? MEMORY_TOOLS : []),
     ...AGENT_CORE_TOOLS.slice(0, 3),

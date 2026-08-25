@@ -828,7 +828,12 @@ export interface WorkspaceSearchMatch {
 export async function searchWorkspace(
   sessionId: string,
   query: string,
-  options: { path?: string; caseSensitive?: boolean; maxResults?: number } = {},
+  options: {
+    path?: string;
+    caseSensitive?: boolean;
+    maxResults?: number;
+    allowedPaths?: readonly string[];
+  } = {},
 ): Promise<
   WorkspaceResult<{
     matches: WorkspaceSearchMatch[];
@@ -864,13 +869,17 @@ export async function searchWorkspace(
   const matches: WorkspaceSearchMatch[] = [];
   let filesSearched = 0;
   let charsScanned = 0;
-  let truncated = listed.value.truncated;
+  let truncated = options.allowedPaths ? false : listed.value.truncated;
 
+  const allowedPaths = options.allowedPaths
+    ? new Set(options.allowedPaths)
+    : undefined;
   for (const entry of listed.value.files) {
     if (matches.length >= limit) {
       truncated = true;
       break;
     }
+    if (allowedPaths && !allowedPaths.has(entry.path)) continue;
     if (!isTextWorkspaceFile(entry.path)) continue;
 
     const content = await readTextFromOPFS(entry.url);

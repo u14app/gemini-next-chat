@@ -1906,15 +1906,6 @@ const MessageItem: React.FC<MessageItemProps> = ({
                   </>
                 )}
 
-                {onReply ? (
-                  <ActionButton
-                    icon={<Quote size={13} />}
-                    tooltip={t("reply")}
-                    onClick={onReply}
-                    disabled={mutationActionsDisabled}
-                  />
-                ) : null}
-
                 {message.role === "model" && (
                   <>
                     <div className="flex items-center">
@@ -2003,6 +1994,15 @@ const MessageItem: React.FC<MessageItemProps> = ({
                     />
                   </>
                 )}
+
+                {onReply ? (
+                  <ActionButton
+                    icon={<Quote size={13} />}
+                    tooltip={t("reply")}
+                    onClick={onReply}
+                    disabled={mutationActionsDisabled}
+                  />
+                ) : null}
 
                 {message.role === "model" && (
                   <>

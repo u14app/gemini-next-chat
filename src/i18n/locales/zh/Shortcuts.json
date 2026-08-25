@@ -22,6 +22,8 @@
   "description_newChat": "开始一个新的对话。",
   "action_focusComposer": "聚焦输入框",
   "description_focusComposer": "返回聊天页并将光标放入消息输入框。",
+  "action_cycleChatMode": "切换对话模式",
+  "description_cycleChatMode": "切换到当前模型支持的下一个模式。",
   "action_toggleSidebar": "切换侧栏",
   "description_toggleSidebar": "显示或隐藏主导航侧栏。",
   "action_openShortcutSettings": "打开快捷键设置",

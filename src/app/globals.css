@@ -41,6 +41,11 @@
   --brand-foreground: oklch(0.985 0 0);
   --brand-soft: color-mix(in srgb, var(--brand) 10%, transparent);
   --brand-hover: color-mix(in srgb, var(--brand) 88%, black);
+  --research-accent: #1769aa;
+  --research-accent-hover: #14568f;
+  --research-accent-foreground: #f8fbff;
+  --research-accent-soft: #edf5ff;
+  --research-accent-border: #bfd8f4;
   --success: oklch(0.53 0.125 158);
   --warning: oklch(0.61 0.137 66);
   --surface: var(--muted);
@@ -139,6 +144,11 @@ html.dark {
   --brand-foreground: oklch(0.985 0 0);
   --brand-soft: color-mix(in srgb, var(--brand) 16%, transparent);
   --brand-hover: color-mix(in srgb, var(--brand) 82%, white);
+  --research-accent: #76b8f4;
+  --research-accent-hover: #94c9f8;
+  --research-accent-foreground: #0b2942;
+  --research-accent-soft: #152d43;
+  --research-accent-border: #315a7d;
   --success: oklch(0.696 0.17 162.48);
   --warning: oklch(0.769 0.188 70.08);
   --html-visual-surface: #0b1220;
@@ -257,6 +267,11 @@ html {
   --color-brand-foreground: var(--brand-foreground);
   --color-brand-soft: var(--brand-soft);
   --color-brand-hover: var(--brand-hover);
+  --color-research-accent: var(--research-accent);
+  --color-research-accent-hover: var(--research-accent-hover);
+  --color-research-accent-foreground: var(--research-accent-foreground);
+  --color-research-soft: var(--research-accent-soft);
+  --color-research-border: var(--research-accent-border);
   --color-surface: var(--surface);
   --color-surface-strong: var(--surface-strong);
   --radius-sm: calc(var(--radius) * 0.6);
@@ -1161,6 +1176,57 @@ samp {
   background: color-mix(in srgb, var(--sidebar) 72%, transparent);
   border-color: var(--sidebar-border);
   box-shadow: 0 18px 55px rgb(0 0 0 / 0.32);
+}
+
+.glass-shell[data-chat-mode="research"] {
+  border-color: color-mix(in srgb, var(--research-accent) 65%, transparent);
+}
+
+.glass-shell[data-chat-mode="research"]:focus-within {
+  border-color: color-mix(in srgb, var(--research-accent) 82%, transparent);
+  box-shadow:
+    0 0 0 2px color-mix(in srgb, var(--research-accent) 24%, transparent),
+    0 12px 40px color-mix(in srgb, var(--foreground) 8%, transparent);
+}
+
+.glass-shell[data-chat-mode="agent"] {
+  border-color: rgb(192 132 252 / 0.68);
+}
+
+.glass-shell[data-chat-mode="agent"]:focus-within {
+  border-color: rgb(168 85 247 / 0.82);
+  box-shadow:
+    0 0 0 2px rgb(233 213 255 / 0.55),
+    0 12px 40px color-mix(in srgb, var(--foreground) 8%, transparent);
+}
+
+.dark .glass-shell[data-chat-mode="research"] {
+  border-color: color-mix(in srgb, var(--research-accent) 55%, transparent);
+}
+
+.dark .glass-shell[data-chat-mode="research"]:focus-within {
+  border-color: color-mix(in srgb, var(--research-accent) 82%, transparent);
+  box-shadow:
+    0 0 0 2px color-mix(in srgb, var(--research-accent) 20%, transparent),
+    0 18px 55px rgb(0 0 0 / 0.32);
+}
+
+.dark .glass-shell[data-chat-mode="agent"] {
+  border-color: rgb(192 132 252 / 0.55);
+}
+
+.dark .glass-shell[data-chat-mode="agent"]:focus-within {
+  border-color: rgb(192 132 252 / 0.82);
+  box-shadow:
+    0 0 0 2px rgb(88 28 135 / 0.42),
+    0 18px 55px rgb(0 0 0 / 0.32);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .glass-shell[data-chat-mode="research"],
+  .glass-shell[data-chat-mode="agent"] {
+    transition-duration: 0s;
+  }
 }
 
 .dark .glass-popover {

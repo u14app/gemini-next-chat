@@ -12,6 +12,8 @@ import {
 import { createAgentMemoryBindings } from "./agentMemory";
 import type {
   BuiltinKnowledgeScope,
+  BuiltinResearchQueryBudget,
+  BuiltinResearchSourceBudget,
   BuiltinToolBinding,
   CollectedBuiltinTools,
 } from "./types";
@@ -22,11 +24,21 @@ import { createWorkspaceBindings } from "./workspace";
 import { createRequestUserInputBinding } from "./requestUserInput";
 import { createSkillDiscoveryBindings } from "./skillDiscovery";
 import { createDocumentExtractionBindings } from "./documentExtraction";
+import { createResearchAttachmentInspectionBinding } from "./researchAttachment";
+import { createDeepResearchBindings } from "./deepResearch";
+import { createChatModeSwitchBinding } from "./chatMode";
+import {
+  getResearchSourceBuiltinToolNames,
+  isResearchReadOnlyPolicy,
+} from "@/lib/research/toolPolicy";
+import { isKnowledgeAttachment } from "@/lib/utils/knowledgeAttachments";
 
 export function collectBuiltinTools({
   message,
   disabled = false,
   agentModeEnabled = false,
+  automaticModeEnabled = false,
+  researchPhase,
   useSearch = false,
   searchMode,
   knowledgeScope,
@@ -34,10 +46,14 @@ export function collectBuiltinTools({
   memoryScopes = ["global"],
   memoryScopeIds = {},
   workspaceAvailable = true,
+  researchQueryBudget,
+  researchSourceBudget,
 }: {
   message: string;
   disabled?: boolean;
   agentModeEnabled?: boolean;
+  automaticModeEnabled?: boolean;
+  researchPhase?: "start" | "plan" | "execute";
   useSearch?: boolean;
   searchMode?: string;
   knowledgeScope?: BuiltinKnowledgeScope;
@@ -45,12 +61,102 @@ export function collectBuiltinTools({
   memoryScopes?: readonly MemoryScope[];
   memoryScopeIds?: { workspace?: string; agent?: string; session?: string };
   workspaceAvailable?: boolean;
+  researchQueryBudget?: BuiltinResearchQueryBudget;
+  researchSourceBudget?: BuiltinResearchSourceBudget;
 }): CollectedBuiltinTools {
   const definitions: CollectedBuiltinTools["definitions"] = [];
   const bindingsByName = new Map<string, BuiltinToolBinding>();
   if (disabled) return { definitions, bindingsByName };
 
+  if (researchPhase) {
+    const researchCandidates: BuiltinToolBinding[] = [];
+    if (researchPhase === "start") {
+      const start = createDeepResearchBindings().find(
+        (binding) => binding.definition.function.name === "start_deep_research",
+      );
+      if (start) researchCandidates.push(start);
+    } else if (researchPhase === "plan") {
+      researchCandidates.push(createRequestUserInputBinding());
+      if (useSearch && searchMode === "external") {
+        researchCandidates.push(
+          createWebSearchBinding({ queryBudget: researchQueryBudget }),
+        );
+      }
+    } else {
+      const knowledgeEnabled = Boolean(
+        knowledgeScope?.attachments.some(isKnowledgeAttachment) ||
+        knowledgeScope?.collections.length,
+      );
+      const attachmentEnabled = Boolean(
+        knowledgeScope?.attachments.some(
+          (attachment) => !isKnowledgeAttachment(attachment),
+        ),
+      );
+      if (useSearch && searchMode === "external") {
+        researchCandidates.push(
+          createWebSearchBinding({ queryBudget: researchQueryBudget }),
+        );
+        researchCandidates.push(
+          createSearchWebV2Binding({ queryBudget: researchQueryBudget }),
+        );
+      }
+      if (knowledgeEnabled) {
+        researchCandidates.push(
+          createKnowledgeSearchBinding({ sourceBudget: researchSourceBudget }),
+        );
+      }
+      if (attachmentEnabled) {
+        researchCandidates.push(createResearchAttachmentInspectionBinding());
+      }
+      researchCandidates.push(
+        createFetchUrlBinding({
+          workspaceEnabled: false,
+          sourceBudget: researchSourceBudget,
+        }),
+      );
+      researchCandidates.push(
+        createFetchUrlsBinding({
+          workspaceEnabled: false,
+          sourceBudget: researchSourceBudget,
+        }),
+      );
+      if (workspaceAvailable) {
+        researchCandidates.push(...createWorkspaceBindings());
+      }
+      const allowedSourceNames = new Set(
+        getResearchSourceBuiltinToolNames({
+          externalSearchEnabled: useSearch && searchMode === "external",
+          knowledgeEnabled,
+          attachmentEnabled,
+          workspaceEnabled: workspaceAvailable,
+        }),
+      );
+      const readOnlyCandidates = researchCandidates.filter(
+        (binding) =>
+          allowedSourceNames.has(binding.definition.function.name) &&
+          isResearchReadOnlyPolicy(binding.descriptor),
+      );
+      researchCandidates.splice(
+        0,
+        researchCandidates.length,
+        ...readOnlyCandidates,
+      );
+    }
+    for (const binding of researchCandidates) {
+      const name = binding.definition.function.name;
+      if (!name || bindingsByName.has(name)) {
+        throw new Error(
+          `Duplicate or invalid research tool name: ${name || "<missing>"}`,
+        );
+      }
+      bindingsByName.set(name, binding);
+      definitions.push(binding.definition);
+    }
+    return { definitions, bindingsByName };
+  }
+
   const candidates: Array<BuiltinToolBinding | null> = [
+    automaticModeEnabled ? createChatModeSwitchBinding() : null,
     agentModeEnabled ? null : collectMemorySearchBinding(message),
     createLongTextOutputBinding(),
   ];
@@ -119,5 +225,13 @@ export type {
   CollectedBuiltinTools,
   WorkspaceFileShare,
   ArchiveFileShare,
+  BuiltinResearchEmitters,
+  BuiltinResearchHostContext,
+  BuiltinResearchStartResult,
+  BuiltinResearchQueryBudget,
+  BuiltinResearchSourceBudget,
 } from "./types";
-export { resolveBuiltinToolInvocationPolicy } from "./types";
+export {
+  consumeBuiltinResearchSourceBodies,
+  resolveBuiltinToolInvocationPolicy,
+} from "./types";

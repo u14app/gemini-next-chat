@@ -230,18 +230,25 @@ interface SettingsState {
 const BUILT_IN_PLUGINS_BY_ID = new Map(
   BUILT_IN_PLUGINS.map((plugin) => [plugin.id, plugin]),
 );
-const REMOVED_BUILT_IN_PLUGIN_IDS = new Set(["image-generation"]);
+const REMOVED_BUILT_IN_PLUGIN_IDS = new Set([
+  "image-generation",
+  "deep-research",
+]);
 const SKILL_ID_RE = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 
 const removeRemovedBuiltInPlugins = (plugins: readonly Plugin[]): Plugin[] =>
-  plugins.filter((plugin) => !REMOVED_BUILT_IN_PLUGIN_IDS.has(plugin.id));
+  plugins.filter(
+    (plugin) => !plugin.builtIn || !REMOVED_BUILT_IN_PLUGIN_IDS.has(plugin.id),
+  );
 
 const refreshBuiltInPluginDefinitions = (
   plugins: readonly Plugin[],
 ): Plugin[] =>
   plugins.map((plugin) => {
     const currentBuiltIn = BUILT_IN_PLUGINS_BY_ID.get(plugin.id);
-    if (!currentBuiltIn || !plugin.builtIn) return plugin;
+    if (!currentBuiltIn || !plugin.builtIn) {
+      return plugin;
+    }
     const refreshedPlugin = {
       ...currentBuiltIn,
       added: plugin.added || currentBuiltIn.added,
@@ -1344,8 +1351,10 @@ export const useSettingsStore = create<SettingsState>()(
       version: STORAGE_VERSION,
       migrate: async (persistedState) => {
         const state = persistedState as Partial<SettingsState>;
-        const installedPlugins = removeRemovedBuiltInPlugins(
-          state.installedPlugins || [...BUILT_IN_PLUGINS],
+        const installedPlugins = refreshBuiltInPluginDefinitions(
+          removeRemovedBuiltInPlugins(
+            state.installedPlugins || [...BUILT_IN_PLUGINS],
+          ),
         );
         const pluginConfigs = await migratePluginConfigLocalSecrets(
           normalizePluginConfigs(state.pluginConfigs, installedPlugins),

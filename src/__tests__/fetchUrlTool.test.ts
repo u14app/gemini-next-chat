@@ -118,6 +118,17 @@ describe("fetch_url saveToPath", () => {
 
     expect(result.error.code).toBe("WORKSPACE_WRITE_FAILED");
   });
+
+  it("enforces the shared full-source Research allowance before fetching", async () => {
+    const sourceBudget = { remainingSourceBodies: 0 };
+    const result = (await createFetchUrlBinding({ sourceBudget }).execute(
+      { url: "https://example.com/page" },
+      context(),
+    )) as { error: { code: string } };
+
+    expect(result.error.code).toBe("RESEARCH_SOURCE_BUDGET_EXHAUSTED");
+    expect(mocks.signedApiFetch).not.toHaveBeenCalled();
+  });
 });
 
 describe("fetch_urls evidence batch", () => {
@@ -182,5 +193,19 @@ describe("fetch_urls evidence batch", () => {
         sources: expect.any(Array),
       }),
     );
+  });
+
+  it("rejects an all-at-once batch that exceeds the source allowance", async () => {
+    const sourceBudget = { remainingSourceBodies: 1 };
+    const result = (await createFetchUrlsBinding({ sourceBudget }).execute(
+      {
+        urls: ["https://example.com/one", "https://example.com/two"],
+      },
+      context(),
+    )) as { error: { code: string } };
+
+    expect(result.error.code).toBe("RESEARCH_SOURCE_BUDGET_EXHAUSTED");
+    expect(sourceBudget.remainingSourceBodies).toBe(1);
+    expect(mocks.signedApiFetch).not.toHaveBeenCalled();
   });
 });

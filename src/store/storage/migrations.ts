@@ -152,6 +152,17 @@ export function normalizeMessage(message: Message): Message {
         });
         continue;
       }
+      if (block.type === "research_task") {
+        const taskId =
+          typeof block.taskId === "string" ? block.taskId.trim() : "";
+        if (!taskId || taskId.length > 240) continue;
+        normalizedBlocks.push({
+          id: block.id,
+          type: "research_task",
+          taskId,
+        });
+        continue;
+      }
       if (block.type === "workspace_file") {
         const file = normalizeWorkspaceFilePresentation(block.file);
         if (!file) continue;

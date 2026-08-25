@@ -34,6 +34,7 @@ import {
   isReasoningEnabled,
   normalizeReasoningMode,
 } from "@/lib/chat/reasoning";
+import { normalizeChatMode } from "@/lib/chat/mode";
 import { deleteFromOPFS } from "@/utils/opfs";
 import { logDevError } from "@/lib/utils/devLogger";
 import { deleteSessionArchives } from "@/services/workspace/sessionArchive";
@@ -42,6 +43,14 @@ import {
   duplicateSessionArtifacts,
 } from "@/services/workspace/sessionArtifact";
 import { useAgentRunStore } from "@/store/core/agentRunStore";
+import { useResearchStore } from "@/store/core/researchStore";
+import {
+  duplicateResearchTaskSnapshots,
+  getReferencedResearchTaskIds,
+  prepareResearchTaskSnapshots,
+  remapResearchTaskBlocks,
+  removeResearchTaskSnapshots,
+} from "@/services/research";
 import { deleteSessionWorkspace } from "@/services/workspace/sessionWorkspace";
 import { reportAppRestoreHydration } from "@/lib/data/appRestoreJournal";
 import {
@@ -86,6 +95,17 @@ const getWorkspaceArtifactUrls = (
   }
   return Array.from(urls);
 };
+
+const getResearchTaskIds = (messages: Message[]): string[] =>
+  Array.from(
+    new Set(
+      messages.flatMap((message) =>
+        (message.outputBlocks || []).flatMap((block) =>
+          block.type === "research_task" ? [block.taskId] : [],
+        ),
+      ),
+    ),
+  );
 
 const remapWorkspaceArtifactUrls = (
   messageTree: SessionMessageTree,
@@ -449,11 +469,18 @@ const applySessionConfig = (
         sessionConfig?.useReasoning,
       )
     : currentConfig.reasoningMode;
+  const chatMode = normalizeChatMode(
+    sessionConfig?.chatMode,
+    sessionConfig?.useAgentMode,
+    sessionConfig?.useDeepResearch,
+  );
 
   return normalizeChatConfig({
     ...currentConfig,
+    chatMode,
     useSearch: sessionConfig?.useSearch ?? currentConfig.useSearch,
-    useAgentMode: sessionConfig?.useAgentMode === true,
+    useAgentMode: chatMode === "agent",
+    useDeepResearch: chatMode === "research",
     useReasoning: isReasoningEnabled(reasoningMode),
     reasoningMode,
   });
@@ -705,13 +732,15 @@ export const useChatStore = create<ChatState>()(
           throw error;
         }
 
-        // Scratch data and published copies are session-scoped. Duplicates copy
-        // published artifacts to their own root before they are persisted.
+        // Scratch data and ordinary published copies are session-scoped.
+        // Content-addressed Research Artifacts are released separately after
+        // the last copied ResearchTask reference is removed.
         const cleanupResults = await Promise.allSettled([
           deleteSessionWorkspace(id),
           deleteSessionArchives(id),
           deleteSessionArtifacts(id),
           useAgentRunStore.getState().clearSessionRuns(id),
+          useResearchStore.getState().clearSessionTasks(id),
         ]);
         cleanupResults.forEach((result) => {
           if (result.status === "rejected") {
@@ -868,11 +897,27 @@ export const useChatStore = create<ChatState>()(
           originalMessageTree,
           uuidv7,
         );
+        const referencedResearchTaskIds =
+          getReferencedResearchTaskIds(originalMessageTree);
+        const preparedResearch = referencedResearchTaskIds.length
+          ? await prepareResearchTaskSnapshots(id, originalMessageTree)
+          : {
+              tasks: [],
+              artifactUrls: [],
+              referencedTaskIds: [],
+            };
+        let createdResearchTaskIds: string[] = [];
 
         try {
-          const artifactUrls = getWorkspaceArtifactUrls(originalMessageTree);
+          const artifactUrls = Array.from(
+            new Set([
+              ...getWorkspaceArtifactUrls(originalMessageTree),
+              ...preparedResearch.artifactUrls,
+            ]),
+          );
+          let copiedArtifacts = new Map<string, string>();
           if (artifactUrls.length > 0) {
-            const copiedArtifacts = await duplicateSessionArtifacts(
+            copiedArtifacts = await duplicateSessionArtifacts(
               id,
               newId,
               artifactUrls,
@@ -882,7 +927,20 @@ export const useChatStore = create<ChatState>()(
               copiedArtifacts,
             );
           }
+          const duplicatedResearch = preparedResearch.tasks.length
+            ? await duplicateResearchTaskSnapshots({
+                targetSessionId: newId,
+                tasks: preparedResearch.tasks,
+                artifactUrls: copiedArtifacts,
+              })
+            : { taskIdMap: new Map<string, string>(), createdTaskIds: [] };
+          createdResearchTaskIds = duplicatedResearch.createdTaskIds;
+          newMessageTree = remapResearchTaskBlocks(
+            newMessageTree,
+            duplicatedResearch.taskIdMap,
+          );
         } catch (error) {
+          await removeResearchTaskSnapshots(createdResearchTaskIds);
           await deleteSessionArtifacts(newId).catch((cleanupError) => {
             logDevError(
               "Failed to clean up an incomplete duplicated session artifact store",
@@ -909,6 +967,7 @@ export const useChatStore = create<ChatState>()(
             await appDb.setItem(`session_messages_${newId}`, newMessageTree);
           });
         } catch (error) {
+          await removeResearchTaskSnapshots(createdResearchTaskIds);
           await deleteSessionArtifacts(newId).catch((cleanupError) => {
             logDevError(
               "Failed to clean up an incomplete duplicated session artifact store",
@@ -1435,6 +1494,9 @@ export const useChatStore = create<ChatState>()(
               },
             );
           }
+          await removeResearchTaskSnapshots(
+            getResearchTaskIds(removedMessages),
+          );
         }
       },
 
@@ -1524,6 +1586,9 @@ export const useChatStore = create<ChatState>()(
               },
             );
           }
+          await removeResearchTaskSnapshots(
+            getResearchTaskIds(removedMessages),
+          );
         }
       },
 

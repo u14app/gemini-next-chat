@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
-import type { ModelMetadata, ReasoningMode } from "@/types";
+import type { ChatMode, ModelMetadata, ReasoningMode } from "@/types";
 import {
   parseModelString,
   resolveProviderModelMetadata,
@@ -25,6 +25,8 @@ export type ComposerCapabilityState = {
     toolCall: boolean;
   };
   agentModeEnabled: boolean;
+  researchModeEnabled: boolean;
+  orchestratedModeEnabled: boolean;
   isReasoningSupported: boolean;
   currentReasoningMode: ReasoningMode;
   isReasoningEnabledForMode: boolean;
@@ -46,7 +48,7 @@ export function useComposerCapabilityState({
   customModelMetadata,
   reasoningMode,
   useReasoning,
-  useAgentMode,
+  chatMode,
   reasoningOptionLabels,
 }: {
   selectedModel: string;
@@ -54,7 +56,7 @@ export function useComposerCapabilityState({
   customModelMetadata: Record<string, ModelMetadata>;
   reasoningMode: ReasoningMode;
   useReasoning: boolean;
-  useAgentMode: boolean;
+  chatMode: ChatMode;
   reasoningOptionLabels: Record<
     ReasoningMode,
     { label: string; description: string }
@@ -129,10 +131,16 @@ export function useComposerCapabilityState({
     reasoningOptions.find((option) => option.value === currentReasoningMode) ||
     reasoningOptions[0];
 
+  const agentModeEnabled = chatMode === "agent" && modelCapabilities.toolCall;
+  const researchModeEnabled =
+    chatMode === "research" && modelCapabilities.toolCall;
+
   return {
     selectedModelMetadata,
     modelCapabilities,
-    agentModeEnabled: useAgentMode && modelCapabilities.toolCall,
+    agentModeEnabled,
+    researchModeEnabled,
+    orchestratedModeEnabled: agentModeEnabled || researchModeEnabled,
     isReasoningSupported,
     currentReasoningMode,
     isReasoningEnabledForMode,

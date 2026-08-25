@@ -6,6 +6,7 @@ import {
   supportsToolCalls,
 } from "../utils/model";
 import { isReasoningEnabled, resolveReasoningModeForModel } from "./reasoning";
+import { normalizeChatMode } from "./mode";
 
 export function resolveEffectiveChatRequestConfig({
   chatConfig,
@@ -32,14 +33,24 @@ export function resolveEffectiveChatRequestConfig({
     selectedModelMetadata,
     chatConfig.useReasoning,
   );
+  const chatMode = normalizeChatMode(
+    chatConfig.chatMode,
+    chatConfig.useAgentMode,
+    chatConfig.useDeepResearch,
+  );
+  const toolCallsSupported = supportsToolCalls(selectedModelMetadata);
+  const useAgentMode = chatMode === "agent" && toolCallsSupported;
+  const useDeepResearch = chatMode === "research" && toolCallsSupported;
 
   return {
-    ...chatConfig,
+    chatMode,
     useSearch: chatConfig.useSearch && (searchCompatibility?.enabled ?? true),
-    useAgentMode:
-      chatConfig.useAgentMode === true &&
-      supportsToolCalls(selectedModelMetadata),
+    useAgentMode,
+    useDeepResearch,
     reasoningMode,
     useReasoning: isReasoningEnabled(reasoningMode),
+    useRAG: chatConfig.useRAG,
+    temperature: chatConfig.temperature,
+    imageCount: chatConfig.imageCount,
   };
 }

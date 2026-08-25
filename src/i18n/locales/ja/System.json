@@ -106,6 +106,7 @@
   "restoreCredentialRestoredAt": "復元完了: {date}",
   "restoreCredentialDismiss": "このチェックリストを確認しました",
   "legacyBackupWarning": "この旧形式 JSON バックアップには OPFS ファイルが含まれていません。ファイル参照は利用不可として表示されます。",
+  "legacyResearchSkippedWarning": "旧版 v1 スキーマのディープリサーチ記録 {count} 件は復元時にスキップされます。その他の互換データは復元できます。",
   "incompleteBackupWarning": "バックアップ作成時に {count} 個の参照ファイルが見つかりませんでした。",
   "cancelRestore": "キャンセル",
   "cancelRestoreOperation": "復元をキャンセル",

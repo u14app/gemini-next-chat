@@ -180,7 +180,7 @@ export function useChatRequestPreparation({
       installedSkills.map((skill) => [skill.id, skill]),
     );
     const activeManualSkills =
-      skillAutoSelect || effectiveContext.agentModeEnabled
+      skillAutoSelect || effectiveContext.orchestratedModeEnabled
         ? []
         : effectiveContext.activeSkillIds
             .map((id) => skillsById.get(id))
@@ -190,7 +190,9 @@ export function useChatRequestPreparation({
     // `/skill` references bypass auto-select, so they still need their
     // parameters collected before the message is sent.
     const seenSkillIds = new Set(activeManualSkills.map((skill) => skill.id));
-    for (const id of forcedSkillIds) {
+    for (const id of effectiveContext.researchModeEnabled
+      ? []
+      : forcedSkillIds) {
       const skill = skillsById.get(id);
       if (!skill || seenSkillIds.has(skill.id)) continue;
       seenSkillIds.add(skill.id);
@@ -199,7 +201,9 @@ export function useChatRequestPreparation({
     const bundlesById = new Map(
       skillBundles.map((bundle) => [bundle.id, bundle]),
     );
-    const activeBundles = activeSkillBundleIds
+    const activeBundles = (
+      effectiveContext.researchModeEnabled ? [] : activeSkillBundleIds
+    )
       .map((id) => bundlesById.get(id))
       .filter((bundle): bundle is (typeof skillBundles)[number] =>
         Boolean(bundle),
@@ -306,11 +310,13 @@ export function useChatRequestPreparation({
       session,
       requestModel,
     );
-    const preparedAttachments = await prepareConversationImageAttachments(
-      attachments,
-      getImageCompressionConfig(system),
-      { signal },
-    );
+    const preparedAttachments = effectiveContext.researchModeEnabled
+      ? attachments
+      : await prepareConversationImageAttachments(
+          attachments,
+          getImageCompressionConfig(system),
+          { signal },
+        );
     const processedData = await processMessageForSending({
       text,
       attachments: preparedAttachments,
@@ -319,7 +325,8 @@ export function useChatRequestPreparation({
       customModelMetadata,
       ragConfig: rag,
       ragEnabled: chatConfig.useRAG !== false,
-      deferKnowledgeRetrieval: effectiveContext.agentModeEnabled,
+      deferKnowledgeRetrieval: effectiveContext.orchestratedModeEnabled,
+      deferAttachmentReading: effectiveContext.researchModeEnabled,
       knowledgeCollections,
       workspaceKnowledgeCollectionIds:
         effectiveContext.workspaceKnowledgeCollectionIds,
@@ -327,29 +334,31 @@ export function useChatRequestPreparation({
     });
 
     const memoryState = useMemoryStore.getState();
-    const directMemoryContext = existingMemoryContext?.promptContext
-      ? {
-          text: existingMemoryContext.promptContext,
-          injectedMemoryIds: existingMemoryContext.injectedMemoryIds,
-        }
-      : memoryState._hasHydrated &&
-          memoryState.settings.enabled &&
-          memoryState.settings.searchEnabled
-        ? buildDirectMemoryPromptContext({
-            memories: memoryState.memories.filter((memory) =>
-              isMemoryVisibleInScopes(
-                memory,
-                effectiveContext.memoryScopes,
-                effectiveContext.memoryScopeIds,
+    const directMemoryContext = effectiveContext.researchModeEnabled
+      ? { text: "", injectedMemoryIds: [] }
+      : existingMemoryContext?.promptContext
+        ? {
+            text: existingMemoryContext.promptContext,
+            injectedMemoryIds: existingMemoryContext.injectedMemoryIds,
+          }
+        : memoryState._hasHydrated &&
+            memoryState.settings.enabled &&
+            memoryState.settings.searchEnabled
+          ? buildDirectMemoryPromptContext({
+              memories: memoryState.memories.filter((memory) =>
+                isMemoryVisibleInScopes(
+                  memory,
+                  effectiveContext.memoryScopes,
+                  effectiveContext.memoryScopeIds,
+                ),
               ),
-            ),
-            query: text,
-            alreadyInjectedMemoryIds: getSuppressedMemoryIds(
-              session,
-              useChatStore.getState().activeMessages,
-            ),
-          })
-        : { text: "", injectedMemoryIds: [] };
+              query: text,
+              alreadyInjectedMemoryIds: getSuppressedMemoryIds(
+                session,
+                useChatStore.getState().activeMessages,
+              ),
+            })
+          : { text: "", injectedMemoryIds: [] };
     const memoryContext =
       directMemoryContext.text &&
       directMemoryContext.injectedMemoryIds.length > 0
@@ -379,6 +388,7 @@ export function useChatRequestPreparation({
             separator: "\n\n",
           })
         : promptWithReply,
+      researchLaunchText: promptWithReply,
       effectiveContext,
       injectedMemoryIds: directMemoryContext.injectedMemoryIds,
     };
@@ -416,6 +426,28 @@ export function useChatRequestPreparation({
     agentRun,
     memoryScopes,
     memoryScopeIds,
+    onChatModeChange: (config, agentRunId) => {
+      if (!isActive()) return;
+      const modeConfig = {
+        chatMode: config.chatMode,
+        useAgentMode: config.useAgentMode === true,
+        useDeepResearch: config.useDeepResearch === true,
+        useSearch: config.useSearch === true,
+      };
+      const chatState = useChatStore.getState();
+      chatState.setChatConfig(modeConfig);
+      chatState.updateSessionConfig(sessionId, modeConfig);
+      const current = chatState.activeMessages.find(
+        (message) => message.id === modelMessageId,
+      );
+      if (current?.generation) {
+        const generation = { ...current.generation };
+        delete generation.agentRunId;
+        updateMessage(sessionId, modelMessageId, {
+          generation: agentRunId ? { ...generation, agentRunId } : generation,
+        });
+      }
+    },
     knowledgeScope: {
       attachments: knowledgeScope.map((attachment) => ({ ...attachment })),
       collections: knowledgeCollections,

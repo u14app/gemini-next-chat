@@ -6,6 +6,24 @@ function readProjectFile(path: string) {
   return readFileSync(resolve(process.cwd(), path), "utf8");
 }
 
+function contrastRatio(foreground: string, background: string): number {
+  const luminance = (hex: string) => {
+    const channels = hex
+      .slice(1)
+      .match(/.{2}/g)!
+      .map((value) => Number.parseInt(value, 16) / 255)
+      .map((value) =>
+        value <= 0.04045
+          ? value / 12.92
+          : Math.pow((value + 0.055) / 1.055, 2.4),
+      );
+    return 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2];
+  };
+  const high = Math.max(luminance(foreground), luminance(background));
+  const low = Math.min(luminance(foreground), luminance(background));
+  return (high + 0.05) / (low + 0.05);
+}
+
 describe("dark theme token contract", () => {
   it("defines every brand and surface utility referenced by components", () => {
     const globals = readProjectFile("src/app/globals.css");
@@ -82,6 +100,36 @@ describe("dark theme token contract", () => {
     expect(globals).toContain(".markdown-html-visual");
     expect(globals).toContain(".glass-shell");
     expect(globals).toContain(".glass-popover");
+  });
+
+  it("uses distinct composer border accents for Research and Agent modes", () => {
+    const globals = readProjectFile("src/app/globals.css");
+
+    expect(globals).toContain('.glass-shell[data-chat-mode="research"]');
+    expect(globals).toContain('.glass-shell[data-chat-mode="agent"]');
+    expect(globals).toContain(
+      '.dark .glass-shell[data-chat-mode="research"]:focus-within',
+    );
+    expect(globals).toContain(
+      '.dark .glass-shell[data-chat-mode="agent"]:focus-within',
+    );
+    for (const token of [
+      "--research-accent: #1769aa;",
+      "--research-accent-hover: #14568f;",
+      "--research-accent-foreground: #f8fbff;",
+      "--research-accent-soft: #edf5ff;",
+      "--research-accent-border: #bfd8f4;",
+      "--research-accent: #76b8f4;",
+      "--research-accent-hover: #94c9f8;",
+      "--research-accent-foreground: #0b2942;",
+      "--research-accent-soft: #152d43;",
+      "--research-accent-border: #315a7d;",
+    ]) {
+      expect(globals).toContain(token);
+    }
+    expect(contrastRatio("#f8fbff", "#1769aa")).toBeGreaterThanOrEqual(4.5);
+    expect(contrastRatio("#0b2942", "#76b8f4")).toBeGreaterThanOrEqual(4.5);
+    expect(globals).toContain("rgb(192 132 252 / 0.68)");
   });
 
   it("keeps diagram render containers borderless in normal and enhanced modes", () => {

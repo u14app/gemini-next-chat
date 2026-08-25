@@ -22,6 +22,12 @@ describe("shortcut data portability", () => {
         alt: false,
         shift: false,
       },
+      cycleChatMode: {
+        code: "KeyM",
+        mod: true,
+        alt: false,
+        shift: false,
+      },
       toggleSidebar: {
         code: "Backslash",
         mod: true,

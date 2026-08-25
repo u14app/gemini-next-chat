@@ -53,6 +53,7 @@ describe("shortcut dispatcher", () => {
     ["globalSearch", { code: "KeyK", ctrlKey: true }],
     ["newChat", { code: "KeyN", ctrlKey: true, altKey: true }],
     ["focusComposer", { code: "Slash", ctrlKey: true }],
+    ["cycleChatMode", { code: "KeyM", ctrlKey: true }],
     ["toggleSidebar", { code: "Backslash", ctrlKey: true }],
     ["openShortcutSettings", { code: "KeyS", ctrlKey: true, altKey: true }],
     ["stopGeneration", { code: "Period", ctrlKey: true, altKey: true }],

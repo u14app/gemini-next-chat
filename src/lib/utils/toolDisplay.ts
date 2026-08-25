@@ -1,5 +1,67 @@
 import { TOOL_DISPLAY_LIMITS } from "@/config/limits";
 
+export const BUILTIN_TOOL_LABEL_KEYS = {
+  web_search: "toolWebSearch",
+  search_web: "toolSearchWebV2",
+  search_knowledge: "toolKnowledgeSearch",
+  memory_list: "toolMemoryList",
+  remember: "toolRemember",
+  memory_update: "toolMemoryUpdate",
+  forget: "toolForget",
+  memory_restore: "toolMemoryRestore",
+  load_skill: "toolLoadSkill",
+  search_skills: "toolSearchSkills",
+  inspect_skill: "toolInspectSkill",
+  run_javascript: "toolRunJavaScript",
+  fetch_url: "toolFetchUrl",
+  fetch_urls: "toolFetchUrls",
+  inspect_attachment: "toolInspectAttachment",
+  extract_document: "toolExtractDocument",
+  update_task_plan: "toolUpdateTaskPlan",
+  request_user_input: "toolRequestUserInput",
+  search_tools: "toolSearchTools",
+  load_tools: "toolLoadTools",
+  inspect_mcp_server: "toolInspectMcpServer",
+  list_mcp_resources: "toolListMcpResources",
+  read_mcp_resource: "toolReadMcpResource",
+  list_mcp_prompts: "toolListMcpPrompts",
+  get_mcp_prompt: "toolGetMcpPrompt",
+  start_long_text_output: "toolStartLongTextOutput",
+  start_deep_research: "toolStartDeepResearch",
+  get_research_status: "toolGetResearchStatus",
+  list_research_tasks: "toolListResearchTasks",
+  read_research_report: "toolReadResearchReport",
+  list_research_evidence: "toolListResearchEvidence",
+  adjust_research_plan: "toolAdjustResearchPlan",
+  list_workspace_files: "toolListWorkspaceFiles",
+  read_workspace_file: "toolReadWorkspaceFile",
+  stat_workspace_file: "toolStatWorkspaceFile",
+  diff_workspace_file: "toolDiffWorkspaceFile",
+  write_workspace_file: "toolWriteWorkspaceFile",
+  edit_workspace_file: "toolEditWorkspaceFile",
+  apply_workspace_patch: "toolApplyWorkspacePatch",
+  trash_workspace_file: "toolTrashWorkspaceFile",
+  restore_workspace_file: "toolRestoreWorkspaceFile",
+  delete_workspace_file: "toolDeleteWorkspaceFile",
+  validate_workspace_file: "toolValidateWorkspaceFile",
+  publish_artifact: "toolPublishArtifact",
+  share_workspace_file: "toolShareWorkspaceFile",
+  search_workspace_files: "toolSearchWorkspaceFiles",
+  move_workspace_file: "toolMoveWorkspaceFile",
+  create_archive: "toolCreateArchive",
+} as const;
+
+export type BuiltinToolName = keyof typeof BUILTIN_TOOL_LABEL_KEYS;
+export type BuiltinToolLabelKey =
+  (typeof BUILTIN_TOOL_LABEL_KEYS)[BuiltinToolName];
+
+export function getBuiltinToolLabelKey(
+  name: unknown,
+): BuiltinToolLabelKey | undefined {
+  if (typeof name !== "string") return undefined;
+  return BUILTIN_TOOL_LABEL_KEYS[name as BuiltinToolName];
+}
+
 export interface ToolDisplayValue {
   text: string;
   truncated: boolean;

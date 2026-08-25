@@ -85,7 +85,7 @@ export default function ComposerCommandMenu({
       placement="top-start"
       matchAnchorWidth
       maxHeight={296}
-      className="z-50 overflow-hidden overflow-y-auto rounded-xl border border-input bg-popover text-popover-foreground shadow-xl custom-scrollbar animate-in fade-in zoom-in-95 duration-150 origin-bottom"
+      className="z-50 overflow-hidden overflow-y-auto rounded-xl border border-input bg-popover text-popover-foreground shadow-xl custom-scrollbar"
     >
       <div className="p-1">
         {hasItems ? (

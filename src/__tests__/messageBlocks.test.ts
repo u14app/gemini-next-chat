@@ -455,4 +455,36 @@ describe("message output blocks", () => {
       steps: [{ title: "Updated", status: "in_progress" }],
     });
   });
+
+  it("completes only unfinished steps in the current task plan", () => {
+    const builder = createMessageOutputBlockBuilder({
+      initialBlocks: [
+        {
+          id: "plan-1",
+          type: "task_plan",
+          steps: [
+            { title: "Inspect", status: "completed" },
+            { title: "Implement", status: "in_progress" },
+            { title: "Verify", status: "pending" },
+          ],
+          note: "Keep this note",
+        },
+      ],
+    });
+
+    expect(builder.completeTaskPlan()).toBe(true);
+    expect(builder.getBlocks()).toEqual([
+      {
+        id: "plan-1",
+        type: "task_plan",
+        steps: [
+          { title: "Inspect", status: "completed" },
+          { title: "Implement", status: "completed" },
+          { title: "Verify", status: "completed" },
+        ],
+        note: "Keep this note",
+      },
+    ]);
+    expect(builder.completeTaskPlan()).toBe(false);
+  });
 });

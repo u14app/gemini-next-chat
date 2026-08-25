@@ -36,7 +36,7 @@ interface AnchoredPortalProps {
   anchorRef: React.RefObject<HTMLElement | null>;
   open: boolean;
   onClose: () => void;
-  children: React.ReactNode;
+  children?: React.ReactNode;
   className?: string;
   id?: string;
   role?: string;
@@ -58,6 +58,8 @@ const HIDDEN_PORTAL_STYLE: CSSProperties = {
   pointerEvents: "none",
 };
 
+type PortalPositionPhase = "hidden" | "measuring" | "positioned";
+
 const useIsomorphicLayoutEffect =
   typeof window === "undefined" ? useEffect : useLayoutEffect;
 
@@ -69,6 +71,27 @@ const getPlacementSide = (placement: Placement) =>
 
 const getPlacementAlign = (placement: Placement) =>
   placement.endsWith("end") ? "end" : "start";
+
+export const computeHiddenAnchoredPortalStyle = ({
+  anchorRect,
+  viewportHeight,
+  matchAnchorWidth,
+  maxHeight,
+}: Pick<
+  ComputeAnchoredPortalStyleOptions,
+  "anchorRect" | "viewportHeight" | "matchAnchorWidth" | "maxHeight"
+>): CSSProperties => ({
+  ...HIDDEN_PORTAL_STYLE,
+  left: Math.round(anchorRect.left),
+  width: matchAnchorWidth ? Math.round(anchorRect.width) : undefined,
+  maxHeight: Math.max(
+    96,
+    Math.min(
+      maxHeight ?? viewportHeight - VIEWPORT_MARGIN * 2,
+      viewportHeight - VIEWPORT_MARGIN * 2,
+    ),
+  ),
+});
 
 export const computeAnchoredPortalStyle = ({
   anchorRect,
@@ -163,7 +186,8 @@ export default function AnchoredPortal({
 }: AnchoredPortalProps) {
   const menuRef = useRef<HTMLDivElement>(null);
   const [style, setStyle] = useState<CSSProperties>(HIDDEN_PORTAL_STYLE);
-  const [isPositioned, setIsPositioned] = useState(false);
+  const [positionPhase, setPositionPhase] =
+    useState<PortalPositionPhase>("hidden");
 
   const updatePosition = useCallback(() => {
     const anchor = anchorRef.current;
@@ -184,19 +208,36 @@ export default function AnchoredPortal({
         maxHeight,
       }),
     );
-    setIsPositioned(true);
+    setPositionPhase("positioned");
   }, [anchorRef, matchAnchorWidth, maxHeight, offset, placement]);
 
   useIsomorphicLayoutEffect(() => {
-    setIsPositioned(false);
-    setStyle(HIDDEN_PORTAL_STYLE);
-    if (!open) return;
+    if (!open) {
+      setPositionPhase("hidden");
+      setStyle(HIDDEN_PORTAL_STYLE);
+      return;
+    }
 
+    const anchor = anchorRef.current;
+    if (!anchor) return;
+    setPositionPhase("measuring");
+    setStyle(
+      computeHiddenAnchoredPortalStyle({
+        anchorRect: anchor.getBoundingClientRect(),
+        viewportHeight: window.innerHeight,
+        matchAnchorWidth,
+        maxHeight,
+      }),
+    );
+  }, [anchorRef, matchAnchorWidth, maxHeight, open, updatePosition]);
+
+  useIsomorphicLayoutEffect(() => {
+    if (!open || positionPhase !== "measuring") return;
     updatePosition();
-  }, [open, updatePosition]);
+  }, [open, positionPhase, updatePosition]);
 
   useEffect(() => {
-    if (!open || !isPositioned) return;
+    if (!open || positionPhase !== "positioned") return;
 
     let frameId = 0;
     const scheduleUpdate = () => {
@@ -206,13 +247,20 @@ export default function AnchoredPortal({
 
     window.addEventListener("resize", scheduleUpdate);
     window.addEventListener("scroll", scheduleUpdate, true);
+    const resizeObserver =
+      typeof ResizeObserver === "undefined"
+        ? null
+        : new ResizeObserver(scheduleUpdate);
+    if (anchorRef.current) resizeObserver?.observe(anchorRef.current);
+    if (menuRef.current) resizeObserver?.observe(menuRef.current);
 
     return () => {
       cancelAnimationFrame(frameId);
+      resizeObserver?.disconnect();
       window.removeEventListener("resize", scheduleUpdate);
       window.removeEventListener("scroll", scheduleUpdate, true);
     };
-  }, [isPositioned, open, updatePosition]);
+  }, [anchorRef, open, positionPhase, updatePosition]);
 
   useEffect(() => {
     if (!open) return;
@@ -247,7 +295,8 @@ export default function AnchoredPortal({
       aria-label={ariaLabel}
       aria-labelledby={ariaLabelledBy}
       aria-activedescendant={ariaActiveDescendant}
-      style={isPositioned ? style : HIDDEN_PORTAL_STYLE}
+      aria-hidden={positionPhase === "positioned" ? undefined : true}
+      style={style}
       className={className}
     >
       {children}

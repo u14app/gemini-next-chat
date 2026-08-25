@@ -10,10 +10,13 @@ import MessageOutputRenderer from "@/components/content/MessageOutputRenderer";
 import contentMessages from "@/i18n/locales/en/Content.json";
 import messageMessages from "@/i18n/locales/en/Message.json";
 import type { Message, WorkspaceFilePresentation } from "@/types";
+import { createAgentRun } from "@/lib/agent";
+import { useAgentRunStore } from "@/store/core/agentRunStore";
 
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  useAgentRunStore.setState({ runsById: {}, loadedSessionIds: {} });
 });
 
 function renderMessage(
@@ -39,6 +42,39 @@ function renderMessage(
 }
 
 describe("MessageOutputRenderer workspace file presentation", () => {
+  it("never renders an Agent run bar for an internal Research journal", () => {
+    const run = createAgentRun({
+      id: "research-run",
+      sessionId: "session-1",
+      modelMessageId: "research-message",
+      model: "openai:gpt-tools",
+      workflowKind: "research",
+      now: 1,
+    });
+    useAgentRunStore.setState({
+      runsById: { [run.id]: run },
+      loadedSessionIds: {},
+    });
+
+    renderMessage({
+      id: "research-message",
+      role: "model",
+      content: "",
+      timestamp: 1,
+      generation: {
+        status: "streaming",
+        requestId: "request-1",
+        agentRunId: run.id,
+        ownerDeviceId: "device-1",
+        model: "openai:gpt-tools",
+        attempt: 0,
+        checkpointAt: 1,
+      },
+    });
+
+    expect(screen.queryByLabelText("Agent run")).toBeNull();
+  });
+
   it("connects a workspace text card to the full-screen handler", async () => {
     const onWorkspaceFileOpen = vi.fn();
     vi.stubGlobal(
@@ -86,6 +122,60 @@ describe("MessageOutputRenderer workspace file presentation", () => {
     );
 
     expect(onWorkspaceFileOpen).toHaveBeenCalledWith(file);
+  });
+});
+
+describe("MessageOutputRenderer reasoning presentation", () => {
+  it("uses a reasoning block's own lifecycle even when another block follows", () => {
+    render(
+      <NextIntlClientProvider
+        locale="en"
+        messages={{ Content: contentMessages, Message: messageMessages }}
+      >
+        <MessageOutputRenderer
+          message={{
+            id: "reasoning-message",
+            role: "model",
+            content: "",
+            timestamp: 1,
+            outputBlocks: [
+              {
+                id: "reasoning-complete",
+                type: "reasoning",
+                content: "Completed thought",
+                startedAt: 10,
+                endedAt: 20,
+                durationMs: 10,
+              },
+              {
+                id: "reasoning-active",
+                type: "reasoning",
+                content: "Active thought",
+                startedAt: 30,
+              },
+              {
+                id: "plan-after-reasoning",
+                type: "task_plan",
+                steps: [{ title: "Continue", status: "in_progress" }],
+              },
+            ],
+          }}
+          displayedContent=""
+          searchSources={[]}
+        />
+      </NextIntlClientProvider>,
+    );
+
+    const completedToggle = screen.getByRole("button", {
+      name: /Thought Process/u,
+    });
+    const activeToggle = screen.getByRole("button", {
+      name: /Thinking/u,
+    });
+    expect(completedToggle.getAttribute("aria-expanded")).toBe("false");
+    expect(completedToggle.getAttribute("aria-busy")).toBeNull();
+    expect(activeToggle.getAttribute("aria-expanded")).toBe("true");
+    expect(activeToggle.getAttribute("aria-busy")).toBe("true");
   });
 });
 

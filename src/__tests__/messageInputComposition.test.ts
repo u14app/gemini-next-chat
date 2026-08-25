@@ -3,6 +3,26 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 describe("MessageInput composition", () => {
+  it("routes the mode shortcut through the existing capability-aware switch", () => {
+    const messageInput = readFileSync(
+      resolve(process.cwd(), "src/components/chat/MessageInput.tsx"),
+      "utf8",
+    );
+    const chatShell = readFileSync(
+      resolve(process.cwd(), "src/components/app/ChatAppShell.tsx"),
+      "utf8",
+    );
+
+    expect(messageInput).toContain("cycleChatMode: () => boolean");
+    expect(messageInput).toContain("getNextSupportedChatMode(");
+    expect(messageInput).toContain("if (isInputBusy) return false");
+    expect(messageInput).toContain("handleChatModeChange(nextMode)");
+    expect(messageInput).toContain("cycleChatMode,");
+    expect(chatShell).toContain(
+      "messageInputRef.current?.cycleChatMode() ?? false",
+    );
+  });
+
   it("omits the model capability preview while retaining capability gates", () => {
     const messageInput = readFileSync(
       resolve(process.cwd(), "src/components/chat/MessageInput.tsx"),
@@ -110,14 +130,33 @@ describe("MessageInput composition", () => {
     expect(messageInput).toContain("reasoningOptions");
     expect(messageInput).toContain("reasoningMode");
     expect(messageInput).toContain("AgentCapabilityMenu");
-    expect(messageInput).toContain("AgentArtifactDrawer");
-    expect(messageInput).toContain("agentModeEnabled");
-    expect(messageInput).toContain("handleAgentModeToggle");
-    expect(messageInput).toContain("!modelCapabilities.toolCall");
-    expect(messageInput).toContain("setChatConfig({ useAgentMode });");
+    expect(messageInput).toContain("AgentSettingsDialog");
+    expect(messageInput).toContain("data-chat-mode={chatMode}");
+    expect(messageInput).toContain("handleApprovalModeChange");
+    expect(messageInput).toContain("handleAgentBudgetChange");
+    expect(messageInput).toContain("handleAgentBudgetReset");
+    expect(messageInput).toContain("handleAgentSettingsOpen");
+    expect(messageInput).toContain("handleAgentSettingsClose");
     expect(messageInput).toContain(
-      "updateSessionConfig(currentSessionId, { useAgentMode });",
+      "returnFocus.focus({ preventScroll: true })",
     );
+    expect(messageInput).toContain("budgetOverride");
+    expect(messageInput).toContain("agentModeEnabled");
+    expect(messageInput).toContain("handleChatModeChange");
+    expect(messageInput).toContain("chatModeOptions");
+    expect(messageInput).toContain("applyChatMode(chatConfig, mode)");
+    expect(messageInput).toContain('value: "auto"');
+    expect(messageInput).toContain('value: "chat"');
+    expect(messageInput).toContain('value: "research"');
+    expect(messageInput).toContain('value: "agent"');
+    expect(messageInput).toContain("!modelCapabilities.toolCall");
+    expect(messageInput).toContain("setChatConfig(sessionConfig);");
+    expect(messageInput).toContain(
+      "updateSessionConfig(currentSessionId, sessionConfig);",
+    );
+    expect(messageInput).toContain("{/* Chat Mode Selector */}");
+    expect(messageInput).not.toContain("{/* Deep Research capability */}");
+    expect(messageInput).not.toContain("{/* Agent Mode Button */}");
     expect(messageInput).toContain('t("agentModeUnavailable")');
     expect(messageInput).toContain("agentSearchRequiresExternalProvider");
     expect(messageInput).toContain('searchCompatibility.mode !== "external"');
@@ -169,12 +208,12 @@ describe("MessageInput composition", () => {
       messageInput.indexOf("{/* Search Button */}"),
     );
     expect(messageInput.indexOf("{/* Search Button */}")).toBeLessThan(
-      messageInput.indexOf("{/* Agent Mode Button */}"),
-    );
-    expect(messageInput.indexOf("{/* Agent Mode Button */}")).toBeLessThan(
       messageInput.indexOf("{/* Model Selector */}"),
     );
     expect(messageInput.indexOf("{/* Model Selector */}")).toBeLessThan(
+      messageInput.indexOf("{/* Chat Mode Selector */}"),
+    );
+    expect(messageInput.indexOf("{/* Chat Mode Selector */}")).toBeLessThan(
       messageInput.indexOf("{/* Text Polish Button */}"),
     );
     expect(messageInput.indexOf("{/* Text Polish Button */}")).toBeLessThan(

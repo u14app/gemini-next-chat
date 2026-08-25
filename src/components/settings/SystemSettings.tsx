@@ -1189,6 +1189,20 @@ const SystemSettings = () => {
                   </span>
                 </div>
               ) : null}
+              {restoreInspection.skippedLegacyResearchTaskCount > 0 ? (
+                <div className="mt-2 flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-2 text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-100">
+                  <AlertTriangle
+                    size={14}
+                    className="mt-0.5 shrink-0"
+                    aria-hidden="true"
+                  />
+                  <span>
+                    {t("legacyResearchSkippedWarning", {
+                      count: restoreInspection.skippedLegacyResearchTaskCount,
+                    })}
+                  </span>
+                </div>
+              ) : null}
               <div className="mt-3 flex flex-wrap justify-end gap-2">
                 <Button
                   variant="bare"

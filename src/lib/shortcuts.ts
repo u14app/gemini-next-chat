@@ -2,6 +2,7 @@ export const SHORTCUT_ACTION_IDS = [
   "globalSearch",
   "newChat",
   "focusComposer",
+  "cycleChatMode",
   "toggleSidebar",
   "openShortcutSettings",
   "stopGeneration",
@@ -44,6 +45,12 @@ export const DEFAULT_SHORTCUT_BINDINGS: ShortcutBindings = {
   },
   focusComposer: {
     code: "Slash",
+    mod: true,
+    alt: false,
+    shift: false,
+  },
+  cycleChatMode: {
+    code: "KeyM",
     mod: true,
     alt: false,
     shift: false,

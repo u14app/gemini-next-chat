@@ -192,6 +192,7 @@ const evidenceRecordSchema = z
 const agentRunSchema = z
   .object({
     schemaVersion: z.literal(AGENT_RUN_SCHEMA_VERSION),
+    workflowKind: z.enum(["agent", "research"]).optional().default("agent"),
     id: z.string().min(1).max(240),
     sessionId: z.string().min(1).max(240),
     userMessageId: z.string().min(1).max(240).optional(),

@@ -34,11 +34,12 @@ function keyboardEvent(overrides: Partial<KeyboardEvent> = {}): KeyboardEvent {
 }
 
 describe("shortcut bindings", () => {
-  it("defines the six actions and their defaults in a stable order", () => {
+  it("defines the seven actions and their defaults in a stable order", () => {
     expect(SHORTCUT_ACTION_IDS).toEqual([
       "globalSearch",
       "newChat",
       "focusComposer",
+      "cycleChatMode",
       "toggleSidebar",
       "openShortcutSettings",
       "stopGeneration",
@@ -58,6 +59,12 @@ describe("shortcut bindings", () => {
       },
       focusComposer: {
         code: "Slash",
+        mod: true,
+        alt: false,
+        shift: false,
+      },
+      cycleChatMode: {
+        code: "KeyM",
         mod: true,
         alt: false,
         shift: false,
@@ -242,11 +249,20 @@ describe("shortcut bindings", () => {
       formatShortcutBinding(DEFAULT_SHORTCUT_BINDINGS.newChat, "other"),
     ).toBe("Ctrl+Alt+N");
     expect(
+      formatShortcutBinding(DEFAULT_SHORTCUT_BINDINGS.cycleChatMode, "mac"),
+    ).toBe("⌘M");
+    expect(
       shortcutBindingToAriaKeyShortcuts(
         DEFAULT_SHORTCUT_BINDINGS.focusComposer,
         "mac",
       ),
     ).toBe("Meta+/");
+    expect(
+      shortcutBindingToAriaKeyShortcuts(
+        DEFAULT_SHORTCUT_BINDINGS.cycleChatMode,
+        "other",
+      ),
+    ).toBe("Control+M");
     expect(shortcutBindingToAriaKeyShortcuts(null, "other")).toBeUndefined();
   });
 
@@ -278,6 +294,10 @@ describe("core shortcut settings persistence", () => {
   beforeEach(async () => {
     const { useCoreSettingsStore } =
       await import("@/store/core/coreSettingsStore");
+    // Persist hydration lazily imports the browser sync recovery module. Wait
+    // for that import before jsdom teardown so full-suite worker contention
+    // cannot leave an OPFS module load attached to a disposed environment.
+    await vi.dynamicImportSettled();
     useCoreSettingsStore.setState(useCoreSettingsStore.getInitialState(), true);
   });
 

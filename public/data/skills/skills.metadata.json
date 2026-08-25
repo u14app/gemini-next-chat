@@ -2376,8 +2376,7 @@
         "supportsScripts": false,
         "acceptsPlaintextSecrets": false
       },
-      "requiredCapabilities": ["network_read", "evidence_ledger"],
-      "allowedTools": ["search_web", "web_search", "fetch_urls", "fetch_url"],
+      "requiredCapabilities": ["evidence_ledger"],
       "file": "deep-research.json",
       "builtIn": true
     },
@@ -2416,7 +2415,6 @@
         "acceptsPlaintextSecrets": false
       },
       "requiredCapabilities": ["evidence_ledger"],
-      "allowedTools": ["search_web", "web_search", "fetch_urls", "fetch_url"],
       "file": "citation-evidence-audit.json",
       "builtIn": true
     },

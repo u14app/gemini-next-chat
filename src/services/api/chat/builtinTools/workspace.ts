@@ -1,5 +1,9 @@
 import { AGENT_WORKSPACE_LIMITS } from "@/config/limits";
 import {
+  createEvidenceSource,
+  getEvidenceMetadata,
+} from "@/lib/agent/evidence";
+import {
   WORKSPACE_UPLOADS_DIRECTORY,
   type WorkspaceResult,
 } from "@/lib/agent/workspace";
@@ -64,6 +68,29 @@ const asRecord = (args: unknown): Record<string, unknown> =>
   args && typeof args === "object" && !Array.isArray(args)
     ? (args as Record<string, unknown>)
     : {};
+
+const normalizeScopedWorkspacePath = (value: unknown): string =>
+  typeof value === "string" ? value.trim().replace(/^\.?\/+|\/+$/g, "") : "";
+
+function isWorkspacePathInScope(
+  context: BuiltinToolContext,
+  value: unknown,
+): boolean {
+  if (!context.workspaceReadScope) return true;
+  const path = normalizeScopedWorkspacePath(value);
+  return Boolean(path && context.workspaceReadScope.includes(path));
+}
+
+function workspaceScopeError() {
+  return {
+    ok: false as const,
+    error: {
+      code: "WORKSPACE_SCOPE_DENIED",
+      message: "The requested file is outside the approved workspace scope.",
+      recoverable: true,
+    },
+  };
+}
 
 /** Built-in tool results use `recoverable` so the model can retry after a fix. */
 const toToolResult = <T>(result: WorkspaceResult<T>): unknown =>
@@ -157,6 +184,33 @@ export function createWorkspaceBindings(): BuiltinToolBinding[] {
           typeof input.path === "string" ? input.path : undefined,
         );
         context.signal?.throwIfAborted();
+        if (result.ok && context.workspaceReadScope) {
+          const allowed = new Set(context.workspaceReadScope);
+          const requestedPrefix = normalizeScopedWorkspacePath(input.path);
+          const expectedPaths = context.workspaceReadScope.filter(
+            (path) =>
+              !requestedPrefix ||
+              path === requestedPrefix ||
+              path.startsWith(`${requestedPrefix}/`),
+          );
+          const files = result.value.files.filter((file) =>
+            allowed.has(file.path),
+          );
+          return {
+            ok: true,
+            ...result.value,
+            files,
+            truncated: files.length < expectedPaths.length,
+            usage: {
+              ...result.value.usage,
+              fileCount: files.length,
+              totalBytes: files.reduce((total, file) => total + file.bytes, 0),
+              trashedFileCount: files.filter((file) =>
+                file.path.startsWith("trash/"),
+              ).length,
+            },
+          };
+        }
         return toToolResult(result);
       },
     },
@@ -188,6 +242,9 @@ export function createWorkspaceBindings(): BuiltinToolBinding[] {
       executionGroup: "workspace",
       async execute(args, context) {
         context.signal?.throwIfAborted();
+        if (!isWorkspacePathInScope(context, asRecord(args).path)) {
+          return workspaceScopeError();
+        }
         const result = await getWorkspaceFileEntry(
           context.sessionId,
           asRecord(args).path,
@@ -296,6 +353,9 @@ export function createWorkspaceBindings(): BuiltinToolBinding[] {
             path: typeof input.path === "string" ? input.path : undefined,
             caseSensitive: input.caseSensitive === true,
             maxResults: readNumber(input.maxResults),
+            ...(context.workspaceReadScope
+              ? { allowedPaths: context.workspaceReadScope }
+              : {}),
           },
         );
         context.signal?.throwIfAborted();
@@ -343,12 +403,39 @@ export function createWorkspaceBindings(): BuiltinToolBinding[] {
       async execute(args, context) {
         context.signal?.throwIfAborted();
         const input = asRecord(args);
+        if (!isWorkspacePathInScope(context, input.path)) {
+          return workspaceScopeError();
+        }
         const result = await readWorkspaceText(context.sessionId, input.path, {
           offset: readNumber(input.offset),
           limit: readNumber(input.limit),
         });
         context.signal?.throwIfAborted();
-        return toToolResult(result);
+        if (!result.ok) return toToolResult(result);
+        const evidence = await createEvidenceSource(
+          {
+            title: result.value.path,
+            url: `workspace:///${result.value.path
+              .split("/")
+              .map(encodeURIComponent)
+              .join("/")}`,
+            content: result.value.content,
+          },
+          { kind: "attachment" },
+        );
+        const metadata = getEvidenceMetadata(evidence)!;
+        return {
+          ok: true,
+          ...result.value,
+          sourceId: metadata.sourceId,
+          retrievedAt: metadata.retrievedAt,
+          evidenceContentHash: metadata.contentHash,
+          evidence: {
+            title: evidence.title,
+            url: evidence.url,
+            metadata: evidence.metadata,
+          },
+        };
       },
     },
     {

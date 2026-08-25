@@ -1,222 +1,195 @@
 "use client";
 
-import React, { useState } from "react";
-import { Archive, Bot, Check, ShieldCheck } from "lucide-react";
+import React, { useRef, useState } from "react";
+import {
+  Bot,
+  Check,
+  MessageCircle,
+  Route,
+  Settings2,
+  Telescope,
+} from "lucide-react";
 import { useTranslations } from "next-intl";
 
-import type { AgentApprovalMode, AgentMemoryScope } from "@/types";
+import type { ChatMode } from "@/types";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  ShortcutTooltipContent,
+  useShortcutPresentation,
+} from "@/components/shortcuts/ShortcutHint";
 import { Button, Dialog } from "@/components/ui/primitives";
+import Tooltip from "@/components/ui/Tooltip";
 
-export interface AgentCapabilitySummary {
-  profileId?: string;
-  approvalMode: AgentApprovalMode;
-  searchEnabled: boolean;
-  registeredToolNames: string[];
-  discoverableToolCount: number;
-  pluginNames: string[];
-  automaticSkillNames: string[];
-  manualSkillNames: string[];
-  memoryScopes: AgentMemoryScope[];
-  knowledgeCount: number;
-  workspaceAvailable: boolean;
+export interface ChatModeOption {
+  value: ChatMode;
+  label: string;
+  description: string;
+  supported: boolean;
 }
 
 interface AgentCapabilityMenuProps {
-  enabled: boolean;
-  supported: boolean;
+  mode: ChatMode;
+  options: ChatModeOption[];
   disabled?: boolean;
-  summary: AgentCapabilitySummary;
-  onToggle: () => void;
-  onOpenArtifacts: () => void;
+  onModeChange: (mode: ChatMode) => void;
+  onOpenSettings: (returnFocus: HTMLButtonElement | null) => void;
   buttonClassName: string;
 }
 
-function CapabilityPanel({
-  enabled,
-  supported,
-  summary,
-  onToggle,
-  onOpenArtifacts,
+function ModeIcon({ mode, size = 16 }: { mode: ChatMode; size?: number }) {
+  switch (mode) {
+    case "auto":
+      return <Route size={size} aria-hidden="true" />;
+    case "chat":
+      return <MessageCircle size={size} aria-hidden="true" />;
+    case "research":
+      return <Telescope size={size} aria-hidden="true" />;
+    case "agent":
+      return <Bot size={size} aria-hidden="true" />;
+  }
+}
+
+function SettingsButton({ onClick }: { onClick: () => void }) {
+  const t = useTranslations("MessageInput");
+  const label = t("agentSettingsOpen");
+
+  return (
+    <Tooltip content={label} position="left" portal>
+      <Button
+        variant="bare"
+        type="button"
+        aria-label={label}
+        onClick={onClick}
+        className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      >
+        <Settings2 size={15} aria-hidden="true" />
+      </Button>
+    </Tooltip>
+  );
+}
+
+function ModePanel({
+  mode,
+  options,
+  onModeChange,
+  onOpenSettings,
   close,
-}: Omit<AgentCapabilityMenuProps, "disabled" | "buttonClassName"> & {
+  showHeader = true,
+}: Pick<AgentCapabilityMenuProps, "mode" | "options" | "onModeChange"> & {
+  onOpenSettings: () => void;
   close: () => void;
+  showHeader?: boolean;
 }) {
   const t = useTranslations("MessageInput");
-  const rows = [
-    {
-      label: t("agentCapabilitiesTools"),
-      value: t("agentCapabilitiesToolCount", {
-        registered: summary.registeredToolNames.length,
-        discoverable: summary.discoverableToolCount,
-      }),
-      detail: summary.registeredToolNames.join(", "),
-    },
-    {
-      label: t("agentCapabilitiesPlugins"),
-      value: String(summary.pluginNames.length),
-      detail: summary.pluginNames.join(", "),
-    },
-    {
-      label: t("agentCapabilitiesSkills"),
-      value: t("agentCapabilitiesSkillCount", {
-        automatic: summary.automaticSkillNames.length,
-        manual: summary.manualSkillNames.length,
-      }),
-      detail: [
-        ...summary.automaticSkillNames,
-        ...summary.manualSkillNames,
-      ].join(", "),
-    },
-    {
-      label: t("agentCapabilitiesMemory"),
-      value: summary.memoryScopes.length
-        ? summary.memoryScopes.join(" · ")
-        : t("agentCapabilitiesNone"),
-      detail: "",
-    },
-    {
-      label: t("agentCapabilitiesKnowledge"),
-      value: String(summary.knowledgeCount),
-      detail: "",
-    },
-    {
-      label: t("agentCapabilitiesSearch"),
-      value: summary.searchEnabled
-        ? t("agentCapabilitiesAvailable")
-        : t("agentCapabilitiesOff"),
-      detail: "",
-    },
-  ];
 
   return (
     <div className="w-full">
-      <div className="border-b border-border px-3 py-2.5">
-        <div className="flex items-center justify-between gap-3">
-          <div className="flex min-w-0 items-center gap-2">
-            <Bot
-              size={15}
-              className="shrink-0 text-blue-500"
-              aria-hidden="true"
-            />
-            <span className="shrink-0 text-xs font-semibold text-foreground">
-              {t("agentCapabilitiesTitle")}
-            </span>
-            <span className="truncate font-mono text-[10px] text-muted-foreground">
-              {summary.profileId || t("agentCapabilitiesSessionOverride")}
-            </span>
-          </div>
-          <span className="inline-flex items-center gap-1 rounded-md border border-border bg-muted/40 px-2 py-1 text-[10px] font-medium text-muted-foreground">
-            <ShieldCheck size={12} aria-hidden="true" />
-            {t(`agentApproval_${summary.approvalMode}`)}
-          </span>
-        </div>
-      </div>
-
-      <div className="space-y-1 p-2">
-        <Button
-          variant="bare"
-          type="button"
-          disabled={!supported}
-          aria-pressed={enabled}
-          onClick={onToggle}
-          className="flex min-h-11 w-full items-center justify-between rounded-lg border border-border bg-background px-3 text-left hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 md:min-h-9"
-        >
-          <span className="min-w-0">
-            <span className="block text-xs font-semibold text-foreground">
-              {enabled
-                ? t("agentCapabilitiesEnabled")
-                : t("agentCapabilitiesDisabled")}
-            </span>
-            <span className="block text-[10px] text-muted-foreground">
-              {supported
-                ? t("agentCapabilitiesForegroundOnly")
-                : t("agentModeUnavailable")}
-            </span>
-          </span>
-          <span
-            aria-hidden="true"
-            className={`flex h-5 w-9 items-center rounded-full p-0.5 transition-colors motion-reduce:transition-none ${enabled ? "bg-blue-500" : "bg-muted-foreground/30"}`}
-          >
-            <span
-              className={`flex size-4 items-center justify-center rounded-full bg-white text-blue-600 shadow-sm transition-transform motion-reduce:transition-none ${enabled ? "translate-x-4" : "translate-x-0"}`}
-            >
-              {enabled ? <Check size={11} aria-hidden="true" /> : null}
-            </span>
-          </span>
-        </Button>
-
-        <dl className="grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-border bg-border">
-          {rows.map(({ label, value, detail }) => (
-            <div key={label} className="min-w-0 bg-background px-3 py-2">
-              <dt className="block truncate text-[10px] font-medium text-muted-foreground">
-                {label}
-              </dt>
-              <dd
-                className="block truncate text-xs text-foreground"
-                title={detail || value}
-              >
-                {value || t("agentCapabilitiesNone")}
-              </dd>
+      {showHeader ? (
+        <div className="border-b border-border px-2 py-1">
+          <div className="flex min-h-8 items-center justify-between gap-3">
+            <div className="flex min-w-0 items-center gap-2">
+              <ModeIcon mode={mode} size={15} />
+              <span className="text-xs font-semibold text-foreground">
+                {t("chatModeLabel")}
+              </span>
             </div>
-          ))}
-        </dl>
+            {mode === "auto" || mode === "agent" ? (
+              <SettingsButton
+                onClick={() => {
+                  close();
+                  onOpenSettings();
+                }}
+              />
+            ) : null}
+          </div>
+        </div>
+      ) : null}
 
-        <Button
-          variant="bare"
-          type="button"
-          onClick={() => {
-            close();
-            onOpenArtifacts();
-          }}
-          disabled={!summary.workspaceAvailable}
-          className="flex min-h-11 w-full items-center justify-between rounded-lg px-3 text-xs font-medium text-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 md:min-h-9"
-        >
-          <span className="inline-flex items-center gap-2">
-            <Archive size={14} aria-hidden="true" />
-            {t("agentCapabilitiesOpenArtifacts")}
-          </span>
-          <span className="text-[10px] text-muted-foreground">
-            {summary.workspaceAvailable
-              ? t("agentCapabilitiesArtifactsHint")
-              : t("agentCapabilitiesWorkspaceUnavailable")}
-          </span>
-        </Button>
+      <div
+        className="space-y-1 p-2"
+        role="group"
+        aria-label={t("chatModeLabel")}
+      >
+        {options.map((option) => {
+          const selected = option.value === mode;
+          return (
+            <Button
+              key={option.value}
+              variant="bare"
+              type="button"
+              aria-pressed={selected}
+              disabled={!option.supported}
+              onClick={() => {
+                onModeChange(option.value);
+                close();
+              }}
+              className={`flex min-h-11 w-full items-center gap-3 rounded-lg px-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:min-h-10 ${
+                selected
+                  ? option.value === "research"
+                    ? "bg-research-soft text-research-accent hover:bg-research-accent/15"
+                    : "bg-muted text-foreground hover:bg-muted/80"
+                  : "text-foreground hover:bg-muted/60"
+              }`}
+            >
+              <span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-background/80 text-current shadow-sm ring-1 ring-border/70">
+                <ModeIcon mode={option.value} size={15} />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-xs font-semibold">
+                  {option.label}
+                </span>
+                <span className="block text-[10px] leading-4 text-muted-foreground">
+                  {option.description}
+                </span>
+              </span>
+              {selected ? (
+                <Check size={14} className="shrink-0" aria-hidden="true" />
+              ) : null}
+            </Button>
+          );
+        })}
       </div>
     </div>
   );
 }
 
 export default function AgentCapabilityMenu({
-  enabled,
-  supported,
+  mode,
+  options,
   disabled,
-  summary,
-  onToggle,
-  onOpenArtifacts,
+  onModeChange,
+  onOpenSettings,
   buttonClassName,
 }: AgentCapabilityMenuProps) {
   const t = useTranslations("MessageInput");
   const [desktopOpen, setDesktopOpen] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
-  const label = supported
-    ? t("agentCapabilitiesButton")
-    : t("agentModeUnavailable");
-  const trigger = (
+  const desktopTriggerRef = useRef<HTMLButtonElement>(null);
+  const mobileTriggerRef = useRef<HTMLButtonElement>(null);
+  const modeShortcut = useShortcutPresentation("cycleChatMode");
+  const activeOption = options.find((option) => option.value === mode);
+  const label = t("chatModeAria", {
+    mode: activeOption?.label || t("chatModeAuto"),
+  });
+  const trigger = (triggerRef: React.Ref<HTMLButtonElement>) => (
     <Button
+      ref={triggerRef}
       variant="bare"
       type="button"
       aria-label={label}
-      aria-pressed={supported ? enabled : undefined}
-      aria-disabled={!supported ? true : undefined}
-      className={`${buttonClassName} max-md:h-11 max-md:w-11`}
+      aria-keyshortcuts={modeShortcut.ariaKeyShortcuts}
+      className={`${buttonClassName} ${
+        mode === "research"
+          ? "max-md:h-9 max-md:w-9 text-research-accent"
+          : "max-md:h-11 max-md:w-11"
+      }`}
       disabled={disabled}
     >
-      <Bot size={16} aria-hidden="true" />
+      <ModeIcon mode={mode} />
     </Button>
   );
 
@@ -224,40 +197,73 @@ export default function AgentCapabilityMenu({
     <>
       <div className="hidden md:block">
         <DropdownMenu open={desktopOpen} onOpenChange={setDesktopOpen}>
-          <DropdownMenuTrigger asChild>{trigger}</DropdownMenuTrigger>
+          <Tooltip
+            content={
+              <ShortcutTooltipContent
+                label={label}
+                shortcut={modeShortcut.display}
+              />
+            }
+            position="top"
+            portal
+          >
+            <DropdownMenuTrigger asChild>
+              {trigger(desktopTriggerRef)}
+            </DropdownMenuTrigger>
+          </Tooltip>
           <DropdownMenuContent
             side="top"
-            align="start"
+            align="end"
             className="w-80 overflow-hidden p-0"
           >
-            <CapabilityPanel
-              enabled={enabled}
-              supported={supported}
-              summary={summary}
-              onToggle={onToggle}
-              onOpenArtifacts={onOpenArtifacts}
+            <ModePanel
+              mode={mode}
+              options={options}
+              onModeChange={onModeChange}
+              onOpenSettings={() => onOpenSettings(desktopTriggerRef.current)}
               close={() => setDesktopOpen(false)}
             />
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
       <div className="md:hidden" onClick={() => setMobileOpen(true)}>
-        {trigger}
+        <Tooltip
+          content={
+            <ShortcutTooltipContent
+              label={label}
+              shortcut={modeShortcut.display}
+            />
+          }
+          position="top"
+          portal
+        >
+          {trigger(mobileTriggerRef)}
+        </Tooltip>
       </div>
       <Dialog
         open={mobileOpen}
         onClose={() => setMobileOpen(false)}
-        title={t("agentCapabilitiesTitle")}
+        title={t("chatModeLabel")}
+        headerAction={
+          mode === "auto" || mode === "agent" ? (
+            <SettingsButton
+              onClick={() => {
+                setMobileOpen(false);
+                onOpenSettings(mobileTriggerRef.current);
+              }}
+            />
+          ) : undefined
+        }
         placement="responsive-sheet"
         className="max-w-md"
       >
-        <CapabilityPanel
-          enabled={enabled}
-          supported={supported}
-          summary={summary}
-          onToggle={onToggle}
-          onOpenArtifacts={onOpenArtifacts}
+        <ModePanel
+          mode={mode}
+          options={options}
+          onModeChange={onModeChange}
+          onOpenSettings={() => onOpenSettings(mobileTriggerRef.current)}
           close={() => setMobileOpen(false)}
+          showHeader={false}
         />
       </Dialog>
     </>
