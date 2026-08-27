@@ -21,6 +21,11 @@ overrides:
   uuid@>=13.0.0 <13.0.1: 13.0.1
   ws@>=8.0.0 <8.20.1: 8.21.0
 
+patchedDependencies:
+  opfs-tools@0.7.4:
+    hash: 86f5edf974b865e47ff0a3050a81f7d21d24ec6574bcdb873ab08417e7e0f4b7
+    path: patches/opfs-tools@0.7.4.patch
+
 importers:
 
   .:
@@ -84,7 +89,7 @@ importers:
         version: 7.5.0(@aws-sdk/credential-provider-node@3.972.64)(@smithy/hash-node@4.4.6)(@smithy/signature-v4@5.6.2)(ws@8.21.0)(zod@4.4.3)
       opfs-tools:
         specifier: ^0.7.4
-        version: 0.7.4
+        version: 0.7.4(patch_hash=86f5edf974b865e47ff0a3050a81f7d21d24ec6574bcdb873ab08417e7e0f4b7)
       qrcode:
         specifier: ^1.5.4
         version: 1.5.4
@@ -11339,7 +11344,7 @@ snapshots:
       ws: 8.21.0
       zod: 4.4.3
 
-  opfs-tools@0.7.4: {}
+  opfs-tools@0.7.4(patch_hash=86f5edf974b865e47ff0a3050a81f7d21d24ec6574bcdb873ab08417e7e0f4b7): {}
 
   optionator@0.9.4:
     dependencies:

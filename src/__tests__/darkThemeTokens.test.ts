@@ -135,8 +135,10 @@ describe("dark theme token contract", () => {
     }
     expect(contrastRatio("#2563eb", "#ffffff")).toBeGreaterThanOrEqual(4.5);
     expect(contrastRatio("#f8fafc", "#2563eb")).toBeGreaterThanOrEqual(4.5);
+    expect(contrastRatio("#f8fafc", "#1d4ed8")).toBeGreaterThanOrEqual(4.5);
     expect(contrastRatio("#60a5fa", "#18181b")).toBeGreaterThanOrEqual(4.5);
     expect(contrastRatio("#0f172a", "#60a5fa")).toBeGreaterThanOrEqual(4.5);
+    expect(contrastRatio("#0f172a", "#93c5fd")).toBeGreaterThanOrEqual(4.5);
     expect(globals).toContain("rgb(192 132 252 / 0.68)");
   });
 

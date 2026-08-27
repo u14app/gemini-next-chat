@@ -22,6 +22,7 @@ import { useResearchStore } from "@/store/core/researchStore";
 
 import {
   getPendingResearchPlanTaskId,
+  selectGlobalActiveResearchTaskId,
   selectVisibleResearchTaskId,
 } from "@/features/research/pendingTask";
 
@@ -40,7 +41,13 @@ function makeTask(
   let current = task;
   // Walk the real state machine so the fixtures cannot encode an
   // unreachable status.
-  for (const next of ["clarifying", "plan_ready", "researching"] as const) {
+  for (const next of [
+    "clarifying",
+    "plan_ready",
+    "researching",
+    "verifying",
+    "synthesizing",
+  ] as const) {
     if (current.status === status) break;
     current = transitionResearchTask(current, next, { now: updatedAt });
   }
@@ -98,5 +105,42 @@ describe("pending research plan routing", () => {
     });
     expect(getPendingResearchPlanTaskId("session-1")).toBeNull();
     expect(getPendingResearchPlanTaskId("session-2")).toBeNull();
+  });
+
+  it("keeps only a globally executing task visible across conversations", () => {
+    const runningElsewhere = makeTask(
+      "task-running",
+      "session-2",
+      "researching",
+      30,
+    );
+    const planReadyHere = makeTask("task-plan", "session-1", "plan_ready", 40);
+    const state = {
+      tasksById: {
+        [runningElsewhere.id]: runningElsewhere,
+        [planReadyHere.id]: planReadyHere,
+      },
+      activeTaskId: runningElsewhere.id,
+    };
+
+    expect(selectGlobalActiveResearchTaskId(state)).toBe(runningElsewhere.id);
+    for (const status of ["verifying", "synthesizing"] as const) {
+      const executing = makeTask(`task-${status}`, "session-3", status, 50);
+      expect(
+        selectGlobalActiveResearchTaskId({
+          tasksById: { [executing.id]: executing },
+          activeTaskId: executing.id,
+        }),
+      ).toBe(executing.id);
+    }
+    expect(
+      selectGlobalActiveResearchTaskId({
+        ...state,
+        activeTaskId: planReadyHere.id,
+      }),
+    ).toBeNull();
+    expect(
+      selectGlobalActiveResearchTaskId({ ...state, activeTaskId: null }),
+    ).toBeNull();
   });
 });

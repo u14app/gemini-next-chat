@@ -23,18 +23,7 @@ export interface GroupedSelectOption {
   options: SelectOption[];
 }
 
-export const CustomSelect = ({
-  id,
-  value,
-  onChange,
-  options,
-  icon: Icon,
-  className = "",
-  selectButtonClassName,
-  ariaLabel,
-  renderOption,
-  renderValue,
-}: {
+export interface CustomSelectProps {
   id?: string;
   value: string;
   onChange: (val: string) => void;
@@ -43,16 +32,48 @@ export const CustomSelect = ({
   className?: string;
   selectButtonClassName?: string;
   ariaLabel?: string;
+  disabled?: boolean;
+  emptyLabel?: string;
+  name?: string;
+  required?: boolean;
+  "aria-invalid"?: React.AriaAttributes["aria-invalid"];
+  "aria-describedby"?: string;
   renderOption?: (option: SelectOption) => React.ReactNode;
   renderValue?: (
     option: SelectOption | undefined,
     label: string,
   ) => React.ReactNode;
-}) => {
+}
+
+export const CustomSelect = React.forwardRef<
+  HTMLButtonElement,
+  CustomSelectProps
+>(function CustomSelect(
+  {
+    id,
+    value,
+    onChange,
+    options,
+    icon: Icon,
+    className = "",
+    selectButtonClassName,
+    ariaLabel,
+    disabled = false,
+    emptyLabel,
+    name,
+    required = false,
+    "aria-invalid": ariaInvalid,
+    "aria-describedby": ariaDescribedBy,
+    renderOption,
+    renderValue,
+  },
+  ref,
+) {
   const t = useTranslations("Common");
   const [isOpen, setIsOpen] = useState(false);
   const [isClosing, setIsClosing] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
   const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const listboxId = useId();
   const hasOptions = options.length > 0;
@@ -105,8 +126,21 @@ export const CustomSelect = ({
     (optionValue: string) => {
       onChange(optionValue);
       handleClose();
+      triggerRef.current?.focus({ preventScroll: true });
     },
     [handleClose, onChange],
+  );
+
+  const setTriggerRef = useCallback(
+    (element: HTMLButtonElement | null) => {
+      triggerRef.current = element;
+      if (typeof ref === "function") {
+        ref(element);
+      } else if (ref) {
+        ref.current = element;
+      }
+    },
+    [ref],
   );
 
   const handleListboxKeyDown = (
@@ -187,7 +221,7 @@ export const CustomSelect = ({
 
   // Helper to find label across flat or grouped options
   const getSelectedLabel = () => {
-    if (!hasOptions) return value || t("noOptions");
+    if (!hasOptions) return emptyLabel || value || t("noOptions");
     // Check if grouped
     if ("options" in options[0]) {
       for (const group of options as GroupedSelectOption[]) {
@@ -206,12 +240,25 @@ export const CustomSelect = ({
 
   return (
     <div className={`relative ${className}`} ref={containerRef}>
+      {name ? (
+        <input
+          type="hidden"
+          name={name}
+          value={value}
+          required={required}
+          disabled={disabled || !hasOptions}
+        />
+      ) : null}
       <Button
+        ref={setTriggerRef}
         variant="bare"
         type="button"
         id={id}
-        disabled={!hasOptions}
+        disabled={disabled || !hasOptions}
         aria-label={ariaLabel}
+        aria-required={required || undefined}
+        aria-invalid={ariaInvalid}
+        aria-describedby={ariaDescribedBy}
         role="combobox"
         aria-haspopup="listbox"
         aria-expanded={isOpen}
@@ -226,7 +273,7 @@ export const CustomSelect = ({
           "w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground shadow-sm transition-[border-color,background-color,box-shadow] hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-background disabled:hover:text-foreground flex items-center justify-between"
         }
       >
-        <div className="flex items-center gap-2 truncate text-gray-700 dark:text-foreground">
+        <div className="flex min-w-0 flex-1 items-center gap-2 truncate text-gray-700 dark:text-foreground">
           {Icon && (
             <Icon size={16} className="text-gray-500" aria-hidden="true" />
           )}
@@ -239,7 +286,7 @@ export const CustomSelect = ({
         <ChevronDown
           size={14}
           aria-hidden="true"
-          className={`text-gray-400 transition-transform duration-200 ${isOpen ? "rotate-180" : ""}`}
+          className={`shrink-0 text-gray-400 transition-transform duration-200 ${isOpen ? "rotate-180" : ""}`}
         />
       </Button>
 
@@ -340,7 +387,7 @@ export const CustomSelect = ({
       </AnchoredPortal>
     </div>
   );
-};
+});
 
 // --- Segmented Control ---
 export const SegmentedControl = <T extends string>({

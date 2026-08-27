@@ -1,5 +1,6 @@
 import type { AgentRunBudget } from "@/lib/assistant/types";
 import type { AgentRun } from "@/lib/agent";
+import { resolveResearchStrategy } from "./orchestration";
 
 import {
   INTERNAL_AGENT_RESEARCH_PROVIDER_ID,
@@ -164,6 +165,10 @@ export function createResearchTask(
     updatedAt: now,
     budgetPreset,
     budget: resolveResearchBudget(budgetPreset, input.profileBudget),
+    requestedStrategy: resolveResearchStrategy(
+      budgetPreset,
+      input.requestedStrategy,
+    ),
     usage: { toolRounds: 0, toolCalls: 0, wallTimeMs: 0, totalTokens: 0 },
     planVersions: [],
     evidence: [],
@@ -229,12 +234,27 @@ export function recoverResearchTask(
   task: ResearchTask,
   now: number = Date.now(),
 ): ResearchTask {
-  if (isTerminalResearchStatus(task.status) || task.status === "paused") {
-    return task;
+  const activePlan = task.planVersions.find(
+    (plan) => plan.version === task.activePlanVersion,
+  );
+  const recovered = task.requestedStrategy
+    ? task
+    : {
+        ...task,
+        requestedStrategy: resolveResearchStrategy(
+          task.budgetPreset,
+          activePlan?.strategy,
+        ),
+      };
+  if (
+    isTerminalResearchStatus(recovered.status) ||
+    recovered.status === "paused"
+  ) {
+    return recovered;
   }
-  return transitionResearchTask(task, "paused", {
+  return transitionResearchTask(recovered, "paused", {
     now,
-    ...(task.checkpoint ? { checkpoint: task.checkpoint } : {}),
+    ...(recovered.checkpoint ? { checkpoint: recovered.checkpoint } : {}),
   });
 }
 

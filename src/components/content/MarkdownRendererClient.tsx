@@ -1209,6 +1209,14 @@ const ArtifactBlock = ({
   );
 };
 
+function getMarkdownNodeText(node: any): string {
+  if (!node) return "";
+  if (node.type === "text") return node.value || "";
+  return Array.isArray(node.children)
+    ? node.children.map(getMarkdownNodeText).join("")
+    : "";
+}
+
 const MarkdownCode = ({ node, className = "", children, ...props }: any) => {
   const { forceExpandCodeBlocks, isStreaming } = React.useContext(
     CodeBlockRenderOptionsContext,
@@ -1217,15 +1225,7 @@ const MarkdownCode = ({ node, className = "", children, ...props }: any) => {
   const language = match ? match[1] : "";
   const isBlockCode = node?.position?.start?.line !== node?.position?.end?.line;
 
-  const getRawText = (currentNode: any): string => {
-    if (!currentNode) return "";
-    if (currentNode.type === "text") return currentNode.value;
-    if (currentNode.children) {
-      return currentNode.children.map(getRawText).join("");
-    }
-    return "";
-  };
-  const rawCode = getRawText(node);
+  const rawCode = getMarkdownNodeText(node);
 
   if (match) {
     return (
@@ -1420,8 +1420,8 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
   // Define components for ReactMarkdown
   const markdownComponents: any = useMemo(
     () => ({
-      pre({ children, ...props }: any) {
-        delete props.node;
+      pre({ children, node, ...props }: any) {
+        if (!getMarkdownNodeText(node).trim()) return null;
         const onlyChild = React.Children.toArray(children)[0];
         const childClassName = React.isValidElement<{ className?: string }>(
           onlyChild,

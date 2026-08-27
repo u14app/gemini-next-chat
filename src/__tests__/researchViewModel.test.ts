@@ -91,7 +91,7 @@ function createRun(
     waves: [
       {
         id: "wave-1",
-        index: 0,
+        index: 1,
         depth: 1,
         breadth: 2,
         nodeIds: ["node-1", "node-2"],
@@ -336,6 +336,20 @@ describe("research task view model", () => {
       "Question three",
     ]);
     const reportRun = createRun(plan, draft.id);
+    reportRun.scopeExpansionEvents = [
+      {
+        id: "scope-expansion-1",
+        at: 134,
+        sourceSnapshotCapturedAt: 133,
+        packetIds: ["learning-1"],
+        addedSourceTypes: ["mcp"],
+        scheduledFollowUpIds: ["follow-up-scheduled"],
+        unavailableSourceFollowUpIds: ["follow-up-unavailable"],
+        duplicateFollowUpIds: [],
+        breadthLimitedFollowUpIds: [],
+        depthLimitedFollowUpIds: [],
+      },
+    ];
     const withPlan = {
       ...draft,
       planVersions: [plan],
@@ -435,12 +449,65 @@ describe("research task view model", () => {
         planningUsed: 2,
       },
       claimCounts: { total: 1, verified: 1 },
+      coverage: {
+        coveredStepCount: 1,
+        requiredStepCount: 3,
+        ratio: 1 / 3,
+      },
+    });
+    expect(
+      viewModel.activities.find((item) => item.id === "scope-expansion-1"),
+    ).toMatchObject({
+      title: "Research scope expanded automatically",
+      tone: "warning",
     });
     expect(viewModel.run?.nodes[0]).toMatchObject({
       id: "node-1",
       evidenceIds: ["evidence-live"],
       verifiedClaimCount: 1,
       learnings: ["The primary source confirms the first claim."],
+    });
+  });
+
+  it("surfaces degraded packet waves as warning activity", async () => {
+    const draft = createResearchTask({
+      id: "research-degraded",
+      sessionId: "session-degraded",
+      goal: "Preserve evidence through packet degradation",
+      now: 100,
+    });
+    const plan = createPlan("plan-degraded", ["Question one", "Question two"]);
+    const run = createRun(plan, draft.id);
+    run.waves = [
+      {
+        ...run.waves[0],
+        status: "completed",
+        packetStatus: "degraded",
+        degradedNodeIds: ["node-2"],
+        completedAt: 140,
+      },
+    ];
+    const task = {
+      ...draft,
+      planVersions: [plan],
+      activePlanVersion: plan.version,
+      reportRuns: [run],
+      activeReportRunId: run.id,
+    };
+
+    const viewModel = await createResearchTaskViewModel(task);
+
+    expect(viewModel.run?.waves[0]).toMatchObject({
+      packetStatus: "degraded",
+      degradedNodeIds: ["node-2"],
+    });
+    expect(
+      viewModel.activities.find(
+        (activity) => activity.id === "wave-1-degraded-packets",
+      ),
+    ).toMatchObject({
+      title: "Wave 1 archived with evidence gaps",
+      tone: "warning",
     });
   });
 

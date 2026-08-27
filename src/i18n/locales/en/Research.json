@@ -29,9 +29,12 @@
     "returnWorkbench": "Return to research",
     "closeWorkbench": "Close research workbench",
     "closePlan": "Close research plan",
+    "closeAdjust": "Close plan adjustment",
+    "closeStrategy": "Close advanced strategy",
     "backToChat": "Back to chat",
     "start": "Start research",
     "adjust": "Adjust plan",
+    "advancedStrategy": "Advanced strategy",
     "tuneStrategy": "Tune strategy",
     "pause": "Pause safely",
     "resume": "Resume",
@@ -71,6 +74,15 @@
     "queryTopics": "Query topics",
     "sourcePriorities": "Source priorities",
     "evidenceStandard": "Evidence standard",
+    "boundaries": "Research boundaries",
+    "willResearch": "Will research",
+    "willNotResearch": "Will not research",
+    "noExplicitInclusions": "No additional inclusions were specified.",
+    "noExplicitExclusions": "No explicit exclusions were specified.",
+    "advancedDisclosure": "Reconnaissance and advanced strategy",
+    "advancedDisclosureHint": "Assumptions, deliverable, completion criteria, and budget",
+    "decisionSteps": "{count} steps",
+    "decisionQueries": "{count} queries",
     "reconSummary": "Planning reconnaissance: {used}/{limit} queries",
     "reconDisclosure": "Planning reconnaissance sends the research question to the configured public search service. Its snippets inform the plan only and are not report evidence.",
     "reconResult": "{count} results · {domains}",
@@ -89,6 +101,8 @@
     "completed": "Completed",
     "searching": "Searching",
     "sources": "{count} sources",
+    "queryTopicsCount": "{count} query topics",
+    "sourcePrioritiesCount": "{count} source priorities",
     "searchingDetail": "Searching for evidence for this research step.",
     "pendingDetail": "Evidence will appear here as research progresses."
   },
@@ -116,6 +130,7 @@
     "followUps": "Next directions",
     "linkedEvidence": "Linked evidence",
     "scopeApproval": "This direction expands the approved source or research scope and requires approval before access.",
+    "scopeResume": "This saved task found additional research directions. Resume to continue from committed evidence without rebuilding the plan.",
     "stopReason": "Stop reason",
     "claimWarning": "{conflicts} conflicting and {unresolved} unresolved claims remain visible for verification.",
     "phase": {
@@ -137,7 +152,7 @@
       "max_queries": "Query limit reached",
       "max_sources": "Source body limit reached",
       "budget_exhausted": "Research budget exhausted",
-      "no_new_sources": "No new formal sources in the latest wave",
+      "no_new_sources": "No new formal evidence or verified findings across two consecutive waves",
       "invalid_model_output": "The model returned an invalid research packet",
       "no_new_verified_claims": "No new verified claims across consecutive waves",
       "frontier_exhausted": "No viable in-scope research nodes remain",
@@ -152,6 +167,20 @@
     "standard": "Standard budget",
     "deep": "Deep budget"
   },
+  "settings": {
+    "title": "Deep Research settings",
+    "close": "Close Deep Research settings",
+    "tabsAria": "Deep Research settings sections",
+    "tab_research": "Research settings",
+    "tab_workspace": "Artifact and workspace",
+    "futureTasksOnly": "These session defaults apply to new research tasks. Existing plans and active runs do not change.",
+    "budgetTitle": "Research budget",
+    "budgetDescription": "The preset limits model rounds, tool calls, and total run time.",
+    "budgetValues": "{rounds} rounds / {calls} calls / {minutes} minutes",
+    "strategyTitle": "Default strategy",
+    "strategyDescription": "The generated plan starts with these limits and can still be adjusted before approval.",
+    "resetStrategy": "Reset preset"
+  },
   "sourceScope": {
     "label": "Approved source scope",
     "webSearchOn": "Web search",
@@ -164,6 +193,7 @@
     "searchWarning": "Web search is not available in this source scope. Enable a compatible external search provider before starting."
   },
   "adjust": {
+    "title": "Adjust research plan",
     "label": "Describe the change",
     "help": "A new plan version will be created and must be confirmed before research resumes.",
     "placeholder": "For example, compare the last three years and prioritize primary sources.",
@@ -195,7 +225,7 @@
     "fullContract": "Full research contract",
     "liveActivity": "Latest activity",
     "progress": "Research progress",
-    "progressSummary": "{completed}/{total} steps done",
+    "progressSummary": "Verified coverage {completed}/{total} key steps",
     "progressDepth": "wave {wave}/{waves} · depth {depth}/{maxDepth}"
   },
   "global": {
@@ -235,6 +265,11 @@
     "toolFailed": "{tool} did not complete",
     "toolSource": "Read-only source: {source}",
     "toolSafeDetail": "Read-only operation; raw arguments and results are hidden.",
+    "degradedWaveTitle": "Wave {wave} archived with evidence gaps",
+    "degradedWaveDetail": "{count} research nodes produced no valid learning packet. Preserved evidence remains available and the report will continue with explicit gaps.",
+    "scopeExpansionTitle": "Research scope expanded automatically",
+    "scopeExpansionDetail": "{count} additional research directions will continue from committed evidence in this run.",
+    "scopeExpansionLimitedDetail": "{count} directions require sources that are unavailable in this conversation and will remain explicit report gaps.",
     "reportPublished": "Report v{version} published",
     "reportKind": {
       "initial": "Initial report",
@@ -367,6 +402,7 @@
       "unsupportedClaims": "{count} key findings could not be mapped to committed evidence.",
       "unresolvedConflicts": "{count} claims still have unresolved supporting and contradicting evidence.",
       "incompleteQuestions": "{count} approved research steps remain partial or unanswered.",
+      "scopeExpansionUnavailable": "{count} expanded research directions required sources that were unavailable in this conversation.",
       "executionInterrupted": "The research run ended before every planned operation completed; this report preserves the defensible material already produced.",
       "budget": "The approved research budget was exhausted."
     },

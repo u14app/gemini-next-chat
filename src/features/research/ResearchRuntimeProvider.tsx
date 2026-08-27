@@ -27,10 +27,11 @@ import {
   buildEvidenceQuestionPrompt,
   buildResearchPlanPrompt,
   buildResearchPlanRepairPrompt,
-  buildResearchScopeExpansionAdjustment,
   buildResearchSynthesisPrompt,
+  buildResearchWaveArchivePrompt,
   buildResearchWavePrompt,
   buildResearchWaveRepairPrompt,
+  buildDeterministicRepairReport,
   buildDeterministicSalvageReport,
   applyResearchSourceAssessments,
   applyResearchRunUserStop,
@@ -40,8 +41,10 @@ import {
   createNextResearchWave,
   createResearchReportRun,
   createResearchTask,
+  createResearchWaveAliasContext,
   expandResearchFrontier,
   findInvalidResearchWorkspaceSource,
+  finalizeResearchWavePackets,
   getCurrentResearchReportRunIds,
   getResearchEvidenceDedupKeys,
   getResearchExplorationQueryLimit,
@@ -52,6 +55,7 @@ import {
   getResearchRunResumeDecision,
   getResearchSourceBodyLimit,
   getResearchSourceBuiltinToolNames,
+  getResearchSourceSnapshotTypes,
   getResearchStopReason,
   getResearchVerificationQueryAllowance,
   getReportVersion,
@@ -60,10 +64,13 @@ import {
   isActiveResearchStatus,
   isTerminalResearchStatus,
   markMutableResearchEvidenceStale,
+  mergeResearchSourceSnapshotForExpansion,
   normalizeResearchQuery,
   normalizeResearchPlanDraft,
+  normalizeResearchReportMarkdown,
   parseResearchPlan,
   parseResearchWavePackets,
+  RESEARCH_WAVE_RESPONSE_FORMAT,
   resolveResearchStrategy,
   summarizeResearchReport,
   transitionResearchTask,
@@ -74,6 +81,7 @@ import {
   type ResearchReconSnapshot,
   type ResearchReportRun,
   type ResearchReportVersion,
+  type ResearchScopeExpansionEvent,
   type ResearchSourceSnapshot,
   type ResearchSourceType,
   type ResearchStrategy,
@@ -82,6 +90,7 @@ import {
 import { redactSensitiveToolArgs } from "@/lib/plugin/confirmation";
 import { getEvidenceMetadata, isAgentWorkspaceAvailable } from "@/lib/agent";
 import { resolveEffectiveChatContext } from "@/lib/chat/effectiveChatContext";
+import { isStructuredOutputCapabilityError } from "@/lib/chat/responseFormat";
 import { normalizeSessionMessageTree } from "@/lib/chat/messageTree";
 import { getEnabledPluginFunctions } from "@/lib/plugin/resolve";
 import { getPluginFunctionInvocationPolicy } from "@/lib/plugin/risk";
@@ -113,6 +122,11 @@ import {
 } from "@/services/research";
 import { resolveOPFSBlob } from "@/utils/opfs";
 import { logDevError } from "@/lib/utils/devLogger";
+import {
+  parseModelString,
+  resolveProviderModelMetadata,
+  supportsStructuredOutput,
+} from "@/lib/utils/model";
 import { AgentRunLeaseConflictError } from "@/services/agent/runLease";
 import {
   createKnowledgeCollectionAttachment,
@@ -521,16 +535,84 @@ async function captureApprovedWorkspaceSources(
     }));
 }
 
+function buildResearchExecutionSourceContext(
+  snapshot: ResearchSourceSnapshot,
+  currentAttachments: NonNullable<Message["attachments"]>,
+) {
+  const frozenAttachments = currentAttachments.filter(
+    (attachment) =>
+      !isKnowledgeAttachment(attachment) &&
+      snapshot.attachmentIds.includes(attachment.id),
+  );
+  const frozenKnowledgeAttachments = currentAttachments.filter((attachment) => {
+    if (isKnowledgeCollectionAttachment(attachment)) {
+      return Boolean(
+        attachment.data &&
+        snapshot.knowledgeCollectionIds.includes(attachment.data),
+      );
+    }
+    const file = parseKnowledgeFileAttachmentData(attachment);
+    return Boolean(
+      file && snapshot.knowledgeCollectionIds.includes(file.collectionId),
+    );
+  });
+  const collections = useKnowledgeStore
+    .getState()
+    .collections.filter((collection) =>
+      snapshot.knowledgeCollectionIds.includes(collection.id),
+    );
+  const representedKnowledgeCollectionIds = new Set(
+    frozenKnowledgeAttachments.flatMap((attachment) => {
+      if (isKnowledgeCollectionAttachment(attachment)) {
+        return attachment.data ? [attachment.data] : [];
+      }
+      const file = parseKnowledgeFileAttachmentData(attachment);
+      return file ? [file.collectionId] : [];
+    }),
+  );
+  const approvedKnowledgeAttachments = [
+    ...frozenKnowledgeAttachments,
+    ...snapshot.knowledgeCollectionIds
+      .filter((id) => !representedKnowledgeCollectionIds.has(id))
+      .map((id) =>
+        createKnowledgeCollectionAttachment({
+          collectionId: id,
+          collectionName:
+            collections.find((collection) => collection.id === id)?.name || id,
+        }),
+      ),
+  ];
+  const attachmentCatalog = frozenAttachments.length
+    ? [
+        "Approved attachment catalog (use inspect_attachment with the exact ID):",
+        ...frozenAttachments.map(
+          (attachment) =>
+            `- ${attachment.id} | ${attachment.fileName} | ${attachment.mimeType}`,
+        ),
+      ].join("\n")
+    : "";
+  const workspaceCatalog = snapshot.workspaceSources?.length
+    ? [
+        "Approved workspace source catalog (read only these exact paths):",
+        ...snapshot.workspaceSources.map(
+          (source) =>
+            `- ${source.path} | revision ${source.revision} | hash ${source.contentHash}`,
+        ),
+      ].join("\n")
+    : "";
+  return {
+    frozenAttachments,
+    approvedKnowledgeAttachments,
+    collections,
+    attachmentCatalog,
+    workspaceCatalog,
+  };
+}
+
 function getActivePlan(task: ResearchTask): ResearchPlanVersion | undefined {
   return task.planVersions.find(
     (plan) => plan.version === task.activePlanVersion,
   );
-}
-
-function trimReportMarkdown(value: string): string {
-  const normalized = value.trim();
-  const titleIndex = normalized.search(/^#\s+\S/m);
-  return titleIndex > 0 ? normalized.slice(titleIndex) : normalized;
 }
 
 async function hashText(value: string): Promise<string> {
@@ -955,38 +1037,6 @@ function validateResearchPlanHostContract({
   return issues;
 }
 
-function getAvailableResearchSourceTypes(
-  snapshot: ResearchSourceSnapshot,
-): ResearchSourceType[] {
-  const sourceTypes: ResearchSourceType[] = [];
-  if (
-    snapshot.searchEnabled ||
-    snapshot.toolIds.some((toolId) =>
-      ["fetch_url", "fetch_urls", "web_search", "search_web"].includes(toolId),
-    )
-  ) {
-    sourceTypes.push("web");
-  }
-  if (snapshot.knowledgeCollectionIds.length > 0) sourceTypes.push("knowledge");
-  if (snapshot.attachmentIds.length > 0) sourceTypes.push("attachment");
-  if (
-    snapshot.workspaceFileIds.length > 0 ||
-    (snapshot.workspaceSources?.length || 0) > 0 ||
-    snapshot.toolIds.some((toolId) =>
-      [
-        "list_workspace_files",
-        "stat_workspace_file",
-        "search_workspace_files",
-        "read_workspace_file",
-      ].includes(toolId),
-    )
-  ) {
-    sourceTypes.push("workspace");
-  }
-  if (snapshot.pluginIds.length > 0) sourceTypes.push("plugin", "mcp");
-  return sourceTypes.length > 0 ? Array.from(new Set(sourceTypes)) : ["web"];
-}
-
 function upsertResearchReportRun(
   task: ResearchTask,
   run: ResearchReportRun,
@@ -1131,6 +1181,7 @@ function integrateLearningPackets({
   waveId,
   newEvidenceCount,
   expandFrontier,
+  allowedSourceTypes,
 }: {
   run: ResearchReportRun;
   plan: ResearchPlanVersion;
@@ -1139,14 +1190,35 @@ function integrateLearningPackets({
   waveId: string;
   newEvidenceCount: number;
   expandFrontier: boolean;
-}): { run: ResearchReportRun; evidence: ResearchEvidence[] } {
+  allowedSourceTypes: readonly ResearchSourceType[];
+}): {
+  run: ResearchReportRun;
+  evidence: ResearchEvidence[];
+  scopeExpansion?: {
+    packetIds: string[];
+    scheduledFollowUpIds: string[];
+    unavailableSourceFollowUpIds: string[];
+    duplicateFollowUpIds: string[];
+    breadthLimitedFollowUpIds: string[];
+    depthLimitedFollowUpIds: string[];
+  };
+} {
   const beforeVerified = run.claims.filter(
     (claim) => claim.verificationStatus === "verified",
   ).length;
   let nextRun = run;
+  const expansionResults: Array<{
+    packet: LearningPacket;
+    result: ReturnType<typeof expandResearchFrontier>;
+  }> = [];
   if (expandFrontier) {
     for (const packet of packets) {
-      nextRun = expandResearchFrontier(nextRun, packet).run;
+      const result = expandResearchFrontier(nextRun, packet, Date.now(), {
+        autoExpandScope: true,
+        allowedSourceTypes,
+      });
+      expansionResults.push({ packet, result });
+      nextRun = result.run;
     }
   } else {
     nextRun = {
@@ -1215,8 +1287,45 @@ function integrateLearningPackets({
     (claim) => claim.verificationStatus === "verified",
   ).length;
   const completedAt = Date.now();
+  const scopeFollowUpIds = new Set(
+    packets.flatMap((packet) =>
+      packet.followUps
+        .filter((followUp) => followUp.scopeImpact !== "within")
+        .map((followUp) => followUp.id),
+    ),
+  );
+  const scopePacketIds = packets
+    .filter((packet) =>
+      packet.followUps.some((followUp) => followUp.scopeImpact !== "within"),
+    )
+    .map((packet) => packet.id);
+  const onlyScopeFollowUps = (ids: readonly string[]) =>
+    ids.filter((id) => scopeFollowUpIds.has(id));
+  const scopeExpansion = scopeFollowUpIds.size
+    ? {
+        packetIds: scopePacketIds,
+        scheduledFollowUpIds: expansionResults.flatMap(({ result }) =>
+          onlyScopeFollowUps(result.scheduledFollowUpIds),
+        ),
+        unavailableSourceFollowUpIds: expansionResults.flatMap(
+          ({ result }) => result.unavailableSourceFollowUpIds,
+        ),
+        duplicateFollowUpIds: expansionResults.flatMap(({ result }) =>
+          onlyScopeFollowUps(result.duplicateFollowUpIds),
+        ),
+        breadthLimitedFollowUpIds: expandFrontier
+          ? expansionResults.flatMap(({ result }) =>
+              onlyScopeFollowUps(result.breadthLimitedFollowUpIds),
+            )
+          : [...scopeFollowUpIds],
+        depthLimitedFollowUpIds: expansionResults.flatMap(({ result }) =>
+          onlyScopeFollowUps(result.depthLimitedFollowUpIds),
+        ),
+      }
+    : undefined;
   return {
     evidence: linkedEvidence,
+    ...(scopeExpansion ? { scopeExpansion } : {}),
     run: {
       ...nextRun,
       nodes,
@@ -1394,7 +1503,7 @@ async function publishResearchReportVersion({
   persistenceError: string;
 }): Promise<string[]> {
   const store = useResearchStore.getState();
-  const normalizedMarkdown = trimReportMarkdown(markdown);
+  const normalizedMarkdown = normalizeResearchReportMarkdown(markdown);
   if (!normalizedMarkdown) {
     throw new Error("The model returned an empty report.");
   }
@@ -1860,8 +1969,11 @@ export function ResearchRuntimeProvider({
             requestModel,
           );
           const allowedSourceTypes =
-            getAvailableResearchSourceTypes(provisionalSnapshot);
-          const strategy = resolveResearchStrategy(initial.budgetPreset);
+            getResearchSourceSnapshotTypes(provisionalSnapshot);
+          const strategy = resolveResearchStrategy(
+            initial.budgetPreset,
+            initial.requestedStrategy || getActivePlan(initial)?.strategy,
+          );
           const reconRunId = uuidv7();
           const criticRunId = uuidv7();
           await store.updateTask(taskId, (current) => {
@@ -2162,16 +2274,17 @@ export function ResearchRuntimeProvider({
 
   const executeResearch = useCallback(
     async (taskId: string) => {
-      let pendingScopeAdjustment: string | undefined;
       await runOperation(taskId, "research", async (controller) => {
         const store = useResearchStore.getState();
         let task = store.tasksById[taskId];
         if (!task) throw new Error("Research task was not found.");
         const plan = getActivePlan(task);
-        const snapshot = task.sourceSnapshot;
-        if (!plan || !snapshot?.model) {
+        const approvedSnapshot = task.sourceSnapshot;
+        if (!plan || !approvedSnapshot?.model) {
           throw new Error("The approved research plan is incomplete.");
         }
+        const researchModel = approvedSnapshot.model;
+        let snapshot: ResearchSourceSnapshot = approvedSnapshot;
         const dependencyError = getResearchDependencyError(
           task,
           dependencyText,
@@ -2228,71 +2341,10 @@ export function ResearchRuntimeProvider({
           onNotice?.(missingSourceError.message);
           return;
         }
-        const frozenAttachments = currentAttachments.filter(
-          (attachment) =>
-            !isKnowledgeAttachment(attachment) &&
-            snapshot.attachmentIds.includes(attachment.id),
+        let sourceContext = buildResearchExecutionSourceContext(
+          snapshot,
+          currentAttachments,
         );
-        const frozenKnowledgeAttachments = currentAttachments.filter(
-          (attachment) => {
-            if (isKnowledgeCollectionAttachment(attachment)) {
-              return Boolean(
-                attachment.data &&
-                snapshot.knowledgeCollectionIds.includes(attachment.data),
-              );
-            }
-            const file = parseKnowledgeFileAttachmentData(attachment);
-            return Boolean(
-              file &&
-              snapshot.knowledgeCollectionIds.includes(file.collectionId),
-            );
-          },
-        );
-        const collections = useKnowledgeStore
-          .getState()
-          .collections.filter((collection) =>
-            snapshot.knowledgeCollectionIds.includes(collection.id),
-          );
-        const representedKnowledgeCollectionIds = new Set(
-          frozenKnowledgeAttachments.flatMap((attachment) => {
-            if (isKnowledgeCollectionAttachment(attachment)) {
-              return attachment.data ? [attachment.data] : [];
-            }
-            const file = parseKnowledgeFileAttachmentData(attachment);
-            return file ? [file.collectionId] : [];
-          }),
-        );
-        const approvedKnowledgeAttachments = [
-          ...frozenKnowledgeAttachments,
-          ...snapshot.knowledgeCollectionIds
-            .filter((id) => !representedKnowledgeCollectionIds.has(id))
-            .map((id) =>
-              createKnowledgeCollectionAttachment({
-                collectionId: id,
-                collectionName:
-                  collections.find((collection) => collection.id === id)
-                    ?.name || id,
-              }),
-            ),
-        ];
-        const attachmentCatalog = frozenAttachments.length
-          ? [
-              "Approved attachment catalog (use inspect_attachment with the exact ID):",
-              ...frozenAttachments.map(
-                (attachment) =>
-                  `- ${attachment.id} | ${attachment.fileName} | ${attachment.mimeType}`,
-              ),
-            ].join("\n")
-          : "";
-        const workspaceCatalog = snapshot.workspaceSources?.length
-          ? [
-              "Approved workspace source catalog (read only these exact paths):",
-              ...snapshot.workspaceSources.map(
-                (source) =>
-                  `- ${source.path} | revision ${source.revision} | hash ${source.contentHash}`,
-              ),
-            ].join("\n")
-          : "";
         const priorReport =
           task.pendingReportKind === "initial"
             ? ""
@@ -2348,8 +2400,6 @@ export function ResearchRuntimeProvider({
           explorationToolCallCap,
         );
         let currentEvidence = [...task.evidence];
-        let searchOnlyCount = 0;
-        let failedSourceOperationCount = 0;
         let lastAgentRunId: string | undefined;
 
         const persistRun = async (
@@ -2369,6 +2419,66 @@ export function ResearchRuntimeProvider({
           researchRun = nextRun;
           currentEvidence = evidence;
           task = store.tasksById[taskId];
+        };
+
+        const refreshExpansionSources = async (
+          packets: readonly LearningPacket[],
+        ): Promise<{
+          allowedSourceTypes: ResearchSourceType[];
+          addedSourceTypes: ResearchSourceType[];
+        }> => {
+          const requiredSourceTypes = Array.from(
+            new Set(
+              packets.flatMap((packet) =>
+                packet.followUps
+                  .filter((followUp) => followUp.scopeImpact !== "within")
+                  .flatMap((followUp) => followUp.requiredSourceTypes),
+              ),
+            ),
+          );
+          const previousSourceTypes = getResearchSourceSnapshotTypes(snapshot);
+          if (requiredSourceTypes.length === 0) {
+            return {
+              allowedSourceTypes: previousSourceTypes,
+              addedSourceTypes: [],
+            };
+          }
+          const configuredSnapshot = await createSourceSnapshot(
+            store.tasksById[taskId],
+            researchModel,
+          );
+          let nextSnapshot = mergeResearchSourceSnapshotForExpansion({
+            approved: snapshot,
+            configured: configuredSnapshot,
+            requiredSourceTypes,
+          });
+          if (requiredSourceTypes.includes("workspace")) {
+            nextSnapshot = {
+              ...nextSnapshot,
+              workspaceSources: await captureApprovedWorkspaceSources(
+                task.sessionId,
+                nextSnapshot.toolIds,
+              ),
+            };
+          }
+          const allowedSourceTypes =
+            getResearchSourceSnapshotTypes(nextSnapshot);
+          const previousSourceTypeSet = new Set(previousSourceTypes);
+          const addedSourceTypes = allowedSourceTypes.filter(
+            (sourceType) => !previousSourceTypeSet.has(sourceType),
+          );
+          await store.updateTask(taskId, (current) => ({
+            ...current,
+            sourceSnapshot: nextSnapshot,
+            updatedAt: Math.max(current.updatedAt, nextSnapshot.capturedAt),
+          }));
+          snapshot = nextSnapshot;
+          sourceContext = buildResearchExecutionSourceContext(
+            snapshot,
+            currentAttachments,
+          );
+          task = store.tasksById[taskId];
+          return { allowedSourceTypes, addedSourceTypes };
         };
 
         const executeWave = async ({
@@ -2411,7 +2521,9 @@ export function ResearchRuntimeProvider({
                   ),
                 )
               : availableBudget.maxToolCalls;
-          const reservedModelRounds = phase === "exploring" ? 2 : 1;
+          // Every wave needs one tool-free archive pass and may need one
+          // targeted repair pass. Neither pass may consume search budget.
+          const reservedModelRounds = 2;
           if (
             phaseToolCallAllowance <= 0 ||
             availableBudget.maxToolRounds <= reservedModelRounds
@@ -2516,8 +2628,8 @@ export function ResearchRuntimeProvider({
             phase === "verifying"
               ? `This is the reserved verification pass. Target unresolved, pending, or unsupported major claims only. At most ${queryAllowance} new queries are permitted. Do not expand the frontier.`
               : `This wave may execute at most ${queryAllowance} new queries. Batch up to four queries in search_web when useful.`,
-            attachmentCatalog,
-            workspaceCatalog,
+            sourceContext.attachmentCatalog,
+            sourceContext.workspaceCatalog,
           ]
             .filter(Boolean)
             .join("\n\n");
@@ -2596,12 +2708,12 @@ export function ResearchRuntimeProvider({
           try {
             const result = await streamChatResponse(
               task.sessionId,
-              snapshot.model!,
+              researchModel,
               resumeHistory,
               savedCheckpoint
                 ? `${wavePrompt}\n\nResume only from committed results above. Do not replay an already committed external call.`
                 : wavePrompt,
-              frozenAttachments,
+              sourceContext.frozenAttachments,
               {
                 ...chatConfig,
                 chatMode: "research",
@@ -2636,10 +2748,10 @@ export function ResearchRuntimeProvider({
                 executionWorkflow: { kind: "research", phase: "execute" },
                 knowledgeScope: {
                   attachments: [
-                    ...approvedKnowledgeAttachments,
-                    ...frozenAttachments,
+                    ...sourceContext.approvedKnowledgeAttachments,
+                    ...sourceContext.frozenAttachments,
                   ],
-                  collections,
+                  collections: sourceContext.collections,
                   ragConfig: { ...settings.rag },
                 },
                 workspaceReadScope: (snapshot.workspaceSources || []).map(
@@ -2707,87 +2819,101 @@ export function ResearchRuntimeProvider({
               defaultStepId: firstNode.stepId,
               defaultNodeId: firstNode.id,
             });
-            searchOnlyCount += collected.searchOnlyCount;
-            failedSourceOperationCount += latestToolCalls.filter(
-              (toolCall) =>
-                toolCall.status === "error" ||
-                toolCall.status === "denied" ||
-                toolCall.status === "skipped",
-            ).length;
+            const evidenceArchivedAt = Date.now();
+            activeRun = {
+              ...activeRun,
+              nodes: activeRun.nodes.map((node) => {
+                if (!nodeIds.includes(node.id)) return node;
+                const nodeEvidence = collected.evidence.filter(
+                  (item) => item.nodeId === node.id,
+                );
+                return {
+                  ...node,
+                  status: "learning" as const,
+                  sourceIds: Array.from(
+                    new Set([
+                      ...node.sourceIds,
+                      ...nodeEvidence.map((item) => item.sourceId),
+                    ]),
+                  ),
+                  evidenceIds: Array.from(
+                    new Set([
+                      ...node.evidenceIds,
+                      ...nodeEvidence.map((item) => item.id),
+                    ]),
+                  ),
+                  updatedAt: evidenceArchivedAt,
+                };
+              }),
+              updatedAt: evidenceArchivedAt,
+            };
+            await persistRun(
+              activeRun,
+              collected.evidence,
+              currentTaskAfterWave.checkpoint,
+            );
+
+            const aliases = createResearchWaveAliasContext({
+              run: activeRun,
+              nodeIds,
+              evidence: collected.evidence,
+              preferredEvidenceIds: collected.newEvidenceIds,
+            });
             const waveParseOptions = {
-              allowedNodeIds: nodeIds,
-              allowedSourceIds: collected.evidence.map((item) => item.sourceId),
-              allowedEvidenceIds: collected.evidence.map((item) => item.id),
-              allowedStepIds: plan.steps.map((step) => step.id),
-              expectedStepIdByNode: Object.fromEntries(
-                activeRun.nodes
-                  .filter((node) => nodeIds.includes(node.id))
-                  .map((node) => [node.id, node.stepId]),
-              ),
+              aliases,
               existingClaimSignatures: Object.fromEntries(
                 activeRun.claims.map((claim) => [
                   claim.id,
                   getResearchClaimSignature(claim.stepId, claim.text),
                 ]),
               ),
-              existingMirrorBySourceId: Object.fromEntries(
-                collected.evidence.flatMap((item) =>
-                  item.mirrorOfSourceId
-                    ? [[item.sourceId, item.mirrorOfSourceId]]
-                    : [],
-                ),
-              ),
-              canonicalSourceIdByAlias: Object.fromEntries(
-                collected.evidence.flatMap((item) =>
-                  (item.aliasSourceIds || []).map((aliasSourceId) => [
-                    aliasSourceId,
-                    item.sourceId,
-                  ]),
-                ),
-              ),
             } satisfies Parameters<typeof parseResearchWavePackets>[1];
-            let parsedPackets = parseResearchWavePackets(
-              latestContent,
-              waveParseOptions,
-            );
-            if (!parsedPackets.valid) {
-              const initialIssues = [...parsedPackets.error.issues];
-              let repairedContent = "";
-              const repairAt = Date.now();
-              const committedToolCalls = latestToolCalls
-                .filter(isCommittedCheckpointToolCall)
-                .map(sanitizeCheckpointToolCall);
-              const repairHistory: Message[] = [
-                {
-                  id: uuidv7(),
-                  role: "user",
-                  content: wavePrompt,
-                  timestamp: Math.max(0, repairAt - 1),
-                },
-                {
-                  id: uuidv7(),
-                  role: "model",
-                  content: latestContent,
-                  ...(committedToolCalls.length
-                    ? { toolCalls: committedToolCalls }
-                    : {}),
-                  timestamp: repairAt,
-                },
-              ];
-              try {
-                repairedContent = await streamChatResponse(
+            const { providerId, modelName } = parseModelString(researchModel);
+            const modelMetadata = resolveProviderModelMetadata({
+              providerId,
+              modelName,
+              modelMetadata: settings.modelMetadata,
+              customModelMetadata: settings.customModelMetadata,
+            });
+            const nativeResponseFormat = supportsStructuredOutput(modelMetadata)
+              ? RESEARCH_WAVE_RESPONSE_FORMAT
+              : undefined;
+            let nativeResponseFormatAvailable = Boolean(nativeResponseFormat);
+            const committedToolCalls = latestToolCalls
+              .filter(isCommittedCheckpointToolCall)
+              .map(sanitizeCheckpointToolCall);
+            const archiveAt = Date.now();
+            const archiveHistory: Message[] = [
+              {
+                id: uuidv7(),
+                role: "user",
+                content: wavePrompt,
+                timestamp: Math.max(0, archiveAt - 1),
+              },
+              {
+                id: uuidv7(),
+                role: "model",
+                content: latestContent || "Tool work completed.",
+                ...(committedToolCalls.length
+                  ? { toolCalls: committedToolCalls }
+                  : {}),
+                timestamp: archiveAt,
+              },
+            ];
+            const requestClosedBookArchive = async ({
+              history,
+              prompt,
+            }: {
+              history: Message[];
+              prompt: string;
+            }) => {
+              const request = async (useNativeSchema: boolean) => {
+                let content = "";
+                content = await streamChatResponse(
                   task.sessionId,
-                  snapshot.model!,
-                  repairHistory,
-                  buildResearchWaveRepairPrompt({
-                    invalidOutput: latestContent,
-                    issues: initialIssues,
-                    allowedNodeIds: waveParseOptions.allowedNodeIds,
-                    allowedSourceIds: waveParseOptions.allowedSourceIds,
-                    allowedEvidenceIds: waveParseOptions.allowedEvidenceIds,
-                    allowedStepIds: waveParseOptions.allowedStepIds,
-                    expectedStepIdByNode: waveParseOptions.expectedStepIdByNode,
-                  }),
+                  researchModel,
+                  history,
+                  prompt,
                   [],
                   {
                     ...chatConfig,
@@ -2798,9 +2924,9 @@ export function ResearchRuntimeProvider({
                     useReasoning: false,
                   },
                   (text) => {
-                    repairedContent = text;
+                    content = text;
                   },
-                  `${effective.systemInstruction}\n\nThis is a single closed-book wave packet repair. Tools and source access are disabled. Use only the committed history and allowed IDs supplied by the host.`,
+                  `${effective.systemInstruction}\n\nThis is a host-controlled closed-book Research archive. Tools and source access are disabled. Use only committed history and host aliases.`,
                   undefined,
                   undefined,
                   undefined,
@@ -2810,26 +2936,119 @@ export function ResearchRuntimeProvider({
                   undefined,
                   undefined,
                   undefined,
-                  { disableTools: true },
+                  {
+                    disableTools: true,
+                    ...(useNativeSchema && nativeResponseFormat
+                      ? { responseFormat: nativeResponseFormat }
+                      : {}),
+                  },
                 );
+                return content;
+              };
+              if (!nativeResponseFormatAvailable) return request(false);
+              try {
+                return await request(true);
+              } catch (error) {
+                if (!isStructuredOutputCapabilityError(error)) throw error;
+                nativeResponseFormatAvailable = false;
+                return request(false);
+              }
+            };
+
+            const archivePrompt = buildResearchWaveArchivePrompt({
+              task: store.tasksById[taskId],
+              plan,
+              run: activeRun,
+              aliases,
+            });
+            const archivedContent = await requestClosedBookArchive({
+              history: archiveHistory,
+              prompt: archivePrompt,
+            });
+            controller.signal.throwIfAborted();
+            const parsedArchive = parseResearchWavePackets(
+              archivedContent,
+              waveParseOptions,
+            );
+            let repairedPackets: LearningPacket[] = [];
+            const repairNodeKeys = parsedArchive.valid
+              ? []
+              : Array.from(
+                  new Set([
+                    ...parsedArchive.missingNodeKeys,
+                    ...parsedArchive.invalidNodeKeys,
+                  ]),
+                );
+            let repairIssues = parsedArchive.valid
+              ? []
+              : parsedArchive.error.issues;
+            if (repairNodeKeys.length > 0) {
+              let repairedContent = "";
+              try {
+                repairedContent = await requestClosedBookArchive({
+                  history: [
+                    ...archiveHistory,
+                    {
+                      id: uuidv7(),
+                      role: "model",
+                      content: archivedContent,
+                      timestamp: Date.now(),
+                    },
+                  ],
+                  prompt: buildResearchWaveRepairPrompt({
+                    invalidOutput: archivedContent,
+                    issues: repairIssues,
+                    aliases,
+                    requestedNodeKeys: repairNodeKeys,
+                  }),
+                });
                 controller.signal.throwIfAborted();
-                parsedPackets = parseResearchWavePackets(
-                  repairedContent,
-                  waveParseOptions,
-                );
+                const parsedRepair = parseResearchWavePackets(repairedContent, {
+                  ...waveParseOptions,
+                  requestedNodeKeys: repairNodeKeys,
+                  existingClaimSignatures: {
+                    ...waveParseOptions.existingClaimSignatures,
+                    ...Object.fromEntries(
+                      parsedArchive.data.flatMap((packet) =>
+                        packet.learnings.map((learning) => [
+                          learning.claimId,
+                          getResearchClaimSignature(
+                            learning.stepId,
+                            learning.claimText,
+                          ),
+                        ]),
+                      ),
+                    ),
+                  },
+                });
+                repairedPackets = parsedRepair.data;
+                if (!parsedRepair.valid) {
+                  repairIssues = parsedRepair.error.issues;
+                }
               } catch (error) {
                 if (isAbortError(error)) throw error;
                 logDevError("Deep Research wave packet repair failed", error);
+                repairIssues = [
+                  ...repairIssues,
+                  error instanceof Error ? error.message : String(error),
+                ];
               }
-              if (!parsedPackets.valid) {
-                logDevError(
-                  "Deep Research wave output remained invalid after repair",
-                  {
-                    initialIssues,
-                    repairedIssues: parsedPackets.error.issues.slice(0, 40),
-                  },
-                );
-              }
+            }
+            const finalizedPackets = finalizeResearchWavePackets({
+              aliases,
+              initialPackets: parsedArchive.data,
+              repairedPackets,
+            });
+            const {
+              packets: wavePackets,
+              repairedNodeIds,
+              degradedNodeIds,
+            } = finalizedPackets;
+            if (degradedNodeIds.length > 0) {
+              logDevError("Deep Research wave archive degraded", {
+                degradedNodeIds,
+                issues: repairIssues.slice(0, 40),
+              });
             }
             const executionUsage = aggregateExecutionUsage(
               getCurrentResearchReportRunIds(store.tasksById[taskId]),
@@ -2847,87 +3066,67 @@ export function ResearchRuntimeProvider({
               ),
               ...executionUsage,
             };
-            if (!parsedPackets.valid) {
-              const completedAt = Date.now();
-              const failedRun: ResearchReportRun = {
-                ...activeRun,
-                usage: baseUsage,
-                executedQueries: [
-                  ...activeRun.executedQueries,
-                  ...executedQueries,
-                ],
-                waves: activeRun.waves.map((wave) =>
-                  wave.id === waveId
-                    ? {
-                        ...wave,
-                        status: "failed" as const,
-                        completedAt,
-                        newEvidenceCount: collected.newEvidenceIds.length,
-                      }
-                    : wave,
-                ),
-                nodes: activeRun.nodes.map((node) =>
-                  nodeIds.includes(node.id)
-                    ? {
-                        ...node,
-                        status: "failed" as const,
-                        stopReason: {
-                          code: "invalid_model_output" as const,
-                          at: completedAt,
-                        },
-                        updatedAt: completedAt,
-                      }
-                    : node,
-                ),
-                frontierNodeIds: activeRun.frontierNodeIds.filter(
-                  (nodeId) => !nodeIds.includes(nodeId),
-                ),
-                stopReason: {
-                  code: "invalid_model_output",
-                  at: completedAt,
-                },
-                updatedAt: completedAt,
-                checkpoint: undefined,
-              };
-              await persistRun(failedRun, collected.evidence);
-              await deleteWorkspaceFile(task.sessionId, checkpointPath).catch(
-                () => undefined,
-              );
-              return failedRun;
-            }
+            const expansionSources = await refreshExpansionSources(wavePackets);
             const integrated = integrateLearningPackets({
               run: activeRun,
               plan,
               evidence: collected.evidence,
-              packets: parsedPackets.data,
+              packets: wavePackets,
               waveId,
               newEvidenceCount: collected.newEvidenceIds.length,
               expandFrontier,
+              allowedSourceTypes: expansionSources.allowedSourceTypes,
             });
-            const requiresScopeApproval = parsedPackets.data.some((packet) =>
-              packet.followUps.some(
-                (followUp) => followUp.scopeImpact !== "within",
-              ),
-            );
-            if (requiresScopeApproval && !pendingScopeAdjustment) {
-              pendingScopeAdjustment = buildResearchScopeExpansionAdjustment(
-                parsedPackets.data,
-              );
-            }
+            const scopeExpansionEvent: ResearchScopeExpansionEvent | undefined =
+              integrated.scopeExpansion
+                ? {
+                    id: `${waveId}-scope-expansion`,
+                    at: Date.now(),
+                    sourceSnapshotCapturedAt: snapshot.capturedAt,
+                    packetIds: integrated.scopeExpansion.packetIds,
+                    addedSourceTypes: expansionSources.addedSourceTypes,
+                    scheduledFollowUpIds:
+                      integrated.scopeExpansion.scheduledFollowUpIds,
+                    unavailableSourceFollowUpIds:
+                      integrated.scopeExpansion.unavailableSourceFollowUpIds,
+                    duplicateFollowUpIds:
+                      integrated.scopeExpansion.duplicateFollowUpIds,
+                    breadthLimitedFollowUpIds:
+                      integrated.scopeExpansion.breadthLimitedFollowUpIds,
+                    depthLimitedFollowUpIds:
+                      integrated.scopeExpansion.depthLimitedFollowUpIds,
+                  }
+                : undefined;
             const completedRun: ResearchReportRun = {
               ...integrated.run,
-              phase: requiresScopeApproval ? "awaiting_scope_approval" : phase,
+              phase,
               usage: baseUsage,
               executedQueries: [
                 ...integrated.run.executedQueries,
                 ...executedQueries,
               ],
-              ...(requiresScopeApproval
+              waves: integrated.run.waves.map((wave) =>
+                wave.id === waveId
+                  ? {
+                      ...wave,
+                      packetStatus:
+                        degradedNodeIds.length > 0
+                          ? ("degraded" as const)
+                          : repairedNodeIds.length > 0
+                            ? ("repaired" as const)
+                            : ("valid" as const),
+                      ...(degradedNodeIds.length > 0
+                        ? { degradedNodeIds }
+                        : {}),
+                    }
+                  : wave,
+              ),
+              ...(scopeExpansionEvent
                 ? {
-                    stopReason: {
-                      code: "scope_approval_required" as const,
-                      at: Date.now(),
-                    },
+                    scopeExpansionEvents: [
+                      ...(integrated.run.scopeExpansionEvents ?? []),
+                      scopeExpansionEvent,
+                    ],
                   }
                 : {}),
               checkpoint: {
@@ -3269,7 +3468,7 @@ export function ResearchRuntimeProvider({
           let reportMarkdown = "";
           reportMarkdown = await streamChatResponse(
             task.sessionId,
-            snapshot.model,
+            researchModel,
             [],
             buildResearchSynthesisPrompt({
               task: store.tasksById[taskId],
@@ -3310,6 +3509,7 @@ export function ResearchRuntimeProvider({
             },
           );
           controller.signal.throwIfAborted();
+          reportMarkdown = normalizeResearchReportMarkdown(reportMarkdown);
           let audit = auditResearchReport({
             markdown: reportMarkdown,
             plan,
@@ -3327,7 +3527,7 @@ export function ResearchRuntimeProvider({
             let repaired = "";
             repaired = await streamChatResponse(
               task.sessionId,
-              snapshot.model,
+              researchModel,
               [],
               buildResearchReportRepairPrompt({
                 task: store.tasksById[taskId],
@@ -3368,7 +3568,23 @@ export function ResearchRuntimeProvider({
                 },
               },
             );
-            if (repaired.trim()) reportMarkdown = repaired;
+            if (repaired.trim()) {
+              reportMarkdown = normalizeResearchReportMarkdown(repaired);
+            }
+            audit = auditResearchReport({
+              markdown: reportMarkdown,
+              plan,
+              run: researchRun,
+              evidence: currentEvidence,
+            });
+          }
+          if (audit.issues.length > 0) {
+            reportMarkdown = buildDeterministicRepairReport({
+              task: store.tasksById[taskId],
+              plan,
+              run: researchRun,
+              evidence: currentEvidence,
+            });
             audit = auditResearchReport({
               markdown: reportMarkdown,
               plan,
@@ -3385,24 +3601,6 @@ export function ResearchRuntimeProvider({
             updatedAt: Date.now(),
           };
           const extraGaps: string[] = [...audit.issues];
-          if (failedSourceOperationCount > 0) {
-            extraGaps.push(
-              t("runtime.gaps.sourceOperations", {
-                count: failedSourceOperationCount,
-              }),
-            );
-          }
-          if (searchOnlyCount > 0) {
-            extraGaps.push(
-              t("runtime.gaps.searchOnly", { count: searchOnlyCount }),
-            );
-          }
-          if (
-            researchRun.stopReason &&
-            researchRun.stopReason.code !== "coverage_satisfied"
-          ) {
-            extraGaps.push(t(`run.stop.${researchRun.stopReason.code}`));
-          }
           const uniqueGaps = await publishResearchReportVersion({
             taskId,
             plan,
@@ -3511,21 +3709,12 @@ export function ResearchRuntimeProvider({
           onError?.(t("runtime.error.report"));
         }
       });
-      const scopedTask = useResearchStore.getState().tasksById[taskId];
-      if (
-        pendingScopeAdjustment &&
-        scopedTask?.status === "paused" &&
-        scopedTask.error?.code === "RESEARCH_SCOPE_APPROVAL_REQUIRED"
-      ) {
-        await preparePlan(taskId, pendingScopeAdjustment);
-      }
     },
     [
       dependencyText,
       localizedRuntimeError,
       onError,
       onNotice,
-      preparePlan,
       runOperation,
       t,
       toolConfirmationController,
@@ -3661,6 +3850,7 @@ export function ResearchRuntimeProvider({
         };
         return {
           ...current,
+          requestedStrategy: strategy,
           planVersions: [...current.planVersions, nextPlan],
           activePlanVersion: version,
           updatedAt: Date.now(),
@@ -3696,6 +3886,151 @@ export function ResearchRuntimeProvider({
       const store = useResearchStore.getState();
       const task = store.tasksById[taskId];
       if (!task || task.status !== "paused") return;
+      if (task.error?.code === "RESEARCH_SCOPE_APPROVAL_REQUIRED") {
+        const plan = getActivePlan(task);
+        const activeRun = getActiveResearchReportRun(task);
+        const approvedSnapshot = task.sourceSnapshot;
+        if (!plan || !activeRun || !approvedSnapshot?.model) {
+          await store.updateTask(taskId, (current) => ({
+            ...current,
+            error: {
+              code: "RESEARCH_CHECKPOINT_UNAVAILABLE",
+              message: dependencyText.checkpointUnavailable,
+              recoverable: true,
+            },
+          }));
+          onNotice?.(dependencyText.checkpointUnavailable);
+          return;
+        }
+        if (!(await claimActiveSlot(task.sessionId, taskId))) return;
+        const processedFollowUpIds = new Set(
+          (activeRun.scopeExpansionEvents ?? []).flatMap((event) => [
+            ...event.scheduledFollowUpIds,
+            ...event.unavailableSourceFollowUpIds,
+            ...event.duplicateFollowUpIds,
+            ...event.breadthLimitedFollowUpIds,
+            ...event.depthLimitedFollowUpIds,
+          ]),
+        );
+        const pendingPackets = activeRun.learningPackets.flatMap((packet) => {
+          const followUps = packet.followUps.filter(
+            (followUp) =>
+              followUp.scopeImpact !== "within" &&
+              !processedFollowUpIds.has(followUp.id),
+          );
+          return followUps.length > 0 ? [{ ...packet, followUps }] : [];
+        });
+        const requiredSourceTypes = Array.from(
+          new Set(
+            pendingPackets.flatMap((packet) =>
+              packet.followUps.flatMap(
+                (followUp) => followUp.requiredSourceTypes,
+              ),
+            ),
+          ),
+        );
+        const configuredSnapshot = await createSourceSnapshot(
+          task,
+          approvedSnapshot.model,
+        );
+        let sourceSnapshot = mergeResearchSourceSnapshotForExpansion({
+          approved: approvedSnapshot,
+          configured: configuredSnapshot,
+          requiredSourceTypes,
+        });
+        if (requiredSourceTypes.includes("workspace")) {
+          sourceSnapshot = {
+            ...sourceSnapshot,
+            workspaceSources: await captureApprovedWorkspaceSources(
+              task.sessionId,
+              sourceSnapshot.toolIds,
+            ),
+          };
+        }
+        const previousSourceTypes = new Set(
+          getResearchSourceSnapshotTypes(approvedSnapshot),
+        );
+        const allowedSourceTypes =
+          getResearchSourceSnapshotTypes(sourceSnapshot);
+        const addedSourceTypes = allowedSourceTypes.filter(
+          (sourceType) => !previousSourceTypes.has(sourceType),
+        );
+        const expansion = {
+          packetIds: pendingPackets.map((packet) => packet.id),
+          scheduledFollowUpIds: [] as string[],
+          unavailableSourceFollowUpIds: [] as string[],
+          duplicateFollowUpIds: [] as string[],
+          breadthLimitedFollowUpIds: [] as string[],
+          depthLimitedFollowUpIds: [] as string[],
+        };
+        let resumedRun: ResearchReportRun = {
+          ...activeRun,
+          phase: "exploring",
+          stopReason: undefined,
+          updatedAt: Date.now(),
+        };
+        for (const packet of pendingPackets) {
+          const result = expandResearchFrontier(
+            resumedRun,
+            packet,
+            Date.now(),
+            {
+              autoExpandScope: true,
+              allowedSourceTypes,
+              recordPacket: false,
+            },
+          );
+          resumedRun = result.run;
+          expansion.scheduledFollowUpIds.push(...result.scheduledFollowUpIds);
+          expansion.unavailableSourceFollowUpIds.push(
+            ...result.unavailableSourceFollowUpIds,
+          );
+          expansion.duplicateFollowUpIds.push(...result.duplicateFollowUpIds);
+          expansion.breadthLimitedFollowUpIds.push(
+            ...result.breadthLimitedFollowUpIds,
+          );
+          expansion.depthLimitedFollowUpIds.push(
+            ...result.depthLimitedFollowUpIds,
+          );
+        }
+        if (pendingPackets.length > 0) {
+          resumedRun = {
+            ...resumedRun,
+            scopeExpansionEvents: [
+              ...(resumedRun.scopeExpansionEvents ?? []),
+              {
+                id: `${resumedRun.id}-legacy-scope-expansion-${uuidv7()}`,
+                at: Date.now(),
+                sourceSnapshotCapturedAt: sourceSnapshot.capturedAt,
+                addedSourceTypes,
+                ...expansion,
+              },
+            ],
+          };
+        }
+        const checkpoint: ResearchCheckpoint = {
+          createdAt: Date.now(),
+          resumeStatus: "researching",
+          committedEvidenceIds:
+            task.checkpoint?.committedEvidenceIds ??
+            task.evidence.map((item) => item.id),
+          committedToolExecutionIds:
+            task.checkpoint?.committedToolExecutionIds ?? [],
+          researchRunId: resumedRun.id,
+        };
+        await store.updateTask(taskId, (current) => {
+          const withRun = upsertResearchReportRun(current, resumedRun);
+          return {
+            ...transitionResearchTask(withRun, "researching", { checkpoint }),
+            sourceSnapshot,
+            checkpoint,
+            error: undefined,
+          };
+        });
+        store.setActiveTask(taskId);
+        launchResearch(taskId);
+        return;
+      }
       const resumeStatus = task.checkpoint?.resumeStatus || "plan_ready";
       if (resumeStatus === "draft" || resumeStatus === "clarifying") {
         await preparePlan(taskId);
@@ -3718,7 +4053,13 @@ export function ResearchRuntimeProvider({
       store.setActiveTask(taskId);
       launchResearch(taskId);
     },
-    [claimActiveSlot, launchResearch, preparePlan],
+    [
+      claimActiveSlot,
+      dependencyText.checkpointUnavailable,
+      launchResearch,
+      onNotice,
+      preparePlan,
+    ],
   );
 
   const askExistingEvidence = useCallback(
@@ -3848,12 +4189,18 @@ export function ResearchRuntimeProvider({
           .getState()
           .sessions.find((item) => item.id === context.sessionId);
         if (!session) throw new Error(t("runtime.error.chatMissing"));
+        const budgetPreset = session.config?.researchBudgetPreset || "standard";
+        const requestedStrategy = resolveResearchStrategy(
+          budgetPreset,
+          session.config?.researchStrategy,
+        );
         const draftContext = resolveTaskContext(
           {
             ...createResearchTask({
               sessionId: context.sessionId,
               goal: args.query,
-              budgetPreset: args.budgetPreset,
+              budgetPreset,
+              requestedStrategy,
             }),
             sourceSnapshot: undefined,
           },
@@ -3864,7 +4211,8 @@ export function ResearchRuntimeProvider({
           userMessageId: context.userMessageId,
           cardMessageId: context.modelMessageId,
           goal: args.query,
-          budgetPreset: args.budgetPreset,
+          budgetPreset,
+          requestedStrategy,
           profileBudget: draftContext.effective.agentBudget,
         });
         const withRun = context.agentRunId

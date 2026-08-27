@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { DEFAULT_CHAT_CONFIG } from "@/config/defaults";
 import {
+  AUTO_MODE_SYSTEM_INSTRUCTION,
   applyChatMode,
   getNextSupportedChatMode,
   normalizeChatMode,
@@ -45,9 +46,17 @@ describe("chat mode", () => {
 
     expect(binding.definition.function.name).toBe("switch_chat_mode");
     expect(binding.definition.function.parameters).toMatchObject({
-      properties: { mode: { enum: ["agent", "research"] } },
+      properties: {
+        mode: {
+          enum: ["agent", "research"],
+          description: expect.stringContaining("multi-step tool execution"),
+        },
+      },
       required: ["mode"],
     });
+    expect(binding.definition.function.description).toContain(
+      "before answering, searching, or using any other tool",
+    );
     await expect(
       binding.execute(
         { mode: "research" },
@@ -75,5 +84,25 @@ describe("chat mode", () => {
       error: { code: "INVALID_CHAT_MODE" },
     });
     expect(emitMode).not.toHaveBeenCalled();
+  });
+
+  it("defines a complete Auto-mode routing contract", () => {
+    expect(AUTO_MODE_SYSTEM_INSTRUCTION).toMatch(/^<auto-mode>/);
+    expect(AUTO_MODE_SYSTEM_INSTRUCTION).toMatch(/<\/auto-mode>$/);
+    expect(AUTO_MODE_SYSTEM_INSTRUCTION).toContain(
+      "Call switch_chat_mode with research",
+    );
+    expect(AUTO_MODE_SYSTEM_INSTRUCTION).toContain(
+      "Call switch_chat_mode with agent",
+    );
+    expect(AUTO_MODE_SYSTEM_INSTRUCTION).toContain(
+      "ask the user which outcome to prioritize",
+    );
+    expect(AUTO_MODE_SYSTEM_INSTRUCTION).toContain(
+      "use it at most once for a routine lookup",
+    );
+    expect(AUTO_MODE_SYSTEM_INSTRUCTION).toContain(
+      "Do not imitate Deep Research or Agent inside Auto mode",
+    );
   });
 });

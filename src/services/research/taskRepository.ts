@@ -451,6 +451,23 @@ const runCheckpointSchema = z
   })
   .strict();
 
+const scopeExpansionEventSchema = z
+  .object({
+    id: z.string().min(1).max(240),
+    at: z.number().finite().nonnegative(),
+    sourceSnapshotCapturedAt: z.number().finite().nonnegative(),
+    packetIds: z.array(z.string().min(1).max(240)).max(1_000),
+    addedSourceTypes: z.array(sourceTypeSchema).max(6),
+    scheduledFollowUpIds: z.array(z.string().min(1).max(240)).max(1_000),
+    unavailableSourceFollowUpIds: z
+      .array(z.string().min(1).max(240))
+      .max(1_000),
+    duplicateFollowUpIds: z.array(z.string().min(1).max(240)).max(1_000),
+    breadthLimitedFollowUpIds: z.array(z.string().min(1).max(240)).max(1_000),
+    depthLimitedFollowUpIds: z.array(z.string().min(1).max(240)).max(1_000),
+  })
+  .strict();
+
 const reportRunSchema = z
   .object({
     id: z.string().min(1).max(240),
@@ -486,6 +503,11 @@ const reportRunSchema = z
               "paused",
               "failed",
             ]),
+            packetStatus: z.enum(["valid", "repaired", "degraded"]).optional(),
+            degradedNodeIds: z
+              .array(z.string().min(1).max(240))
+              .max(2_000)
+              .optional(),
             newEvidenceCount: z.number().int().nonnegative(),
             newVerifiedClaimCount: z.number().int().nonnegative(),
             startedAt: z.number().finite().nonnegative().optional(),
@@ -559,6 +581,10 @@ const reportRunSchema = z
     endedAt: z.number().finite().nonnegative().optional(),
     stopReason: stopReasonSchema.optional(),
     checkpoint: runCheckpointSchema.optional(),
+    scopeExpansionEvents: z
+      .array(scopeExpansionEventSchema)
+      .max(1_000)
+      .optional(),
   })
   .strict()
   .superRefine((run, context) => {
@@ -635,6 +661,7 @@ const researchTaskSchema = z
     endedAt: z.number().finite().nonnegative().optional(),
     budgetPreset: z.enum(["quick", "standard", "deep"]),
     budget: budgetSchema,
+    requestedStrategy: strategySchema.optional(),
     usage: usageSchema,
     sourceSnapshot: sourceSnapshotSchema.optional(),
     planVersions: z.array(planSchema).max(100),
@@ -874,6 +901,9 @@ function cloneReportRun(run: ResearchReportRun): ResearchReportRun {
     waves: run.waves.map((wave) => ({
       ...wave,
       nodeIds: [...wave.nodeIds],
+      ...(wave.degradedNodeIds
+        ? { degradedNodeIds: [...wave.degradedNodeIds] }
+        : {}),
     })),
     nodes: run.nodes.map((node) => ({
       ...node,

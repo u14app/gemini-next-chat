@@ -103,6 +103,8 @@ export interface ResearchWaveView {
   queryCount: number;
   sourceCount: number;
   verifiedClaimCount: number;
+  packetStatus?: "valid" | "repaired" | "degraded";
+  degradedNodeIds?: string[];
 }
 
 export interface ResearchNodeView {
@@ -145,6 +147,11 @@ export interface ResearchRunView {
     verified: number;
     conflicting: number;
     unresolved: number;
+  };
+  coverage: {
+    coveredStepCount: number;
+    requiredStepCount: number;
+    ratio: number;
   };
   waves: ResearchWaveView[];
   nodes: ResearchNodeView[];
@@ -198,6 +205,7 @@ export interface ResearchActivityView {
   phase: ResearchTaskStatus;
   title: string;
   detail?: string;
+  tone?: "warning";
 }
 
 export interface ResearchTaskViewModel {

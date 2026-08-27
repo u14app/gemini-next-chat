@@ -64,14 +64,40 @@ describe("tool display serialization", () => {
     );
   });
 
-  it("resolves the Research workspace reader in every supported locale", () => {
-    const labelKey = getBuiltinToolLabelKey("read_workspace_file");
-    expect(labelKey).toBe("toolReadWorkspaceFile");
-    expect(labelKey && enContent[labelKey]).toBe("Read workspace file");
-    expect(labelKey && zhContent[labelKey]).toBe("读取工作区文件");
-    expect(labelKey && jaContent[labelKey]).toBe(
+  it.each([
+    [
+      "read_workspace_file",
+      "Read workspace file",
+      "读取工作区文件",
       "ワークスペースファイルを読む",
-    );
+    ],
+    ["read_webpage", "Read web page", "读取网页", "ウェブページを読み取り"],
+    [
+      "getCurrentWeather",
+      "Get current weather",
+      "获取当前天气",
+      "現在の天気を取得",
+    ],
+    ["search_photos", "Search photos", "搜索图片", "写真を検索"],
+    [
+      "get_video_result",
+      "Read video result",
+      "读取视频结果",
+      "動画の結果を取得",
+    ],
+  ])(
+    "resolves %s in every supported locale",
+    (toolName, english, chinese, japanese) => {
+      const labelKey = getBuiltinToolLabelKey(toolName);
+      expect(labelKey).toBeDefined();
+      expect(labelKey && enContent[labelKey]).toBe(english);
+      expect(labelKey && zhContent[labelKey]).toBe(chinese);
+      expect(labelKey && jaContent[labelKey]).toBe(japanese);
+    },
+  );
+
+  it("keeps unknown third-party tools on the readable fallback", () => {
+    expect(getBuiltinToolLabelKey("mcp_custom_lookup")).toBeUndefined();
     expect(formatToolDisplayName("mcp_custom_lookup")).toBe(
       "Mcp Custom Lookup",
     );

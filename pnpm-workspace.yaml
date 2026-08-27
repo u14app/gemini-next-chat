@@ -25,3 +25,5 @@ allowBuilds:
   sharp: true
   unrs-resolver: true
   workerd: true
+patchedDependencies:
+  opfs-tools@0.7.4: patches/opfs-tools@0.7.4.patch

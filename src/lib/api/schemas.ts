@@ -269,6 +269,18 @@ const ToolSchema = z
   })
   .strict();
 
+const StructuredResponseFormatSchema = z
+  .object({
+    name: z
+      .string()
+      .min(1)
+      .max(64)
+      .regex(/^[A-Za-z0-9_-]+$/),
+    schema: z.record(z.string(), JsonLikeSchema),
+    strict: z.boolean(),
+  })
+  .strict();
+
 export const ChatRequestSchema = z
   .object({
     provider: ProviderRuntimeConfigSchema,
@@ -305,6 +317,7 @@ export const ChatRequestSchema = z
       .string()
       .max(API_INPUT_LIMITS.maxSystemInstructionChars)
       .optional(),
+    responseFormat: StructuredResponseFormatSchema.optional(),
     tools: z.array(ToolSchema).max(64).optional(),
     enableImageGeneration: z.boolean().optional(),
     enableGoogleSearch: z.boolean().optional(),

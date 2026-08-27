@@ -20,12 +20,14 @@ import {
 } from "../chat/reasoning";
 import { normalizeGeneratedImageAttachment } from "../utils/generatedImages";
 import { IncompleteProviderStreamError } from "../errors";
+import type { StructuredResponseFormat } from "../chat/responseFormat";
 
 export interface OpenAIStreamOptions {
   client: OpenAI;
   model: string;
   messages: any[];
   temperature?: number;
+  responseFormat?: StructuredResponseFormat;
   tools?: any[];
   useReasoning?: boolean;
   reasoningMode?: ReasoningMode;
@@ -281,6 +283,7 @@ export interface OpenAIResponsesStreamOptions {
   input: any[];
   instructions?: string;
   temperature?: number;
+  responseFormat?: StructuredResponseFormat;
   tools?: any[];
   useReasoning?: boolean;
   reasoningMode?: ReasoningMode;
@@ -294,6 +297,7 @@ interface ChatCompletionRequestOptions {
   model: string;
   messages: any[];
   temperature?: number;
+  responseFormat?: StructuredResponseFormat;
   tools?: any[];
   useReasoning?: boolean;
   reasoningMode?: ReasoningMode;
@@ -324,6 +328,7 @@ function createChatCompletionRequestParams({
   model,
   messages,
   temperature = 1,
+  responseFormat,
   tools,
   useReasoning,
   reasoningMode: rawReasoningMode,
@@ -334,6 +339,17 @@ function createChatCompletionRequestParams({
     messages: normalizeChatCompletionMessages(messages),
     stream: true,
   };
+
+  if (responseFormat) {
+    requestParams.response_format = {
+      type: "json_schema",
+      json_schema: {
+        name: responseFormat.name,
+        schema: responseFormat.schema,
+        strict: responseFormat.strict,
+      },
+    };
+  }
 
   // O1 models don't support temperature or tools
   const isO1Model = model.startsWith("o1-");
@@ -470,6 +486,7 @@ export async function streamOpenAIChatCompletions(
     model,
     messages,
     temperature = 1,
+    responseFormat,
     tools,
     useReasoning,
     reasoningMode: rawReasoningMode,
@@ -483,6 +500,7 @@ export async function streamOpenAIChatCompletions(
     model,
     messages,
     temperature,
+    responseFormat,
     tools,
     useReasoning,
     reasoningMode,
@@ -516,6 +534,7 @@ export async function streamOpenAIResponses(
     input,
     instructions,
     temperature,
+    responseFormat,
     tools,
     useReasoning,
     reasoningMode: rawReasoningMode,
@@ -535,6 +554,16 @@ export async function streamOpenAIResponses(
 
   if (instructions) requestParams.instructions = instructions;
   if (temperature !== undefined) requestParams.temperature = temperature;
+  if (responseFormat) {
+    requestParams.text = {
+      format: {
+        type: "json_schema",
+        name: responseFormat.name,
+        schema: responseFormat.schema,
+        strict: responseFormat.strict,
+      },
+    };
+  }
   const requestTools = tools ? [...tools] : [];
   if (enableWebSearch) {
     requestTools.push({ type: "web_search_preview" });

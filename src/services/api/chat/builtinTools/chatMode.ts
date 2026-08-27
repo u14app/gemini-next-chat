@@ -18,7 +18,7 @@ export function createChatModeSwitchBinding(): BuiltinToolBinding {
       function: {
         name: CHAT_MODE_SWITCH_TOOL_NAME,
         description:
-          "Available only while the conversation is in Auto mode. Call this before answering and before any other tool only when the request clearly requires Agent actions or a multi-source Deep Research workflow. Do not call it for ordinary questions, explanations, writing, translation, summarization, or brainstorming.",
+          "Route the current Auto-mode request into a first-class workflow before answering, searching, or using any other tool. Choose research for an explicit Deep Research request or evidence-driven work across multiple, fresh, or cross-checked sources with traceable citations or a formal report. Choose agent for an explicit Agent request or multi-step tool execution, workspace or file operations, or actions with external effects. Do not call this for ordinary chat or a one-step lookup. If both workflows are materially required, ask the user which outcome to prioritize instead of switching.",
         parameters: {
           type: "object",
           additionalProperties: false,
@@ -27,7 +27,7 @@ export function createChatModeSwitchBinding(): BuiltinToolBinding {
               type: "string",
               enum: ["agent", "research"],
               description:
-                "Use agent for multi-step tool or workspace actions. Use research for evidence synthesis across multiple sources.",
+                "Use agent for multi-step tool execution, workspace or file operations, and external actions. Use research for evidence-driven work across multiple sources with freshness, cross-checking, citations, or a formal report.",
             },
           },
           required: ["mode"],

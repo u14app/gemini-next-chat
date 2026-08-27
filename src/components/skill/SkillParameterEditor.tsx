@@ -3,6 +3,7 @@
 import { Plus, Trash2 } from "lucide-react";
 import { useTranslations } from "next-intl";
 import type { SkillParameterDefinition, SkillParameterInput } from "@/types";
+import { CustomSelect } from "@/components/ui/controls";
 import { Button } from "@/components/ui/primitives";
 
 interface SkillParameterEditorProps {
@@ -101,10 +102,10 @@ export default function SkillParameterEditor({
               </label>
               <label className="space-y-1 text-xs font-medium text-gray-600 dark:text-foreground/80">
                 <span>{t("parameters.input")}</span>
-                <select
+                <CustomSelect
                   value={parameter.input}
-                  onChange={(event) => {
-                    const input = event.target.value as SkillParameterInput;
+                  onChange={(value) => {
+                    const input = value as SkillParameterInput;
                     update(index, {
                       input,
                       options:
@@ -115,12 +116,14 @@ export default function SkillParameterEditor({
                           : undefined,
                     });
                   }}
-                  className="w-full rounded-lg border border-gray-200 bg-gray-50 px-2.5 py-2 text-xs outline-none focus:border-emerald-500 dark:border-border dark:bg-muted"
-                >
-                  <option value="text">{t("parameters.text")}</option>
-                  <option value="textarea">{t("parameters.textarea")}</option>
-                  <option value="select">{t("parameters.select")}</option>
-                </select>
+                  options={[
+                    { value: "text", label: t("parameters.text") },
+                    { value: "textarea", label: t("parameters.textarea") },
+                    { value: "select", label: t("parameters.select") },
+                  ]}
+                  ariaLabel={t("parameters.input")}
+                  selectButtonClassName="flex w-full items-center justify-between rounded-lg border border-gray-200 bg-gray-50 px-2.5 py-2 text-xs outline-none focus:border-emerald-500 dark:border-border dark:bg-muted"
+                />
               </label>
               <label className="space-y-1 text-xs font-medium text-gray-600 dark:text-foreground/80">
                 <span>{t("parameters.maxLength")}</span>

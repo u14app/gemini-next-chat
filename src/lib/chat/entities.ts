@@ -21,6 +21,7 @@ import {
   getToolApprovalIdentityKey,
 } from "../plugin/confirmation";
 import type { ToolEffect, ToolOrigin } from "../plugin/types";
+import { resolveResearchStrategy } from "../research/orchestration";
 
 const WORKSPACE_COLORS = new Set([
   "blue",
@@ -355,6 +356,8 @@ export function normalizeSessionConfig(
     approvalMode: rawApprovalMode,
     agentBudget: rawAgentBudget,
     skillPolicies: rawSkillPolicies,
+    researchBudgetPreset: rawResearchBudgetPreset,
+    researchStrategy: rawResearchStrategy,
     ...rest
   } = config;
   const activePlugins = normalizePluginIdRefs(rawActivePlugins);
@@ -376,6 +379,20 @@ export function normalizeSessionConfig(
     capabilities: {},
   })?.runtime.budget;
   const skillPolicies = normalizeAgentSkillPolicies(rawSkillPolicies);
+  const hasResearchConfig =
+    rawResearchBudgetPreset !== undefined || rawResearchStrategy !== undefined;
+  const researchBudgetPreset =
+    rawResearchBudgetPreset === "quick" ||
+    rawResearchBudgetPreset === "standard" ||
+    rawResearchBudgetPreset === "deep"
+      ? rawResearchBudgetPreset
+      : "standard";
+  const researchStrategy = resolveResearchStrategy(
+    researchBudgetPreset,
+    rawResearchStrategy && typeof rawResearchStrategy === "object"
+      ? rawResearchStrategy
+      : {},
+  );
   const hasChatModeConfig =
     rawChatMode === "auto" ||
     rawChatMode === "chat" ||
@@ -420,6 +437,7 @@ export function normalizeSessionConfig(
     ...(Array.isArray(rawSkillPolicies)
       ? { skillPolicies: skillPolicies || [] }
       : {}),
+    ...(hasResearchConfig ? { researchBudgetPreset, researchStrategy } : {}),
   };
 }
 

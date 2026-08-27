@@ -12,6 +12,7 @@ import type {
 } from "@/types";
 import { normalizeSkillBundles } from "@/lib/skills";
 import SkillParameterEditor from "./SkillParameterEditor";
+import { CustomSelect } from "@/components/ui/controls";
 import { Button } from "@/components/ui/primitives";
 
 const slugify = (value: string) =>
@@ -222,17 +223,19 @@ export default function SkillBundleEditor({
                 </p>
               </div>
               <div className="flex gap-2">
-                <select
+                <CustomSelect
                   value={selectedSkillId}
-                  onChange={(event) => setSelectedSkillId(event.target.value)}
-                  className="max-w-56 rounded-lg border border-gray-200 bg-gray-50 px-2.5 py-2 text-xs outline-none focus:border-emerald-500 dark:border-border dark:bg-muted"
-                >
-                  {skills.map((skill) => (
-                    <option key={skill.id} value={skill.id}>
-                      {skill.title}
-                    </option>
-                  ))}
-                </select>
+                  onChange={setSelectedSkillId}
+                  options={skills.map((skill) => ({
+                    value: skill.id,
+                    label: skill.title,
+                  }))}
+                  disabled={skills.length === 0}
+                  emptyLabel={t("bundles.empty")}
+                  ariaLabel={t("bundles.steps")}
+                  className="min-w-0 max-w-56"
+                  selectButtonClassName="flex w-full items-center justify-between rounded-lg border border-gray-200 bg-gray-50 px-2.5 py-2 text-xs outline-none focus:border-emerald-500 dark:border-border dark:bg-muted"
+                />
                 <Button
                   variant="bare"
                   type="button"
@@ -366,14 +369,14 @@ export default function SkillBundleEditor({
                                 <span className="truncate text-xs font-medium text-gray-600 dark:text-foreground/80">
                                   {parameter.label}
                                 </span>
-                                <select
+                                <CustomSelect
                                   value={binding.type}
                                   disabled={draft.parameters.length === 0}
-                                  onChange={(event) =>
+                                  onChange={(value) =>
                                     updateBinding(
                                       index,
                                       parameter.key,
-                                      event.target.value === "bundle"
+                                      value === "bundle"
                                         ? {
                                             type: "bundle",
                                             parameterKey:
@@ -382,35 +385,38 @@ export default function SkillBundleEditor({
                                         : { type: "literal", value: "" },
                                     )
                                   }
-                                  className="rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-xs dark:border-border dark:bg-card"
-                                >
-                                  <option value="literal">
-                                    {t("bundles.literal")}
-                                  </option>
-                                  <option value="bundle">
-                                    {t("bundles.bundleParameter")}
-                                  </option>
-                                </select>
+                                  options={[
+                                    {
+                                      value: "literal",
+                                      label: t("bundles.literal"),
+                                    },
+                                    {
+                                      value: "bundle",
+                                      label: t("bundles.bundleParameter"),
+                                    },
+                                  ]}
+                                  ariaLabel={`${parameter.label}: ${t("bundles.bundleParameter")}`}
+                                  selectButtonClassName="flex w-full items-center justify-between rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-xs dark:border-border dark:bg-card"
+                                />
                                 {binding.type === "bundle" ? (
-                                  <select
+                                  <CustomSelect
                                     value={binding.parameterKey}
-                                    onChange={(event) =>
+                                    onChange={(value) =>
                                       updateBinding(index, parameter.key, {
                                         type: "bundle",
-                                        parameterKey: event.target.value,
+                                        parameterKey: value,
                                       })
                                     }
-                                    className="rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-xs dark:border-border dark:bg-card"
-                                  >
-                                    {draft.parameters.map((parameter) => (
-                                      <option
-                                        key={parameter.key}
-                                        value={parameter.key}
-                                      >
-                                        {parameter.label}
-                                      </option>
-                                    ))}
-                                  </select>
+                                    options={draft.parameters.map(
+                                      (parameter) => ({
+                                        value: parameter.key,
+                                        label: parameter.label,
+                                      }),
+                                    )}
+                                    emptyLabel={t("bundles.empty")}
+                                    ariaLabel={`${parameter.label}: ${t("bundles.bundleParameter")}`}
+                                    selectButtonClassName="flex w-full items-center justify-between rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-xs dark:border-border dark:bg-card"
+                                  />
                                 ) : (
                                   <input
                                     type="text"

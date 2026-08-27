@@ -4,6 +4,7 @@ import { createPortal } from "react-dom";
 import { Check, FileText, LibraryBig, Loader2, X } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useKnowledgeStore } from "@/store/core/knowledgeStore";
+import { CustomSelect } from "@/components/ui/controls";
 import { Button } from "@/components/ui/primitives";
 
 interface AddToKnowledgeModalProps {
@@ -141,22 +142,19 @@ const AddToKnowledgeModal: React.FC<AddToKnowledgeModalProps> = ({
               <LibraryBig size={12} aria-hidden="true" />
               {t("selectKnowledgeBase")}
             </label>
-            <select
+            <CustomSelect
               id={collectionInputId}
               value={effectiveCollectionId}
-              onChange={(event) => setCollectionId(event.target.value)}
-              className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-500/60 dark:border-border dark:bg-muted dark:text-foreground"
-            >
-              {collections.length === 0 ? (
-                <option value="">{t("noCollectionsFound")}</option>
-              ) : (
-                collections.map((collection) => (
-                  <option key={collection.id} value={collection.id}>
-                    {collection.name}
-                  </option>
-                ))
-              )}
-            </select>
+              onChange={setCollectionId}
+              options={collections.map((collection) => ({
+                value: collection.id,
+                label: collection.name,
+              }))}
+              disabled={collections.length === 0}
+              emptyLabel={t("noCollectionsFound")}
+              ariaLabel={t("selectKnowledgeBase")}
+              selectButtonClassName="flex w-full items-center justify-between rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-500/60 dark:border-border dark:bg-muted dark:text-foreground"
+            />
           </div>
 
           <div className="space-y-1.5">

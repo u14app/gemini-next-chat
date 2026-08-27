@@ -74,6 +74,7 @@
       "title": "补全技能参数",
       "description": "这些普通文本会随本次请求发送给模型，请勿填写密钥。",
       "selectPlaceholder": "请选择",
+      "selectRequired": "请选择此必填项。",
       "cancel": "取消发送",
       "continue": "继续并发送"
     }

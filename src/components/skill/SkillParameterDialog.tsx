@@ -1,8 +1,9 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
 import type { SkillParameterDefinition } from "@/types";
+import { CustomSelect } from "@/components/ui/controls";
 import { Button, Dialog, Field, Input } from "@/components/ui/primitives";
 
 export interface SkillParameterRequest {
@@ -46,6 +47,9 @@ function createInitialValues(
   );
 }
 
+const getParameterId = (requestKey: string, parameterKey: string) =>
+  `${requestKey}-${parameterKey}`.replace(/[^a-zA-Z0-9_-]/g, "-");
+
 export default function SkillParameterDialog({
   open,
   requests,
@@ -59,12 +63,23 @@ export default function SkillParameterDialog({
     [initialValues, requests],
   );
   const [values, setValues] = useState<SkillParameterSubmission>(initial);
+  const [invalidSelectIds, setInvalidSelectIds] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const selectRefs = useRef<Record<string, HTMLButtonElement | null>>({});
 
   useEffect(() => {
-    if (open) setValues(initial);
+    if (open) {
+      setValues(initial);
+      setInvalidSelectIds(new Set());
+    }
   }, [initial, open]);
 
-  const setValue = (requestKey: string, parameterKey: string, value: string) =>
+  const setValue = (
+    requestKey: string,
+    parameterKey: string,
+    value: string,
+  ) => {
     setValues((current) => ({
       ...current,
       [requestKey]: {
@@ -72,12 +87,47 @@ export default function SkillParameterDialog({
         [parameterKey]: value,
       },
     }));
+    const id = getParameterId(requestKey, parameterKey);
+    setInvalidSelectIds((current) => {
+      if (!current.has(id)) return current;
+      const next = new Set(current);
+      next.delete(id);
+      return next;
+    });
+  };
 
   return (
     <Dialog open={open} onClose={onCancel} title={t("title")}>
       <form
         onSubmit={(event) => {
           event.preventDefault();
+          const missingRequiredSelectIds: string[] = [];
+          for (const request of requests) {
+            for (const parameter of request.parameters) {
+              if (
+                parameter.input === "select" &&
+                parameter.required &&
+                !(values[request.key]?.[parameter.key] || "").trim()
+              ) {
+                missingRequiredSelectIds.push(
+                  getParameterId(request.key, parameter.key),
+                );
+              }
+            }
+          }
+
+          if (missingRequiredSelectIds.length > 0) {
+            setInvalidSelectIds(new Set(missingRequiredSelectIds));
+            const firstMissingId = missingRequiredSelectIds[0];
+            window.requestAnimationFrame(() => {
+              selectRefs.current[firstMissingId]?.focus({
+                preventScroll: true,
+              });
+            });
+            return;
+          }
+
+          setInvalidSelectIds(new Set());
           onSubmit(values);
         }}
         className="flex max-h-[min(640px,80vh)] flex-col"
@@ -100,10 +150,9 @@ export default function SkillParameterDialog({
                 </p>
               ) : null}
               {request.parameters.map((parameter) => {
-                const id = `${request.key}-${parameter.key}`.replace(
-                  /[^a-zA-Z0-9_-]/g,
-                  "-",
-                );
+                const id = getParameterId(request.key, parameter.key);
+                const errorId = `${id}-error`;
+                const isInvalidSelect = invalidSelectIds.has(id);
                 const common = {
                   id,
                   name: id,
@@ -112,7 +161,7 @@ export default function SkillParameterDialog({
                   value: values[request.key]?.[parameter.key] || "",
                   onChange: (
                     event: React.ChangeEvent<
-                      HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement
+                      HTMLInputElement | HTMLTextAreaElement
                     >,
                   ) => setValue(request.key, parameter.key, event.target.value),
                 };
@@ -143,20 +192,38 @@ export default function SkillParameterDialog({
                         className="w-full resize-y rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
                       />
                     ) : parameter.input === "select" ? (
-                      <select
-                        {...common}
-                        className="h-9 w-full rounded-md border border-border bg-background px-3 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                      >
-                        <option value="">{t("selectPlaceholder")}</option>
-                        {(parameter.options || []).map((option) => (
-                          <option key={option.value} value={option.value}>
-                            {option.label}
-                          </option>
-                        ))}
-                      </select>
+                      <CustomSelect
+                        ref={(element) => {
+                          selectRefs.current[id] = element;
+                        }}
+                        id={id}
+                        name={id}
+                        required={Boolean(parameter.required)}
+                        value={values[request.key]?.[parameter.key] || ""}
+                        onChange={(value) =>
+                          setValue(request.key, parameter.key, value)
+                        }
+                        options={[
+                          { value: "", label: t("selectPlaceholder") },
+                          ...(parameter.options || []),
+                        ]}
+                        ariaLabel={parameter.label}
+                        aria-invalid={isInvalidSelect || undefined}
+                        aria-describedby={isInvalidSelect ? errorId : undefined}
+                        selectButtonClassName="flex h-9 w-full items-center justify-between rounded-md border border-border bg-background px-3 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring aria-invalid:border-red-300 aria-invalid:ring-red-500/40 dark:aria-invalid:border-red-800"
+                      />
                     ) : (
                       <Input {...common} />
                     )}
+                    {isInvalidSelect ? (
+                      <p
+                        id={errorId}
+                        role="alert"
+                        className="text-xs text-red-600 dark:text-red-300"
+                      >
+                        {t("selectRequired")}
+                      </p>
+                    ) : null}
                     <p className="text-right text-[11px] text-muted-foreground">
                       {(values[request.key]?.[parameter.key] || "").length}/
                       {parameter.maxLength}

@@ -276,6 +276,14 @@ describe("MarkdownRenderer HTML support", () => {
     expect(plainCodeHtml).toContain("<pre><code");
     expect(plainCodeHtml).toContain("const value = 1;");
     expect(plainCodeHtml).not.toContain("group/codeblock");
+
+    const emptyCodeHtml = renderToStaticMarkup(
+      <MarkdownRenderer content={"Before\n\n```\n   \n```\n\nAfter"} />,
+    );
+
+    expect(emptyCodeHtml).toContain("Before");
+    expect(emptyCodeHtml).toContain("After");
+    expect(emptyCodeHtml).not.toContain("<pre");
   });
 
   it("keeps collapsed code blocks scrollable and HTML previews script-enabled in an opaque sandbox", () => {

@@ -21,6 +21,7 @@ import {
   normalizeReasoningMode,
 } from "../chat/reasoning";
 import { IncompleteProviderStreamError } from "../errors";
+import type { StructuredResponseFormat } from "../chat/responseFormat";
 
 export interface GeminiStreamOptions {
   client: GoogleGenAI;
@@ -28,6 +29,7 @@ export interface GeminiStreamOptions {
   contents: any[];
   systemInstruction?: string;
   temperature?: number;
+  responseFormat?: StructuredResponseFormat;
   tools?: any[];
   enableGoogleSearch?: boolean;
   enableImageGeneration?: boolean;
@@ -175,6 +177,7 @@ export async function streamGeminiResponse(options: GeminiStreamOptions) {
     contents,
     systemInstruction,
     temperature = 1,
+    responseFormat,
     tools,
     enableGoogleSearch,
     enableImageGeneration,
@@ -205,6 +208,10 @@ export async function streamGeminiResponse(options: GeminiStreamOptions) {
 
   if (temperature !== undefined) {
     config.temperature = temperature;
+  }
+  if (responseFormat) {
+    config.responseMimeType = "application/json";
+    config.responseJsonSchema = responseFormat.schema;
   }
   if (signal) {
     config.abortSignal = signal;

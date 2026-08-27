@@ -2,9 +2,12 @@ import { describe, expect, it } from "vitest";
 
 import {
   auditResearchReport,
+  buildDeterministicRepairReport,
   buildDeterministicSalvageReport,
   createResearchReportRun,
   createResearchTask,
+  getDegradedResearchStepIds,
+  normalizeResearchReportMarkdown,
   type ClaimRecord,
   type ResearchEvidence,
   type ResearchPlanVersion,
@@ -175,6 +178,115 @@ describe("Deep Research report audit", () => {
     ).toBe(1);
   });
 
+  it("requires only uncovered degraded steps under Evidence gaps", () => {
+    const { plan, run, evidence } = createFixture();
+    const degradedRun = {
+      ...run,
+      claims: [],
+      waves: [
+        {
+          id: "wave-degraded",
+          index: 1,
+          depth: 1,
+          breadth: 1,
+          nodeIds: [run.nodes[0].id],
+          status: "completed" as const,
+          packetStatus: "degraded" as const,
+          degradedNodeIds: [run.nodes[0].id],
+          newEvidenceCount: 1,
+          newVerifiedClaimCount: 0,
+        },
+      ],
+    };
+
+    expect(getDegradedResearchStepIds(degradedRun)).toEqual(["step-1"]);
+    expect(
+      auditResearchReport({
+        markdown: completeReport,
+        plan,
+        run: degradedRun,
+        evidence: [evidence],
+      }).issues,
+    ).toContain(
+      "Evidence gaps must identify these degraded research steps: step-1.",
+    );
+
+    const reportWithGap = completeReport.replace(
+      "No material evidence gaps.",
+      "- step-1: the learning packet was degraded.",
+    );
+    expect(
+      auditResearchReport({
+        markdown: reportWithGap,
+        plan,
+        run: degradedRun,
+        evidence: [evidence],
+      }).issues,
+    ).not.toContain(
+      "Evidence gaps must identify these degraded research steps: step-1.",
+    );
+  });
+
+  it("does not require a degraded step already covered by a verified claim", () => {
+    const { plan, run, evidence } = createFixture();
+    const degradedRun = {
+      ...run,
+      waves: [
+        {
+          id: "wave-degraded-covered",
+          index: 1,
+          depth: 1,
+          breadth: 1,
+          nodeIds: [run.nodes[0].id],
+          status: "completed" as const,
+          packetStatus: "degraded" as const,
+          degradedNodeIds: [run.nodes[0].id],
+          newEvidenceCount: 1,
+          newVerifiedClaimCount: 1,
+        },
+      ],
+    };
+
+    expect(getDegradedResearchStepIds(degradedRun)).toEqual([]);
+    expect(
+      auditResearchReport({
+        markdown: completeReport,
+        plan,
+        run: degradedRun,
+        evidence: [evidence],
+      }).issues,
+    ).toEqual([]);
+  });
+
+  it("accepts explicit required evidence-gap step IDs", () => {
+    const { plan, run, evidence } = createFixture();
+    const audit = auditResearchReport({
+      markdown: completeReport,
+      plan,
+      run,
+      evidence: [evidence],
+      requiredEvidenceGapStepIds: ["step-1"],
+    });
+
+    expect(audit.issues).toContain(
+      "Evidence gaps must identify these degraded research steps: step-1.",
+    );
+    expect(
+      auditResearchReport({
+        markdown: completeReport.replace(
+          "No material evidence gaps.",
+          "- step-10: a different step was degraded.",
+        ),
+        plan,
+        run,
+        evidence: [evidence],
+        requiredEvidenceGapStepIds: ["step-1"],
+      }).issues,
+    ).toContain(
+      "Evidence gaps must identify these degraded research steps: step-1.",
+    );
+  });
+
   it("builds an auditable partial report when synthesis is interrupted", () => {
     const { plan, run, evidence } = createFixture();
     const task = createResearchTask({
@@ -196,5 +308,148 @@ describe("Deep Research report audit", () => {
     expect(
       auditResearchReport({ markdown, plan, run, evidence: [evidence] }).issues,
     ).toEqual([]);
+  });
+
+  it("includes degraded steps in deterministic salvage evidence gaps", () => {
+    const { plan, run, evidence } = createFixture();
+    const task = createResearchTask({
+      id: "task-1",
+      sessionId: "session-1",
+      goal: "Reach a cited decision.",
+      now: 1,
+    });
+    const degradedRun = {
+      ...run,
+      claims: run.claims.map((claim) => ({
+        ...claim,
+        importance: "background" as const,
+      })),
+      waves: [
+        {
+          id: "wave-degraded",
+          index: 1,
+          depth: 1,
+          breadth: 1,
+          nodeIds: [run.nodes[0].id],
+          status: "completed" as const,
+          packetStatus: "degraded" as const,
+          degradedNodeIds: [run.nodes[0].id],
+          newEvidenceCount: 1,
+          newVerifiedClaimCount: 0,
+        },
+      ],
+    };
+    const markdown = buildDeterministicSalvageReport({
+      task,
+      plan,
+      run: degradedRun,
+      evidence: [evidence],
+      reason: "The synthesis dependency became unavailable.",
+    });
+
+    expect(markdown).toContain(
+      "- step-1: the wave archive did not produce a validated learning packet.",
+    );
+    expect(
+      auditResearchReport({
+        markdown,
+        plan,
+        run: degradedRun,
+        evidence: [evidence],
+      }).issues,
+    ).toEqual([]);
+  });
+
+  it("normalizes wrapped reports, localized headings, and orphan fences", () => {
+    const normalized = normalizeResearchReportMarkdown(`Model preamble
+
+\`\`\`markdown
+# 原始报告标题
+
+## 执行摘要
+Summary.
+
+## 关键发现
+- Finding.
+
+## 研究计划覆盖情况
+- step-1: answered - covered
+
+## 证据缺口
+No material evidence gaps.
+
+## 来源
+- Source.
+\`\`\``);
+
+    expect(normalized).toMatch(/^# 原始报告标题/);
+    expect(normalized).toContain("## Executive summary");
+    expect(normalized).toContain("## Key findings");
+    expect(normalized).toContain("## Research plan coverage");
+    expect(normalized).toContain("## Evidence gaps");
+    expect(normalized).toContain("## Sources");
+    expect(normalized).not.toMatch(/\`\`\`\s*$/);
+
+    expect(normalizeResearchReportMarkdown("# Report\n\nContent.\n\n```")).toBe(
+      "# Report\n\nContent.",
+    );
+    expect(
+      normalizeResearchReportMarkdown(
+        "~~~markdown\n# Report\n\n## Sources\n\n- Source.\n~~~",
+      ),
+    ).toBe("# Report\n\n## Sources\n\n- Source.");
+    expect(
+      normalizeResearchReportMarkdown("# Report\n\n```\nconst value = 1;\n```"),
+    ).toBe("# Report\n\n```\nconst value = 1;\n```");
+  });
+
+  it("rebuilds a publishable report from verified committed evidence", () => {
+    const { plan, run, evidence } = createFixture();
+    const task = createResearchTask({
+      id: "task-1",
+      sessionId: "session-1",
+      goal: "Reach a cited decision.",
+      now: 1,
+    });
+    const markdown = buildDeterministicRepairReport({
+      task,
+      plan,
+      run,
+      evidence: [evidence],
+    });
+
+    expect(markdown).toContain("reconstructed deterministically");
+    expect(markdown).toContain("- [C1] The premise is supported.");
+    expect(markdown).toContain("No material evidence gaps.");
+    expect(
+      auditResearchReport({ markdown, plan, run, evidence: [evidence] }).issues,
+    ).toEqual([]);
+  });
+
+  it("keeps deterministic repair partial when nothing is verifiable", () => {
+    const { plan, run, evidence } = createFixture();
+    const task = createResearchTask({
+      id: "task-1",
+      sessionId: "session-1",
+      goal: "Reach a cited decision.",
+      now: 1,
+    });
+    const emptyRun = { ...run, claims: [] };
+    const markdown = buildDeterministicRepairReport({
+      task,
+      plan,
+      run: emptyRun,
+      evidence: [evidence],
+    });
+
+    expect(markdown).toContain("No auditable verified finding");
+    expect(
+      auditResearchReport({
+        markdown,
+        plan,
+        run: emptyRun,
+        evidence: [evidence],
+      }).issues,
+    ).toContain("The report has no auditable key findings.");
   });
 });

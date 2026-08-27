@@ -25,7 +25,7 @@ describe("Research model routing composition", () => {
     );
   });
 
-  it("repairs one invalid wave without tools and preserves a protocol stop reason", () => {
+  it("archives after evidence commit, repairs once without tools, and degrades instead of stopping", () => {
     const source = readFileSync(
       resolve(
         process.cwd(),
@@ -35,11 +35,21 @@ describe("Research model routing composition", () => {
     );
 
     expect(source.match(/buildResearchWaveRepairPrompt\(\{/gu)).toHaveLength(1);
-    expect(source).toContain(".filter(isCommittedCheckpointToolCall)");
-    expect(source).toMatch(
-      /buildResearchWaveRepairPrompt\([\s\S]{0,4000}chatMode: "chat",[\s\S]{0,2000}disableTools: true/u,
+    expect(source.match(/buildResearchWaveArchivePrompt\(\{/gu)).toHaveLength(
+      1,
     );
-    expect(source).toContain('code: "invalid_model_output"');
+    expect(source).toContain(".filter(isCommittedCheckpointToolCall)");
+    expect(source.indexOf("collectTaskEvidence({")).toBeLessThan(
+      source.indexOf("buildResearchWaveArchivePrompt({"),
+    );
+    expect(source).toContain("const requestClosedBookArchive = async");
+    expect(source).toContain("disableTools: true");
+    expect(source).toContain("supportsStructuredOutput(modelMetadata)");
+    expect(source).toContain("isStructuredOutputCapabilityError(error)");
+    expect(source).toContain("nativeResponseFormatAvailable = false");
+    expect(source).toContain("finalizeResearchWavePackets({");
+    expect(source).toContain("packetStatus:");
+    expect(source).not.toContain('code: "invalid_model_output"');
     expect(source).toContain(
       'researchRun.stopReason?.code !== "invalid_model_output"',
     );

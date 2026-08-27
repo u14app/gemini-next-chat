@@ -36,7 +36,10 @@ interface AgentCapabilityMenuProps {
   options: ChatModeOption[];
   disabled?: boolean;
   onModeChange: (mode: ChatMode) => void;
-  onOpenSettings: (returnFocus: HTMLButtonElement | null) => void;
+  onOpenSettings: (
+    mode: Extract<ChatMode, "agent" | "research">,
+    returnFocus: HTMLButtonElement | null,
+  ) => void;
   buttonClassName: string;
 }
 
@@ -53,10 +56,13 @@ function ModeIcon({ mode, size = 16 }: { mode: ChatMode; size?: number }) {
   }
 }
 
-function SettingsButton({ onClick }: { onClick: () => void }) {
-  const t = useTranslations("MessageInput");
-  const label = t("agentSettingsOpen");
-
+function SettingsButton({
+  label,
+  onClick,
+}: {
+  label: string;
+  onClick: () => void;
+}) {
   return (
     <Tooltip content={label} position="left" portal>
       <Button
@@ -80,11 +86,17 @@ function ModePanel({
   close,
   showHeader = true,
 }: Pick<AgentCapabilityMenuProps, "mode" | "options" | "onModeChange"> & {
-  onOpenSettings: () => void;
+  onOpenSettings: (mode: Extract<ChatMode, "agent" | "research">) => void;
   close: () => void;
   showHeader?: boolean;
 }) {
   const t = useTranslations("MessageInput");
+  const settingsMode =
+    mode === "agent" || mode === "research" ? mode : undefined;
+  const settingsLabel =
+    settingsMode === "research"
+      ? t("researchSettingsOpen")
+      : t("agentSettingsOpen");
 
   return (
     <div className="w-full">
@@ -97,11 +109,12 @@ function ModePanel({
                 {t("chatModeLabel")}
               </span>
             </div>
-            {mode === "auto" || mode === "agent" ? (
+            {settingsMode ? (
               <SettingsButton
+                label={settingsLabel}
                 onClick={() => {
                   close();
-                  onOpenSettings();
+                  onOpenSettings(settingsMode);
                 }}
               />
             ) : null}
@@ -135,7 +148,7 @@ function ModePanel({
                   : "text-foreground hover:bg-muted/60"
               }`}
             >
-              <span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-background/80 text-current shadow-sm ring-1 ring-border/70">
+              <span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-background/80 text-current ring-1 ring-border/70">
                 <ModeIcon mode={option.value} size={15} />
               </span>
               <span className="min-w-0 flex-1">
@@ -220,7 +233,9 @@ export default function AgentCapabilityMenu({
               mode={mode}
               options={options}
               onModeChange={onModeChange}
-              onOpenSettings={() => onOpenSettings(desktopTriggerRef.current)}
+              onOpenSettings={(settingsMode) =>
+                onOpenSettings(settingsMode, desktopTriggerRef.current)
+              }
               close={() => setDesktopOpen(false)}
             />
           </DropdownMenuContent>
@@ -245,11 +260,16 @@ export default function AgentCapabilityMenu({
         onClose={() => setMobileOpen(false)}
         title={t("chatModeLabel")}
         headerAction={
-          mode === "auto" || mode === "agent" ? (
+          mode === "agent" || mode === "research" ? (
             <SettingsButton
+              label={
+                mode === "research"
+                  ? t("researchSettingsOpen")
+                  : t("agentSettingsOpen")
+              }
               onClick={() => {
                 setMobileOpen(false);
-                onOpenSettings(mobileTriggerRef.current);
+                onOpenSettings(mode, mobileTriggerRef.current);
               }}
             />
           ) : undefined
@@ -261,7 +281,9 @@ export default function AgentCapabilityMenu({
           mode={mode}
           options={options}
           onModeChange={onModeChange}
-          onOpenSettings={() => onOpenSettings(mobileTriggerRef.current)}
+          onOpenSettings={(settingsMode) =>
+            onOpenSettings(settingsMode, mobileTriggerRef.current)
+          }
           close={() => setMobileOpen(false)}
           showHeader={false}
         />

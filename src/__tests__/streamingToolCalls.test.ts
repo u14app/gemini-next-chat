@@ -12,6 +12,17 @@ import {
 } from "../lib/streaming/openai";
 import type { SSEMessage } from "../lib/streaming/sse";
 
+const responseFormat = {
+  name: "research_wave",
+  schema: {
+    type: "object",
+    properties: { packets: { type: "array" } },
+    required: ["packets"],
+    additionalProperties: false,
+  },
+  strict: true,
+} as const;
+
 async function* asyncChunks(chunks: unknown[]) {
   for (const chunk of chunks) {
     yield chunk;
@@ -284,6 +295,34 @@ describe("streamed tool-call normalization", () => {
         stream: true,
       }),
     );
+    const request = (client.responses.create as any).mock.calls[0][0];
+    expect(request).not.toHaveProperty("text");
+  });
+
+  it("maps structured output to OpenAI Responses text.format", async () => {
+    const client = {
+      responses: {
+        create: vi.fn(async () => asyncChunks([])),
+      },
+    };
+
+    await streamOpenAIResponses({
+      client: client as any,
+      model: "gpt-test",
+      input: [],
+      responseFormat,
+      onChunk: () => undefined,
+    });
+
+    const request = (client.responses.create as any).mock.calls[0][0];
+    expect(request.text).toEqual({
+      format: {
+        type: "json_schema",
+        name: responseFormat.name,
+        schema: responseFormat.schema,
+        strict: true,
+      },
+    });
   });
 
   it("keeps chat completions available for OpenAI Compatible providers", async () => {
@@ -317,6 +356,35 @@ describe("streamed tool-call normalization", () => {
     expect(messages).toContainEqual({ type: "content", content: "Compat" });
     const request = (client.chat.completions.create as any).mock.calls[0][0];
     expect(request).not.toHaveProperty("tools");
+    expect(request).not.toHaveProperty("response_format");
+  });
+
+  it("maps structured output to OpenAI Compatible response_format", async () => {
+    const client = {
+      chat: {
+        completions: {
+          create: vi.fn(async () => asyncChunks([])),
+        },
+      },
+    };
+
+    await streamOpenAIChatCompletions({
+      client: client as any,
+      model: "compat-model",
+      messages: [],
+      responseFormat,
+      onChunk: () => undefined,
+    });
+
+    const request = (client.chat.completions.create as any).mock.calls[0][0];
+    expect(request.response_format).toEqual({
+      type: "json_schema",
+      json_schema: {
+        name: responseFormat.name,
+        schema: responseFormat.schema,
+        strict: true,
+      },
+    });
   });
 
   it("uses a conservative OpenAI Compatible chat request shape", async () => {
@@ -870,6 +938,32 @@ describe("streamed tool-call normalization", () => {
         stream: true,
       }),
     );
+    const request = (client.messages.create as any).mock.calls[0][0];
+    expect(request).not.toHaveProperty("output_config");
+  });
+
+  it("maps structured output to Anthropic output_config.format", async () => {
+    const client = {
+      messages: {
+        create: vi.fn(async () => asyncChunks([])),
+      },
+    };
+
+    await streamAnthropicMessages({
+      client: client as any,
+      model: "claude-test",
+      messages: [{ role: "user", content: "Archive" }],
+      responseFormat,
+      onChunk: () => undefined,
+    });
+
+    const request = (client.messages.create as any).mock.calls[0][0];
+    expect(request.output_config).toEqual({
+      format: {
+        type: "json_schema",
+        schema: responseFormat.schema,
+      },
+    });
   });
 
   it("requests Anthropic adaptive thinking in auto reasoning mode", async () => {
@@ -997,6 +1091,31 @@ describe("streamed tool-call normalization", () => {
       isError: true,
     });
     expect(String(calls[1].toolCall.result)).toMatch(/JSON object/i);
+    const request = (client.models.generateContentStream as any).mock
+      .calls[0][0];
+    expect(request.config).not.toHaveProperty("responseMimeType");
+    expect(request.config).not.toHaveProperty("responseJsonSchema");
+  });
+
+  it("maps structured output to Gemini JSON response config", async () => {
+    const client = {
+      models: {
+        generateContentStream: vi.fn(async () => asyncChunks([])),
+      },
+    };
+
+    await streamGeminiResponse({
+      client: client as any,
+      model: "gemini-test",
+      contents: [],
+      responseFormat,
+      onChunk: () => undefined,
+    });
+
+    const request = (client.models.generateContentStream as any).mock
+      .calls[0][0];
+    expect(request.config.responseMimeType).toBe("application/json");
+    expect(request.config.responseJsonSchema).toEqual(responseFormat.schema);
   });
 
   it("suppresses Gemini thought parts when reasoning is disabled", async () => {

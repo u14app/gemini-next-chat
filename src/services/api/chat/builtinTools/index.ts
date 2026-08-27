@@ -166,6 +166,9 @@ export function collectBuiltinTools({
     agentModeEnabled ? null : collectMemorySearchBinding(message),
     createLongTextOutputBinding(),
   ];
+  if (automaticModeEnabled && useSearch && searchMode === "external") {
+    candidates.push(createWebSearchBinding());
+  }
   if (agentModeEnabled) {
     if (isMemorySearchEnabled()) {
       candidates.push(

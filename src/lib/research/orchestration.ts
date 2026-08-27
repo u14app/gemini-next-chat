@@ -12,6 +12,7 @@ import type {
   ResearchPlanVersion,
   ResearchReportKind,
   ResearchReportRun,
+  ResearchSourceType,
   ResolvedResearchBudget,
   ResearchStopReason,
   ResearchStrategy,
@@ -322,9 +323,17 @@ export function createNextResearchWave(
 export interface ExpandResearchFrontierResult {
   run: ResearchReportRun;
   addedNodeIds: string[];
+  scheduledFollowUpIds: string[];
   duplicateFollowUpIds: string[];
   breadthLimitedFollowUpIds: string[];
-  blockedFollowUpIds: string[];
+  depthLimitedFollowUpIds: string[];
+  unavailableSourceFollowUpIds: string[];
+}
+
+export interface ExpandResearchFrontierOptions {
+  autoExpandScope?: boolean;
+  allowedSourceTypes?: readonly ResearchSourceType[];
+  recordPacket?: boolean;
 }
 
 function findFollowUpDuplicates(
@@ -352,19 +361,34 @@ export function expandResearchFrontier(
   run: ResearchReportRun,
   packet: LearningPacket,
   now: number = Date.now(),
+  options: ExpandResearchFrontierOptions = {},
 ): ExpandResearchFrontierResult {
   const parent = run.nodes.find((node) => node.id === packet.nodeId);
   if (!parent) {
     throw new Error(`Research node ${packet.nodeId} does not exist.`);
   }
-  const blockedFollowUpIds = packet.followUps
-    .filter((followUp) => followUp.scopeImpact !== "within")
-    .map((followUp) => followUp.id);
-  const withinScope = packet.followUps.filter(
-    (followUp) => followUp.scopeImpact === "within",
+  const allowedSourceTypes = new Set(options.allowedSourceTypes ?? []);
+  const requiresUnavailableSource = (followUp: ResearchFollowUp) =>
+    followUp.requiredSourceTypes.some(
+      (sourceType) => !allowedSourceTypes.has(sourceType),
+    );
+  const unavailableSourceFollowUpIds = options.autoExpandScope
+    ? packet.followUps
+        .filter(
+          (followUp) =>
+            followUp.scopeImpact !== "within" &&
+            requiresUnavailableSource(followUp),
+        )
+        .map((followUp) => followUp.id)
+    : packet.followUps
+        .filter((followUp) => followUp.scopeImpact !== "within")
+        .map((followUp) => followUp.id);
+  const unavailableSourceFollowUpIdSet = new Set(unavailableSourceFollowUpIds);
+  const eligibleFollowUps = packet.followUps.filter(
+    (followUp) => !unavailableSourceFollowUpIdSet.has(followUp.id),
   );
   const deduped = findFollowUpDuplicates(
-    withinScope,
+    eligibleFollowUps,
     run.nodes.map((node) => node.query),
   );
   const nextDepth = parent.depth + 1;
@@ -388,7 +412,7 @@ export function expandResearchFrontier(
     nextDepth <= run.strategy.maxDepth
       ? rankedFollowUps.slice(nextBreadth).map((followUp) => followUp.id)
       : [];
-  const depthBlockedIds =
+  const depthLimitedFollowUpIds =
     nextDepth <= run.strategy.maxDepth
       ? []
       : rankedFollowUps.map((followUp) => followUp.id);
@@ -416,18 +440,24 @@ export function expandResearchFrontier(
         }
       : node,
   );
-  const allBlockedIds = [...blockedFollowUpIds, ...depthBlockedIds];
   return {
     addedNodeIds: nodes.map((node) => node.id),
+    scheduledFollowUpIds: accepted.map((followUp) => followUp.id),
     duplicateFollowUpIds: deduped.duplicateIds,
     breadthLimitedFollowUpIds,
-    blockedFollowUpIds: allBlockedIds,
+    depthLimitedFollowUpIds,
+    unavailableSourceFollowUpIds,
     run: {
       ...run,
       phase:
-        blockedFollowUpIds.length > 0 ? "awaiting_scope_approval" : run.phase,
+        !options.autoExpandScope && unavailableSourceFollowUpIds.length > 0
+          ? "awaiting_scope_approval"
+          : run.phase,
       nodes: [...updatedNodes, ...nodes],
-      learningPackets: [...run.learningPackets, packet],
+      learningPackets:
+        options.recordPacket === false
+          ? run.learningPackets
+          : [...run.learningPackets, packet],
       frontierNodeIds: [
         ...run.frontierNodeIds.filter((nodeId) => nodeId !== parent.id),
         ...nodes.map((node) => node.id),
@@ -738,7 +768,10 @@ export function getResearchStopReason(
   ) {
     return reason("max_sources");
   }
-  if (evaluation.wavesWithoutNewSources >= 1) {
+  if (
+    evaluation.wavesWithoutNewSources >= 2 &&
+    evaluation.wavesWithoutNewVerifiedClaims >= 2
+  ) {
     return reason("no_new_sources");
   }
   if (evaluation.wavesWithoutNewVerifiedClaims >= 2) {

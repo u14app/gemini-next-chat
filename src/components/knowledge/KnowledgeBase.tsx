@@ -79,6 +79,7 @@ import {
   type KnowledgeFileBatchResult,
   type KnowledgeFileStatusFilter,
 } from "@/lib/knowledge/fileProductivity";
+import { CustomSelect } from "@/components/ui/controls";
 import { Button } from "@/components/ui/primitives";
 
 const formatBytes = (bytes: number, decimals = 2) => {
@@ -178,6 +179,7 @@ const CollectionModalContent = ({
   const titleId = `${modalId}-title`;
   const nameInputId = `${modalId}-name`;
   const descriptionInputId = `${modalId}-description`;
+  const chunkingStrategyInputId = `${modalId}-chunking-strategy`;
   const colorGroupId = `${modalId}-color`;
   const iconGroupId = `${modalId}-icon`;
 
@@ -392,23 +394,28 @@ const CollectionModalContent = ({
                 {t("chunking.description")}
               </p>
             </div>
-            <label className="block space-y-1.5 text-xs font-semibold text-gray-500 dark:text-muted-foreground">
+            <label
+              htmlFor={chunkingStrategyInputId}
+              className="block space-y-1.5 text-xs font-semibold text-gray-500 dark:text-muted-foreground"
+            >
               <span>{t("chunking.strategy")}</span>
-              <select
+              <CustomSelect
+                id={chunkingStrategyInputId}
                 value={chunking.strategy}
-                onChange={(event) =>
+                onChange={(value) =>
                   setChunking((current) => ({
                     ...current,
-                    strategy: event.target
-                      .value as KnowledgeChunkingConfig["strategy"],
+                    strategy: value as KnowledgeChunkingConfig["strategy"],
                   }))
                 }
-                className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-800 outline-none transition-[border-color,box-shadow] focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-border dark:bg-card dark:text-foreground"
-              >
-                <option value="auto">{t("chunking.auto")}</option>
-                <option value="recursive">{t("chunking.recursive")}</option>
-                <option value="markdown">{t("chunking.markdown")}</option>
-              </select>
+                options={[
+                  { value: "auto", label: t("chunking.auto") },
+                  { value: "recursive", label: t("chunking.recursive") },
+                  { value: "markdown", label: t("chunking.markdown") },
+                ]}
+                ariaLabel={t("chunking.strategy")}
+                selectButtonClassName="flex w-full items-center justify-between rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-800 outline-none transition-[border-color,box-shadow] focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-border dark:bg-card dark:text-foreground"
+              />
             </label>
             <div className="grid grid-cols-2 gap-3">
               <label className="space-y-1.5 text-xs font-semibold text-gray-500 dark:text-muted-foreground">
@@ -2434,23 +2441,26 @@ const KnowledgeBase: React.FC<KnowledgeBaseProps> = ({
                         <label htmlFor={fileStatusFilterId} className="sr-only">
                           {t("fileStatusFilterLabel")}
                         </label>
-                        <select
+                        <CustomSelect
                           id={fileStatusFilterId}
                           value={fileStatusFilter}
-                          onChange={(event) =>
+                          onChange={(value) =>
                             setFileStatusFilter(
-                              event.target.value as KnowledgeFileStatusFilter,
+                              value as KnowledgeFileStatusFilter,
                             )
                           }
-                          className="h-9 w-full rounded-lg border border-gray-200 bg-white px-3 text-sm text-gray-700 outline-none transition-[border-color,box-shadow] focus:border-blue-400 focus:ring-2 focus:ring-blue-500/20 dark:border-border dark:bg-background dark:text-foreground"
-                        >
-                          <option value="all">{t("fileStatusAll")}</option>
-                          <option value="ready">{t("fileStatusReady")}</option>
-                          <option value="processing">
-                            {t("fileStatusProcessing")}
-                          </option>
-                          <option value="error">{t("fileStatusError")}</option>
-                        </select>
+                          options={[
+                            { value: "all", label: t("fileStatusAll") },
+                            { value: "ready", label: t("fileStatusReady") },
+                            {
+                              value: "processing",
+                              label: t("fileStatusProcessing"),
+                            },
+                            { value: "error", label: t("fileStatusError") },
+                          ]}
+                          ariaLabel={t("fileStatusFilterLabel")}
+                          selectButtonClassName="flex h-9 w-full items-center justify-between rounded-lg border border-gray-200 bg-white px-3 text-sm text-gray-700 outline-none transition-[border-color,box-shadow] focus:border-blue-400 focus:ring-2 focus:ring-blue-500/20 dark:border-border dark:bg-background dark:text-foreground"
+                        />
                       </div>
                     </div>
 

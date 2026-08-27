@@ -42,6 +42,11 @@ describe("chat route cancellation", () => {
       modelName: "gpt-test",
       history: [],
       newMessage: "Hello",
+      responseFormat: {
+        name: "research_wave",
+        schema: { type: "object" },
+        strict: true,
+      },
     };
 
     const { POST } = await import("../app/api/chat/route");
@@ -51,7 +56,10 @@ describe("chat route cancellation", () => {
     );
 
     expect(mocks.handleChatStream).toHaveBeenCalledWith(
-      expect.objectContaining({ signal: request.signal }),
+      expect.objectContaining({
+        responseFormat: body.responseFormat,
+        signal: request.signal,
+      }),
     );
   });
 });

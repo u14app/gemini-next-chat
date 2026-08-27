@@ -13,6 +13,7 @@ import type {
   AgentRunBudget,
   AgentSkillPolicy,
 } from "../assistant/types";
+import type { ResearchBudgetPreset, ResearchStrategy } from "../research/types";
 
 export interface Attachment {
   id: string;
@@ -455,6 +456,8 @@ export interface SessionConfig {
   approvalMode?: AgentApprovalMode;
   agentBudget?: AgentRunBudget;
   skillPolicies?: AgentSkillPolicy[];
+  researchBudgetPreset?: ResearchBudgetPreset;
+  researchStrategy?: ResearchStrategy;
 }
 
 export interface Session {

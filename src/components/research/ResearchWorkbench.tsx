@@ -4,8 +4,10 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
   Check,
+  CheckCircle2,
   ChevronDown,
   Circle,
+  CircleX,
   Clock3,
   Download,
   ExternalLink,
@@ -16,17 +18,12 @@ import {
   RefreshCw,
   SearchCheck,
   Wrench,
-  X,
 } from "lucide-react";
 import { useTranslations } from "next-intl";
 
 import MarkdownRenderer from "@/components/content/MarkdownRenderer";
-import {
-  Button,
-  Dialog,
-  IconButton,
-  InlineStatus,
-} from "@/components/ui/primitives";
+import { CustomSelect } from "@/components/ui/controls";
+import { Button, Dialog, InlineStatus } from "@/components/ui/primitives";
 import { getSafeExternalHref } from "@/lib/security/clientUrl";
 import { cn } from "@/lib/utils/cn";
 import type { Source } from "@/types";
@@ -34,7 +31,6 @@ import type { Source } from "@/types";
 import {
   ActivityList,
   ResearchSourceScope,
-  PlanSteps,
   StatusLabel,
   TaskActions,
   formatDuration,
@@ -45,6 +41,7 @@ import {
   ResearchRunRail,
   ResearchTopology,
 } from "./ResearchTopology";
+import ResearchDisclosure from "./ResearchDisclosure";
 import type {
   ResearchEvidenceView,
   ResearchPlanView,
@@ -175,98 +172,6 @@ function QuestionStatusIcon({
   );
 }
 
-function ApprovalBanner({ task }: { task: ResearchTaskViewModel }) {
-  const t = useTranslations("Research");
-  const [planOpen, setPlanOpen] = useState(false);
-  if (task.status !== "plan_ready" || !task.plan) return null;
-
-  return (
-    <>
-      <section
-        className="border-b border-research-border bg-research-soft px-4 py-4"
-        aria-labelledby={`research-approval-${task.id}`}
-      >
-        <div className="mx-auto max-w-5xl">
-          <div className="flex flex-wrap items-baseline justify-between gap-2">
-            <h2
-              id={`research-approval-${task.id}`}
-              className="text-sm font-semibold text-foreground"
-            >
-              {t("status.plan_ready")}
-            </h2>
-            <span className="text-xs font-medium text-research-accent-text">
-              {t("plan.version", { version: task.plan.version })}
-            </span>
-          </div>
-          <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-foreground/70">
-            <span>
-              {t("metrics.questions")}: {task.totalQuestions}
-            </span>
-            {task.budgetPreset ? (
-              <span>{t(`budget.${task.budgetPreset}`)}</span>
-            ) : null}
-          </div>
-          <p
-            id={`research-plan-summary-${task.id}`}
-            className="mt-3 line-clamp-2 max-w-3xl text-sm leading-6 text-foreground/90"
-          >
-            {task.plan.summary}
-          </p>
-          <div className="mt-3 max-w-3xl">
-            <ResearchPlanContract plan={task.plan} compact />
-          </div>
-          <Button
-            size="sm"
-            variant="bare"
-            className="mt-1 -ml-2 h-9 text-research-accent-text hover:bg-research-accent/10 hover:text-research-accent-hover sm:h-8"
-            onClick={() => setPlanOpen(true)}
-            aria-haspopup="dialog"
-          >
-            <ChevronDown size={14} aria-hidden="true" />
-            {t("plan.showFull")}
-          </Button>
-          <div className="mt-2">
-            <ResearchSourceScope task={task} />
-          </div>
-        </div>
-      </section>
-      <Dialog
-        open={planOpen}
-        onClose={() => setPlanOpen(false)}
-        title={t("plan.title")}
-        headerAction={
-          <IconButton
-            label={t("actions.closePlan")}
-            icon={<X size={16} aria-hidden="true" />}
-            onClick={() => setPlanOpen(false)}
-          />
-        }
-        placement="responsive-sheet"
-        closeOnBackdropClick
-      >
-        <div className="max-h-[70dvh] space-y-5 overflow-y-auto p-4">
-          <p className="whitespace-pre-wrap text-sm leading-6 text-foreground/90">
-            {task.plan.summary}
-          </p>
-          <ResearchPlanContract plan={task.plan} />
-          <section aria-labelledby={`research-plan-steps-${task.id}`}>
-            <h3
-              id={`research-plan-steps-${task.id}`}
-              className="mb-3 text-sm font-semibold text-foreground"
-            >
-              {t("plan.steps")}
-            </h3>
-            <PlanSteps plan={task.plan} detailed />
-          </section>
-          <div className="border-t border-border pt-4">
-            <ResearchSourceScope task={task} />
-          </div>
-        </div>
-      </Dialog>
-    </>
-  );
-}
-
 function QuestionEvidenceSummary({
   evidence,
 }: {
@@ -322,8 +227,213 @@ function QuestionEvidenceSummary({
   );
 }
 
+function PlanStepDisclosure({
+  step,
+  index,
+  evidence,
+  defaultOpen,
+}: {
+  step: ResearchPlanView["steps"][number];
+  index: number;
+  evidence: ResearchEvidenceView[];
+  defaultOpen: boolean;
+}) {
+  const t = useTranslations("Research");
+  const [open, setOpen] = useState(defaultOpen);
+  const queryTopicCount = step.queryTopics?.length ?? 0;
+  const sourcePriorityCount = step.sourcePriorities?.length ?? 0;
+
+  useEffect(() => {
+    if (defaultOpen) setOpen(true);
+  }, [defaultOpen]);
+
+  return (
+    <li className="border-b border-border last:border-b-0">
+      <ResearchDisclosure
+        open={open}
+        onOpenChange={setOpen}
+        ariaCurrent={step.status === "in_progress" ? "step" : undefined}
+        triggerClassName="flex min-h-16 w-full cursor-pointer flex-wrap items-start gap-x-3 gap-y-2 px-4 py-3.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring md:flex-nowrap md:items-center"
+        summary={(isOpen) => (
+          <>
+            <span className="w-7 shrink-0 pt-0.5 font-mono text-lg font-medium tabular-nums text-foreground/85 md:pt-0">
+              {String(index + 1).padStart(2, "0")}
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-sm font-semibold leading-5 text-foreground">
+                {step.title}
+              </span>
+              {step.objective && step.objective !== step.title ? (
+                <span className="mt-1 block text-xs leading-5 text-muted-foreground">
+                  {step.objective}
+                </span>
+              ) : null}
+            </span>
+            <span className="ml-10 flex w-full flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-muted-foreground md:ml-0 md:w-auto md:max-w-64 md:justify-end">
+              <span>
+                {step.status === "in_progress"
+                  ? t("planStep.searching")
+                  : t(`planStep.${step.status}`)}
+              </span>
+              {queryTopicCount > 0 ? (
+                <span>
+                  {t("planStep.queryTopicsCount", { count: queryTopicCount })}
+                </span>
+              ) : null}
+              {sourcePriorityCount > 0 ? (
+                <span>
+                  {t("planStep.sourcePrioritiesCount", {
+                    count: sourcePriorityCount,
+                  })}
+                </span>
+              ) : null}
+              {evidence.length > 0 ? (
+                <span>{t("planStep.sources", { count: evidence.length })}</span>
+              ) : null}
+              <QuestionStatusIcon status={step.status} />
+              <ChevronDown
+                size={14}
+                className={cn(
+                  "transition-transform duration-200 ease-out motion-reduce:transition-none",
+                  isOpen && "rotate-180",
+                )}
+                aria-hidden="true"
+              />
+            </span>
+          </>
+        )}
+      >
+        <div className="border-t border-border bg-research-soft/40 px-4 py-4 pl-14">
+          {step.queryTopics?.length ? (
+            <p className="mb-1 text-xs leading-5 text-muted-foreground">
+              <span className="font-medium text-foreground">
+                {t("plan.queryTopics")}:{" "}
+              </span>
+              {step.queryTopics.join(", ")}
+            </p>
+          ) : null}
+          {step.sourcePriorities?.length ? (
+            <p className="mb-1 text-xs leading-5 text-muted-foreground">
+              <span className="font-medium text-foreground">
+                {t("plan.sourcePriorities")}:{" "}
+              </span>
+              {step.sourcePriorities.join(", ")}
+            </p>
+          ) : null}
+          {step.evidenceStandard ? (
+            <p className="mb-2 text-xs leading-5 text-muted-foreground">
+              <span className="font-medium text-foreground">
+                {t("plan.evidenceStandard")}:{" "}
+              </span>
+              {step.evidenceStandard}
+            </p>
+          ) : null}
+          <QuestionEvidenceSummary evidence={evidence} />
+          {evidence.length === 0 ? (
+            <p className="text-xs leading-5 text-muted-foreground">
+              {step.status === "in_progress"
+                ? t("planStep.searchingDetail")
+                : step.status === "pending"
+                  ? t("planStep.pendingDetail")
+                  : t("evidence.none")}
+            </p>
+          ) : null}
+        </div>
+      </ResearchDisclosure>
+    </li>
+  );
+}
+
+function PlanBoundary({ task }: { task: ResearchTaskViewModel }) {
+  const t = useTranslations("Research");
+  const scope = task.plan?.scope;
+  const included = [
+    ...(scope?.includes ?? []),
+    ...(scope?.timeRange ? [`${t("plan.timeRange")}: ${scope.timeRange}`] : []),
+    ...(scope?.audience ? [`${t("plan.audience")}: ${scope.audience}`] : []),
+    ...(scope?.allowedSourceTypes?.length
+      ? [
+          `${t("plan.allowedSources")}: ${scope.allowedSourceTypes
+            .map((sourceType) => t(`sourceType.${sourceType}`))
+            .join(", ")}`,
+        ]
+      : []),
+  ];
+  const excluded = scope?.excludes ?? [];
+
+  return (
+    <section
+      className="border-y border-border py-5"
+      aria-labelledby={`research-boundary-${task.id}`}
+    >
+      <h2 id={`research-boundary-${task.id}`} className="sr-only">
+        {t("plan.boundaries")}
+      </h2>
+      <div className="grid gap-6 md:grid-cols-2 md:gap-0">
+        <div className="md:pr-7">
+          <h3 className="flex items-center gap-2 text-sm font-semibold text-foreground">
+            <CheckCircle2
+              size={18}
+              className="text-emerald-600 dark:text-emerald-400"
+              aria-hidden="true"
+            />
+            {t("plan.willResearch")}
+          </h3>
+          {included.length > 0 ? (
+            <ul className="mt-3 space-y-2 pl-7 text-sm leading-6 text-foreground/80">
+              {included.map((item) => (
+                <li
+                  key={item}
+                  className="relative before:absolute before:-left-4 before:content-['•']"
+                >
+                  {item}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+          <div className="mt-3 pl-7">
+            <ResearchSourceScope task={task} />
+          </div>
+          {included.length === 0 && !task.sourceScope ? (
+            <p className="mt-3 pl-7 text-sm leading-6 text-muted-foreground">
+              {t("plan.noExplicitInclusions")}
+            </p>
+          ) : null}
+        </div>
+        <div className="border-t border-border pt-5 md:border-t-0 md:border-l md:pt-0 md:pl-7">
+          <h3 className="flex items-center gap-2 text-sm font-semibold text-foreground">
+            <CircleX
+              size={18}
+              className="text-red-600 dark:text-red-400"
+              aria-hidden="true"
+            />
+            {t("plan.willNotResearch")}
+          </h3>
+          {excluded.length > 0 ? (
+            <ul className="mt-3 space-y-2 pl-7 text-sm leading-6 text-foreground/80">
+              {excluded.map((item) => (
+                <li
+                  key={item}
+                  className="relative before:absolute before:-left-4 before:content-['•']"
+                >
+                  {item}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="mt-3 pl-7 text-sm leading-6 text-muted-foreground">
+              {t("plan.noExplicitExclusions")}
+            </p>
+          )}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function PlanPanel({ task }: { task: ResearchTaskViewModel }) {
   const t = useTranslations("Research");
+  const [advancedOpen, setAdvancedOpen] = useState(false);
   const evidenceByStepId = useMemo(() => {
     const result = new Map<string, ResearchEvidenceView[]>();
     for (const [index, step] of (task.plan?.steps ?? []).entries()) {
@@ -337,12 +447,13 @@ function PlanPanel({ task }: { task: ResearchTaskViewModel }) {
   }, [task.evidence, task.plan?.steps]);
   const defaultExpandedStepId = useMemo(() => {
     const steps = task.plan?.steps ?? [];
+    if (!task.run) return steps[0]?.id;
     return (
       steps.find((step) => step.status === "in_progress") ??
       steps.find((step) => step.status === "pending") ??
       [...steps].reverse().find((step) => step.status === "completed")
     )?.id;
-  }, [task.plan?.steps]);
+  }, [task.plan?.steps, task.run]);
 
   if (!task.plan) {
     return (
@@ -359,48 +470,43 @@ function PlanPanel({ task }: { task: ResearchTaskViewModel }) {
     );
   }
 
+  const hasAdvancedInformation = Boolean(
+    task.plan.recon ||
+    task.plan.assumptions?.length ||
+    task.plan.deliverable ||
+    task.plan.strategy ||
+    task.plan.completionCriteria?.length,
+  );
+
   return (
-    <div className="mx-auto w-full max-w-5xl space-y-10 p-4 sm:p-6">
-      <section
-        className="border-b border-border pb-6"
-        aria-labelledby={`research-plan-overview-${task.id}`}
-      >
-        <div className="flex flex-wrap items-baseline justify-between gap-2">
-          <h2
-            id={`research-plan-overview-${task.id}`}
-            className="text-lg font-semibold tracking-tight"
-          >
-            {t("plan.title")}
-          </h2>
-          <span className="font-mono text-xs tabular-nums text-muted-foreground">
+    <div className="mx-auto w-full max-w-5xl space-y-8 p-4 pb-8 sm:p-6 sm:pb-10">
+      <section aria-labelledby={`research-plan-overview-${task.id}`}>
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          <span className="rounded-full border border-research-border bg-research-soft px-2.5 py-1">
+            <StatusLabel status={task.status} />
+          </span>
+          <span className="font-mono tabular-nums text-muted-foreground">
             {t("plan.version", { version: task.plan.version })}
           </span>
         </div>
-        <p className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">
+        <h2
+          id={`research-plan-overview-${task.id}`}
+          className="mt-5 max-w-4xl text-2xl font-semibold tracking-tight text-foreground sm:text-3xl"
+        >
+          {task.plan.objective || task.title}
+        </h2>
+        <p className="mt-3 max-w-4xl text-sm leading-6 text-muted-foreground sm:text-base sm:leading-7">
           {task.plan.summary}
         </p>
       </section>
 
-      <section aria-labelledby={`research-plan-contract-${task.id}`}>
-        <h2
-          id={`research-plan-contract-${task.id}`}
-          className="text-sm font-semibold text-foreground"
-        >
-          {t("plan.planContract")}
-        </h2>
-        <div className="mt-4 border-t border-border pt-4">
-          <ResearchPlanContract plan={task.plan} />
-        </div>
-      </section>
-
-      {task.run ? <ResearchClaimNotice run={task.run} /> : null}
-      <ResearchTopology task={task} />
+      <PlanBoundary task={task} />
 
       <section aria-labelledby={`research-step-ledger-${task.id}`}>
         <div className="flex flex-wrap items-baseline justify-between gap-2">
           <h2
             id={`research-step-ledger-${task.id}`}
-            className="text-sm font-semibold text-foreground"
+            className="text-base font-semibold text-foreground"
           >
             {t("plan.steps")}
           </h2>
@@ -408,83 +514,57 @@ function PlanPanel({ task }: { task: ResearchTaskViewModel }) {
             {task.completedQuestions}/{task.totalQuestions}
           </span>
         </div>
-        <ol className="mt-3 border-t border-border">
+        <ol className="mt-3 overflow-hidden rounded-lg border border-research-border bg-background">
           {task.plan.steps.map((step, index) => {
             const evidence = evidenceByStepId.get(step.id) ?? [];
             return (
-              <li key={step.id} className="border-b border-border">
-                <details open={step.id === defaultExpandedStepId || undefined}>
-                  <summary className="group flex cursor-pointer list-none items-start gap-3 px-1 py-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
-                    <span className="w-7 shrink-0 pt-0.5 font-mono text-xs font-medium tabular-nums text-muted-foreground">
-                      {String(index + 1).padStart(2, "0")}
-                    </span>
-                    <span className="min-w-0 flex-1 text-sm font-medium leading-5 text-foreground">
-                      {step.title}
-                    </span>
-                    <span className="inline-flex shrink-0 items-center gap-2 text-xs text-muted-foreground">
-                      <span className="hidden sm:inline">
-                        {step.status === "in_progress"
-                          ? t("planStep.searching")
-                          : t(`planStep.${step.status}`)}
-                        {evidence.length > 0
-                          ? `, ${t("planStep.sources", { count: evidence.length })}`
-                          : ""}
-                      </span>
-                      <QuestionStatusIcon status={step.status} />
-                      <ChevronDown
-                        size={14}
-                        className="transition-transform group-open:rotate-180 motion-reduce:transition-none"
-                        aria-hidden="true"
-                      />
-                    </span>
-                  </summary>
-                  <div className="pb-4 pl-11 pr-1">
-                    {step.objective && step.objective !== step.title ? (
-                      <p className="mb-2 text-xs leading-5 text-foreground/80">
-                        {step.objective}
-                      </p>
-                    ) : null}
-                    {step.queryTopics?.length ? (
-                      <p className="mb-1 text-xs leading-5 text-muted-foreground">
-                        <span className="font-medium text-foreground">
-                          {t("plan.queryTopics")}:{" "}
-                        </span>
-                        {step.queryTopics.join(", ")}
-                      </p>
-                    ) : null}
-                    {step.sourcePriorities?.length ? (
-                      <p className="mb-1 text-xs leading-5 text-muted-foreground">
-                        <span className="font-medium text-foreground">
-                          {t("plan.sourcePriorities")}:{" "}
-                        </span>
-                        {step.sourcePriorities.join(", ")}
-                      </p>
-                    ) : null}
-                    {step.evidenceStandard ? (
-                      <p className="mb-2 text-xs leading-5 text-muted-foreground">
-                        <span className="font-medium text-foreground">
-                          {t("plan.evidenceStandard")}:{" "}
-                        </span>
-                        {step.evidenceStandard}
-                      </p>
-                    ) : null}
-                    <QuestionEvidenceSummary evidence={evidence} />
-                    {evidence.length === 0 ? (
-                      <p className="text-xs leading-5 text-muted-foreground">
-                        {step.status === "in_progress"
-                          ? t("planStep.searchingDetail")
-                          : step.status === "pending"
-                            ? t("planStep.pendingDetail")
-                            : t("evidence.none")}
-                      </p>
-                    ) : null}
-                  </div>
-                </details>
-              </li>
+              <PlanStepDisclosure
+                key={step.id}
+                step={step}
+                index={index}
+                evidence={evidence}
+                defaultOpen={step.id === defaultExpandedStepId}
+              />
             );
           })}
         </ol>
       </section>
+
+      {hasAdvancedInformation ? (
+        <ResearchDisclosure
+          open={advancedOpen}
+          onOpenChange={setAdvancedOpen}
+          className="overflow-hidden rounded-lg border border-border"
+          triggerClassName="flex min-h-11 w-full cursor-pointer items-center gap-2 px-3 py-2 text-left text-sm font-medium text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+          summary={(isOpen) => (
+            <>
+              <ChevronDown
+                size={16}
+                className={cn(
+                  "shrink-0 transition-transform duration-200 ease-out motion-reduce:transition-none",
+                  isOpen && "rotate-180",
+                )}
+                aria-hidden="true"
+              />
+              <span>{t("plan.advancedDisclosure")}</span>
+              <span className="ml-auto hidden text-xs font-normal text-muted-foreground md:inline">
+                {t("plan.advancedDisclosureHint")}
+              </span>
+            </>
+          )}
+        >
+          <div className="border-t border-border p-4 sm:p-5">
+            <ResearchPlanContract plan={task.plan} advancedOnly />
+          </div>
+        </ResearchDisclosure>
+      ) : null}
+
+      {task.run ? (
+        <div className="space-y-6 border-t border-border pt-7">
+          <ResearchClaimNotice run={task.run} />
+          <ResearchTopology task={task} />
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -818,18 +898,17 @@ function ReportPanel({
           <label className="sr-only" htmlFor={`report-version-${task.id}`}>
             {t("report.selectVersion")}
           </label>
-          <select
+          <CustomSelect
             id={`report-version-${task.id}`}
             value={report.id}
-            onChange={(event) => onSelectVersion(event.target.value)}
-            className="h-9 rounded-md border border-border bg-background px-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          >
-            {task.reportVersions.map((version) => (
-              <option key={version.id} value={version.id}>
-                {t("plan.version", { version: version.version })}
-              </option>
-            ))}
-          </select>
+            onChange={onSelectVersion}
+            options={task.reportVersions.map((version) => ({
+              value: version.id,
+              label: t("plan.version", { version: version.version }),
+            }))}
+            ariaLabel={t("report.selectVersion")}
+            selectButtonClassName="flex h-9 min-h-0 min-w-28 items-center justify-between gap-2 rounded-md border border-border bg-background px-2 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          />
           {onDownloadMarkdown ? (
             <Button size="sm" onClick={() => onDownloadMarkdown(report.id)}>
               <Download size={14} aria-hidden="true" />
@@ -1088,7 +1167,7 @@ export default function ResearchWorkbench({
           variant="ghost"
           onClick={onClose}
           aria-label={t("actions.closeWorkbench")}
-          className="h-9 min-h-0 min-w-9 sm:h-8 sm:min-w-0"
+          className="h-11 min-h-11 min-w-11 md:h-8 md:min-h-0 md:min-w-0"
         >
           <ArrowLeft size={16} aria-hidden="true" />
           <span className="hidden sm:inline">{t("actions.backToChat")}</span>
@@ -1108,7 +1187,6 @@ export default function ResearchWorkbench({
         </div>
       </header>
 
-      <ApprovalBanner task={task} />
       {task.run ? <ResearchRunRail run={task.run} /> : null}
 
       {task.error ? (
@@ -1137,7 +1215,7 @@ export default function ResearchWorkbench({
               aria-selected={tab === item}
               aria-controls={`research-panel-${task.id}-${item}`}
               className={cn(
-                "h-10 shrink-0 border-b-2 px-3 text-sm font-medium sm:h-9",
+                "h-11 shrink-0 border-b-2 px-3 text-sm font-medium md:h-9",
                 tab === item
                   ? "border-research-accent text-foreground"
                   : "border-transparent text-muted-foreground hover:text-foreground",
@@ -1187,10 +1265,41 @@ export default function ResearchWorkbench({
         {tab === "activity" ? <ActivityPanel task={task} /> : null}
       </main>
 
-      <footer className="shrink-0 border-t border-border bg-background px-3 py-3 sm:px-4">
-        <div className="mx-auto flex max-w-5xl flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <footer className="shrink-0 border-t border-research-border bg-background/95 px-3 py-3 shadow-[0_-8px_24px_-20px_rgba(0,0,0,0.45)] backdrop-blur sm:px-4">
+        <div className="mx-auto flex max-w-5xl flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <dl className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-            {task.run ? (
+            {task.status === "plan_ready" && task.plan ? (
+              <>
+                <div className="inline-flex items-center gap-1.5">
+                  <FileText size={13} aria-hidden="true" />
+                  <dt className="sr-only">{t("metrics.questions")}</dt>
+                  <dd className="font-mono tabular-nums text-foreground">
+                    {t("plan.decisionSteps", {
+                      count: task.plan.steps.length,
+                    })}
+                  </dd>
+                </div>
+                {task.plan.strategy ? (
+                  <>
+                    <div className="inline-flex items-center gap-1.5">
+                      <SearchCheck size={13} aria-hidden="true" />
+                      <dt className="sr-only">{t("metrics.queries")}</dt>
+                      <dd className="font-mono tabular-nums text-foreground">
+                        {t("plan.decisionQueries", {
+                          count: task.plan.strategy.queryLimit,
+                        })}
+                      </dd>
+                    </div>
+                    <div className="inline-flex items-center gap-1.5">
+                      <dt>{t("metrics.depth")}</dt>
+                      <dd className="font-mono tabular-nums text-foreground">
+                        {task.plan.strategy.maxDepth}
+                      </dd>
+                    </div>
+                  </>
+                ) : null}
+              </>
+            ) : task.run ? (
               <>
                 <div className="inline-flex items-center gap-1.5">
                   <SearchCheck size={13} aria-hidden="true" />
@@ -1213,23 +1322,28 @@ export default function ResearchWorkbench({
                 </div>
               </>
             ) : null}
-            <div className="inline-flex items-center gap-1.5">
-              <Wrench size={13} aria-hidden="true" />
-              <dt className="sr-only">{t("metrics.toolCalls")}</dt>
-              <dd className="tabular-nums">
-                {task.usage.toolCalls}/{task.usage.maxToolCalls}{" "}
-                {t("metrics.toolCalls").toLocaleLowerCase()}
-              </dd>
-            </div>
-            <div className="inline-flex items-center gap-1.5">
-              <Clock3 size={13} aria-hidden="true" />
-              <dt className="sr-only">{t("metrics.elapsed")}</dt>
-              <dd className="tabular-nums">
-                {formatDuration(task.usage.elapsedMs)}/
-                {formatDuration(task.usage.maxWallTimeMs)}
-              </dd>
-            </div>
-            {task.usage.totalTokens !== undefined ? (
+            {task.status !== "plan_ready" ? (
+              <div className="inline-flex items-center gap-1.5">
+                <Wrench size={13} aria-hidden="true" />
+                <dt className="sr-only">{t("metrics.toolCalls")}</dt>
+                <dd className="tabular-nums">
+                  {task.usage.toolCalls}/{task.usage.maxToolCalls}{" "}
+                  {t("metrics.toolCalls").toLocaleLowerCase()}
+                </dd>
+              </div>
+            ) : null}
+            {task.status !== "plan_ready" ? (
+              <div className="inline-flex items-center gap-1.5">
+                <Clock3 size={13} aria-hidden="true" />
+                <dt className="sr-only">{t("metrics.elapsed")}</dt>
+                <dd className="tabular-nums">
+                  {formatDuration(task.usage.elapsedMs)}/
+                  {formatDuration(task.usage.maxWallTimeMs)}
+                </dd>
+              </div>
+            ) : null}
+            {task.status !== "plan_ready" &&
+            task.usage.totalTokens !== undefined ? (
               <div className="inline-flex items-center gap-1.5">
                 <dt>{t("metrics.tokens")}</dt>
                 <dd className="tabular-nums">
@@ -1240,16 +1354,19 @@ export default function ResearchWorkbench({
                 </dd>
               </div>
             ) : null}
-            <div>
-              <dt className="sr-only">{t("metrics.questions")}</dt>
-              <dd className="tabular-nums">
-                {task.completedQuestions}/{task.totalQuestions}{" "}
-                {t("metrics.questions").toLocaleLowerCase()}
-              </dd>
-            </div>
+            {task.status !== "plan_ready" ? (
+              <div>
+                <dt className="sr-only">{t("metrics.questions")}</dt>
+                <dd className="tabular-nums">
+                  {task.completedQuestions}/{task.totalQuestions}{" "}
+                  {t("metrics.questions").toLocaleLowerCase()}
+                </dd>
+              </div>
+            ) : null}
           </dl>
           <TaskActions
             compact
+            presentation="decision-bar"
             task={task}
             actions={{
               onConfirmPlan,

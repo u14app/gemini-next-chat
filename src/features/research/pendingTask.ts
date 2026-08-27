@@ -1,4 +1,7 @@
-import { isTerminalResearchStatus } from "@/lib/research";
+import {
+  isActiveResearchStatus,
+  isTerminalResearchStatus,
+} from "@/lib/research";
 import type { ResearchTask } from "@/lib/research";
 import { useResearchStore } from "@/store/core/researchStore";
 
@@ -35,6 +38,19 @@ export function selectVisibleResearchTaskId(
       )
       .sort((left, right) => right.updatedAt - left.updatedAt)[0]?.id ?? null
   );
+}
+
+/** The one task that is actively executing, regardless of the visible chat. */
+export function selectGlobalActiveResearchTaskId({
+  tasksById,
+  activeTaskId,
+}: {
+  tasksById: Record<string, ResearchTask>;
+  activeTaskId: string | null;
+}): string | null {
+  if (!activeTaskId) return null;
+  const active = tasksById[activeTaskId];
+  return active && isActiveResearchStatus(active.status) ? active.id : null;
 }
 
 /**

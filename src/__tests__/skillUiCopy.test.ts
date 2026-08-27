@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import en from "../i18n/locales/en";
+import ja from "../i18n/locales/ja";
 import zh from "../i18n/locales/zh";
 
 describe("skill and panel copy", () => {
@@ -17,5 +18,11 @@ describe("skill and panel copy", () => {
     expect(zh.Skill.categories.developer).toBe("开发");
     expect(en.Skill.categories.analysis).toBe("Analysis");
     expect(en.Skill.categories.developer).toBe("Developer");
+  });
+
+  it("localizes required runtime select validation", () => {
+    expect(en.Skill.parameters.runtime.selectRequired).toBeTruthy();
+    expect(zh.Skill.parameters.runtime.selectRequired).toBeTruthy();
+    expect(ja.Skill.parameters.runtime.selectRequired).toBeTruthy();
   });
 });

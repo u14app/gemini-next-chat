@@ -21,6 +21,10 @@ import {
 } from "../streaming/openai";
 import type { SSEMessage } from "../streaming/sse";
 import {
+  normalizeStructuredOutputCapabilityError,
+  type StructuredResponseFormat,
+} from "./responseFormat";
+import {
   prepareGeminiHistory,
   prepareAnthropicMessages,
   prepareOpenAIHistory,
@@ -79,6 +83,7 @@ export interface ChatStreamOptions {
     imageCount?: number;
   };
   systemInstruction?: string;
+  responseFormat?: StructuredResponseFormat;
   tools?: any[];
   enableImageGeneration?: boolean;
   enableGoogleSearch?: boolean;
@@ -142,6 +147,7 @@ export async function runChatStream(
     attachments,
     config,
     systemInstruction,
+    responseFormat,
     tools,
     enableImageGeneration,
     enableGoogleSearch,
@@ -180,6 +186,7 @@ export async function runChatStream(
             enableImageGeneration ? config?.imageCount : undefined,
           ),
           temperature: config?.temperature,
+          ...(responseFormat ? { responseFormat } : {}),
           tools: convertToolsToOpenAIResponses(tools),
           useReasoning: config?.useReasoning,
           reasoningMode: config?.reasoningMode,
@@ -219,6 +226,7 @@ export async function runChatStream(
         model: modelName,
         messages,
         temperature: config?.temperature,
+        ...(responseFormat ? { responseFormat } : {}),
         tools,
         useReasoning: config?.useReasoning,
         reasoningMode: config?.reasoningMode,
@@ -252,6 +260,7 @@ export async function runChatStream(
           messages,
           system: systemInstruction,
           temperature: config?.temperature,
+          ...(responseFormat ? { responseFormat } : {}),
           tools: convertToolsToAnthropic(tools),
           useReasoning: config?.useReasoning,
           reasoningMode: config?.reasoningMode,
@@ -292,6 +301,7 @@ export async function runChatStream(
           contents,
           systemInstruction,
           temperature: config?.temperature,
+          ...(responseFormat ? { responseFormat } : {}),
           tools: geminiTools,
           enableGoogleSearch,
           enableImageGeneration,
@@ -314,7 +324,10 @@ export async function runChatStream(
     if (isAbortError(error, signal)) {
       return;
     }
-    runtime.logStreamError(error, options);
-    throw error;
+    const normalizedError = responseFormat
+      ? normalizeStructuredOutputCapabilityError(error)
+      : error;
+    runtime.logStreamError(normalizedError, options);
+    throw normalizedError;
   }
 }

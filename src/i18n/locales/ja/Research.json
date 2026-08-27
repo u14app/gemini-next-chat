@@ -29,9 +29,12 @@
     "returnWorkbench": "調査に戻る",
     "closeWorkbench": "調査ワークベンチを閉じる",
     "closePlan": "調査計画を閉じる",
+    "closeAdjust": "計画の調整を閉じる",
+    "closeStrategy": "詳細戦略を閉じる",
     "backToChat": "チャットに戻る",
     "start": "調査を開始",
     "adjust": "計画を調整",
+    "advancedStrategy": "詳細戦略",
     "tuneStrategy": "詳細戦略を調整",
     "pause": "安全に一時停止",
     "resume": "再開",
@@ -71,6 +74,15 @@
     "queryTopics": "クエリテーマ",
     "sourcePriorities": "情報源の優先順位",
     "evidenceStandard": "根拠基準",
+    "boundaries": "調査の境界",
+    "willResearch": "調査すること",
+    "willNotResearch": "調査しないこと",
+    "noExplicitInclusions": "追加の対象項目は指定されていません。",
+    "noExplicitExclusions": "明示的な除外項目は指定されていません。",
+    "advancedDisclosure": "偵察段階と詳細戦略",
+    "advancedDisclosureHint": "前提、成果物、完了条件、予算",
+    "decisionSteps": "{count} ステップ",
+    "decisionQueries": "{count} クエリ",
     "reconSummary": "計画前の偵察：{used}/{limit} クエリ",
     "reconDisclosure": "計画前の偵察では、設定済みの公開検索サービスへ調査質問を送信します。検索要約は計画の改善だけに使われ、レポートの根拠にはなりません。",
     "reconResult": "{count} 件 · {domains}",
@@ -89,6 +101,8 @@
     "completed": "完了",
     "searching": "検索中",
     "sources": "{count} 件の情報源",
+    "queryTopicsCount": "{count} 件のクエリテーマ",
+    "sourcePrioritiesCount": "{count} 件の情報源優先度",
     "searchingDetail": "この調査ステップの根拠を検索しています。",
     "pendingDetail": "調査が進むと、ここに証拠が表示されます。"
   },
@@ -116,6 +130,7 @@
     "followUps": "次の方向性",
     "linkedEvidence": "関連する根拠",
     "scopeApproval": "この方向は承認済みの情報源または調査範囲を拡張するため、アクセス前に確認が必要です。",
+    "scopeResume": "この保存済みタスクでは追加の調査方向が見つかりました。再開すると計画を作り直さず、確定済みの根拠から続行します。",
     "stopReason": "停止理由",
     "claimWarning": "矛盾する主張 {conflicts} 件と未解決の主張 {unresolved} 件を検証用に表示しています。",
     "phase": {
@@ -137,7 +152,7 @@
       "max_queries": "クエリ上限に達しました",
       "max_sources": "本文取得上限に達しました",
       "budget_exhausted": "調査予算を使い切りました",
-      "no_new_sources": "最新ウェーブで正式な情報源が増えませんでした",
+      "no_new_sources": "2回連続のウェーブで正式な証拠も検証済みの結論も増えませんでした",
       "invalid_model_output": "モデルが無効な調査ウェーブ形式を返しました",
       "no_new_verified_claims": "連続するウェーブで検証済み主張が増えませんでした",
       "frontier_exhausted": "範囲内で実行可能な調査ノードが残っていません",
@@ -152,6 +167,20 @@
     "standard": "標準予算",
     "deep": "詳細予算"
   },
+  "settings": {
+    "title": "ディープリサーチ設定",
+    "close": "ディープリサーチ設定を閉じる",
+    "tabsAria": "ディープリサーチ設定の区分",
+    "tab_research": "リサーチ設定",
+    "tab_workspace": "Artifact とワークスペース",
+    "futureTasksOnly": "このセッションの既定値は新しい調査にのみ適用され、既存の計画や実行中の調査は変更されません。",
+    "budgetTitle": "調査予算",
+    "budgetDescription": "プリセットはモデルのラウンド数、ツール呼び出し数、実行時間を制限します。",
+    "budgetValues": "{rounds} ラウンド / {calls} 回 / {minutes} 分",
+    "strategyTitle": "既定の調査戦略",
+    "strategyDescription": "生成される計画はこの上限から始まり、承認前に個別調整できます。",
+    "resetStrategy": "プリセットに戻す"
+  },
   "sourceScope": {
     "label": "承認済みの情報源スコープ",
     "webSearchOn": "ウェブ検索",
@@ -164,6 +193,7 @@
     "searchWarning": "この情報源スコープではウェブ検索を利用できません。開始前に互換性のある外部検索プロバイダーを有効にしてください。"
   },
   "adjust": {
+    "title": "調査計画を調整",
     "label": "変更内容を説明",
     "help": "新しい計画バージョンを作成します。確認後に調査を再開できます。",
     "placeholder": "例：直近3年間を比較し、一次情報を優先する。",
@@ -195,7 +225,7 @@
     "fullContract": "調査契約の全文",
     "liveActivity": "最新のアクティビティ",
     "progress": "調査の進捗",
-    "progressSummary": "{total} 件中 {completed} 件のステップが完了",
+    "progressSummary": "主要ステップ {total} 件中 {completed} 件を検証済み",
     "progressDepth": "ウェーブ {wave}/{waves} · 深さ {depth}/{maxDepth}"
   },
   "global": {
@@ -235,6 +265,11 @@
     "toolFailed": "{tool} を完了できませんでした",
     "toolSource": "読み取り専用ソース：{source}",
     "toolSafeDetail": "読み取り専用操作です。元の引数と完全な結果は非表示です。",
+    "degradedWaveTitle": "ウェーブ {wave} を根拠不足ありで保存しました",
+    "degradedWaveDetail": "{count} 個の調査ノードで有効な学習パケットを生成できませんでした。保存済みの根拠は維持され、レポートは不足箇所を明示して続行します。",
+    "scopeExpansionTitle": "調査範囲を自動的に拡張しました",
+    "scopeExpansionDetail": "この実行では、確定済みの根拠から {count} 件の追加調査方向を続行します。",
+    "scopeExpansionLimitedDetail": "{count} 件の方向にはこの会話で利用できない情報源が必要なため、レポートの不足事項として残します。",
     "reportPublished": "レポート v{version} を公開しました",
     "reportKind": {
       "initial": "初回レポート",
@@ -367,6 +402,7 @@
       "unsupportedClaims": "{count} 件の主要な発見を保存済みの根拠に対応付けられませんでした。",
       "unresolvedConflicts": "{count} 件の主張に支持と反証の根拠が併存し、未解決です。",
       "incompleteQuestions": "承認済みの調査ステップのうち {count} 件が一部完了または未完了です。",
+      "scopeExpansionUnavailable": "{count} 件の拡張調査方向には、この会話で利用できない情報源が必要でした。",
       "executionInterrupted": "予定したすべての操作が完了する前に調査が終了しました。このレポートには、すでに作成された妥当な内容のみを残しています。",
       "budget": "承認済みの調査予算を使い切りました。"
     },

@@ -72,6 +72,9 @@ export function getAgentBuiltinToolNames(
     return [
       ...(input.automaticModeEnabled ? [CHAT_MODE_SWITCH_TOOL_NAME] : []),
       "start_long_text_output",
+      ...(input.automaticModeEnabled && input.externalSearchEnabled
+        ? ["web_search"]
+        : []),
     ];
   }
   const names = [

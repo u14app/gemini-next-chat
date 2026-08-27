@@ -48,13 +48,16 @@ export default function ResearchProgressCard({
   const isFinished =
     task.status === "completed" || task.status === "partial_completed";
   const elapsedMs = useElapsedMs(run?.startedAt, isRunning && !run?.endedAt);
+  const coveredStepCount = run?.coverage.coveredStepCount ?? 0;
+  const requiredStepCount =
+    run?.coverage.requiredStepCount ?? task.totalQuestions;
   const progress =
-    task.totalQuestions > 0
-      ? Math.min(
-          100,
-          Math.round((task.completedQuestions / task.totalQuestions) * 100),
-        )
+    requiredStepCount > 0
+      ? Math.min(100, Math.round((coveredStepCount / requiredStepCount) * 100))
       : 0;
+  const isLegacyScopePause =
+    task.status === "paused" &&
+    task.error?.code === "RESEARCH_SCOPE_APPROVAL_REQUIRED";
 
   return (
     <section
@@ -101,19 +104,19 @@ export default function ResearchProgressCard({
 
       <div className="space-y-4 px-4 py-4">
         {task.error ? (
-          <InlineStatus tone="danger" live>
-            {task.error.message}
+          <InlineStatus tone={isLegacyScopePause ? "warning" : "danger"} live>
+            {isLegacyScopePause ? t("run.scopeResume") : task.error.message}
           </InlineStatus>
         ) : null}
 
-        {!isFinished && task.totalQuestions > 0 ? (
+        {!isFinished && requiredStepCount > 0 ? (
           <div>
             <div
               className="h-1.5 overflow-hidden rounded-full bg-border"
               role="progressbar"
               aria-valuemin={0}
-              aria-valuemax={task.totalQuestions}
-              aria-valuenow={task.completedQuestions}
+              aria-valuemax={requiredStepCount}
+              aria-valuenow={coveredStepCount}
               aria-label={t("card.progress")}
             >
               <div
@@ -123,8 +126,8 @@ export default function ResearchProgressCard({
             </div>
             <p className="mt-1.5 text-xs text-muted-foreground">
               {t("card.progressSummary", {
-                completed: task.completedQuestions,
-                total: task.totalQuestions,
+                completed: coveredStepCount,
+                total: requiredStepCount,
               })}
               {run
                 ? ` · ${t("card.progressDepth", {
@@ -146,20 +149,8 @@ export default function ResearchProgressCard({
                 {task.gapSummary}
               </InlineStatus>
             ) : null}
-            {task.summary ? (
-              <p className="text-sm leading-6 text-foreground/85">
-                {task.summary}
-              </p>
-            ) : null}
-            {task.findings?.length ? (
-              <ul className="mt-3 space-y-2 border-l-2 border-research-accent/50 pl-3 text-sm leading-5 text-foreground/85">
-                {task.findings.slice(0, 3).map((finding) => (
-                  <li key={finding}>{finding}</li>
-                ))}
-              </ul>
-            ) : null}
             {task.reportVersions.length ? (
-              <p className="mt-3 inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+              <p className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
                 <FileText size={13} aria-hidden="true" />
                 {t("card.reportAvailable", {
                   version:

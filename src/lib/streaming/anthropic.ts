@@ -14,6 +14,7 @@ import {
 import { SSEMessage } from "./sse";
 import { finalizeStreamedToolCall } from "./toolCalls";
 import { IncompleteProviderStreamError } from "../errors";
+import type { StructuredResponseFormat } from "../chat/responseFormat";
 
 const DEFAULT_ANTHROPIC_MAX_TOKENS = 4096;
 const ANTHROPIC_THINKING_BUDGETS: Record<
@@ -31,6 +32,7 @@ export interface AnthropicMessagesStreamOptions {
   messages: MessageParam[];
   system?: string;
   temperature?: number;
+  responseFormat?: StructuredResponseFormat;
   tools?: Tool[];
   useReasoning?: boolean;
   reasoningMode?: ReasoningMode;
@@ -121,6 +123,7 @@ export async function streamAnthropicMessages(
     messages,
     system,
     temperature,
+    responseFormat,
     tools,
     useReasoning,
     reasoningMode: rawReasoningMode,
@@ -139,6 +142,14 @@ export async function streamAnthropicMessages(
 
   const thinking = getAnthropicThinkingConfig(reasoningMode);
   if (system) requestParams.system = system;
+  if (responseFormat) {
+    requestParams.output_config = {
+      format: {
+        type: "json_schema",
+        schema: responseFormat.schema,
+      },
+    };
+  }
   if (thinking) {
     requestParams.thinking = thinking;
   } else if (temperature !== undefined) {

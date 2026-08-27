@@ -29,9 +29,12 @@
     "returnWorkbench": "返回研究",
     "closeWorkbench": "关闭研究工作台",
     "closePlan": "关闭研究计划",
+    "closeAdjust": "关闭计划调整",
+    "closeStrategy": "关闭高级策略",
     "backToChat": "返回聊天",
     "start": "开始研究",
     "adjust": "调整计划",
+    "advancedStrategy": "高级策略",
     "tuneStrategy": "调整高级策略",
     "pause": "安全暂停",
     "resume": "继续研究",
@@ -71,6 +74,15 @@
     "queryTopics": "查询主题",
     "sourcePriorities": "来源优先级",
     "evidenceStandard": "证据标准",
+    "boundaries": "研究边界",
+    "willResearch": "将研究",
+    "willNotResearch": "不会研究",
+    "noExplicitInclusions": "未指定其他纳入项。",
+    "noExplicitExclusions": "未指定明确的排除项。",
+    "advancedDisclosure": "侦察阶段与高级策略",
+    "advancedDisclosureHint": "假设、交付物、完成条件与预算",
+    "decisionSteps": "{count} 个步骤",
+    "decisionQueries": "{count} 次查询",
     "reconSummary": "计划侦察：{used}/{limit} 次查询",
     "reconDisclosure": "计划侦察会把研究问题发送给已配置的公开搜索服务。搜索摘要只用于完善计划，不会作为报告证据。",
     "reconResult": "{count} 条结果 · {domains}",
@@ -89,6 +101,8 @@
     "completed": "已完成",
     "searching": "正在搜索",
     "sources": "{count} 个来源",
+    "queryTopicsCount": "{count} 个查询主题",
+    "sourcePrioritiesCount": "{count} 项来源优先级",
     "searchingDetail": "正在为此研究步骤搜索证据。",
     "pendingDetail": "研究推进后，证据会显示在这里。"
   },
@@ -116,6 +130,7 @@
     "followUps": "下一步方向",
     "linkedEvidence": "关联证据",
     "scopeApproval": "此方向会扩大已批准的来源或研究范围，获得确认前不会访问。",
+    "scopeResume": "此历史任务发现了新的研究方向。点击继续后会从已提交证据原地续跑，不会重新生成计划。",
     "stopReason": "停止原因",
     "claimWarning": "仍有 {conflicts} 条冲突主张和 {unresolved} 条未解决主张，已保留供核验。",
     "phase": {
@@ -137,7 +152,7 @@
       "max_queries": "已达到查询上限",
       "max_sources": "已达到来源正文上限",
       "budget_exhausted": "研究预算已耗尽",
-      "no_new_sources": "最近一个波次没有新增正式来源",
+      "no_new_sources": "连续两个波次都没有新增正式证据或已验证结论",
       "invalid_model_output": "模型返回的研究波次格式无效",
       "no_new_verified_claims": "连续波次没有新增已验证主张",
       "frontier_exhausted": "已无可行且在范围内的研究节点",
@@ -152,6 +167,20 @@
     "standard": "标准预算",
     "deep": "深度预算"
   },
+  "settings": {
+    "title": "深度研究设置",
+    "close": "关闭深度研究设置",
+    "tabsAria": "深度研究设置分类",
+    "tab_research": "深度研究设置",
+    "tab_workspace": "Artifact 与工作区",
+    "futureTasksOnly": "这些会话默认值只作用于新建研究，现有计划与运行不会改变。",
+    "budgetTitle": "研究预算",
+    "budgetDescription": "预设限制模型轮次、工具调用次数与总运行时长。",
+    "budgetValues": "{rounds} 轮 / {calls} 次 / {minutes} 分钟",
+    "strategyTitle": "默认研究策略",
+    "strategyDescription": "生成计划时采用这些上限，确认前仍可为单次任务调整。",
+    "resetStrategy": "恢复预设"
+  },
   "sourceScope": {
     "label": "已批准的来源范围",
     "webSearchOn": "网页搜索",
@@ -164,6 +193,7 @@
     "searchWarning": "当前来源范围不包含网页搜索。请先启用兼容的外部搜索服务，再开始研究。"
   },
   "adjust": {
+    "title": "调整研究计划",
     "label": "说明需要调整的内容",
     "help": "系统会生成新的计划版本；重新确认后才会继续研究。",
     "placeholder": "例如：比较最近三年，并优先采用一手来源。",
@@ -195,7 +225,7 @@
     "fullContract": "完整研究约定",
     "liveActivity": "最新动态",
     "progress": "研究进度",
-    "progressSummary": "已完成 {completed}/{total} 个步骤",
+    "progressSummary": "已验证覆盖 {completed}/{total} 个关键步骤",
     "progressDepth": "第 {wave}/{waves} 轮 · 深度 {depth}/{maxDepth}"
   },
   "global": {
@@ -235,6 +265,11 @@
     "toolFailed": "{tool} 未能完成",
     "toolSource": "只读来源：{source}",
     "toolSafeDetail": "只读操作；原始参数与完整结果已隐藏。",
+    "degradedWaveTitle": "波次 {wave} 已带证据缺口归档",
+    "degradedWaveDetail": "{count} 个研究节点未生成有效学习包。已保留的证据仍可使用，报告会继续生成并明确标注缺口。",
+    "scopeExpansionTitle": "已自动扩展研究范围",
+    "scopeExpansionDetail": "已在本次运行中基于已提交证据继续研究 {count} 个新增方向。",
+    "scopeExpansionLimitedDetail": "有 {count} 个方向需要当前会话不可用的来源，将作为明确的报告缺口保留。",
     "reportPublished": "报告 v{version} 已发布",
     "reportKind": {
       "initial": "首版报告",
@@ -367,6 +402,7 @@
       "unsupportedClaims": "有 {count} 条主要发现无法映射到已提交证据。",
       "unresolvedConflicts": "仍有 {count} 条结论同时存在支持与反驳证据，尚未消解。",
       "incompleteQuestions": "仍有 {count} 个已批准的研究步骤仅部分完成或尚未完成。",
+      "scopeExpansionUnavailable": "有 {count} 个扩展研究方向需要当前会话不可用的来源。",
       "executionInterrupted": "研究运行在完成全部计划操作前结束；本报告仅保留已经形成且可辩护的内容。",
       "budget": "已用尽批准的研究预算。"
     },

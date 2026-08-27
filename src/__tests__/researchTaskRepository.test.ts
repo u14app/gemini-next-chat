@@ -19,6 +19,12 @@ function createV2TaskFixture(): ResearchTask {
     id: "research-v2",
     sessionId: "session-v2",
     goal: "Persist a v2 task",
+    requestedStrategy: {
+      initialBreadth: 3,
+      maxDepth: 2,
+      maxQueries: 12,
+      resultsPerQuery: 6,
+    },
     now: 100,
   });
   const plan: ResearchPlanVersion = {
@@ -146,6 +152,22 @@ function createV2TaskFixture(): ResearchTask {
   const run = {
     ...createdRun,
     phase: "completed" as const,
+    waves: [
+      {
+        id: "wave-v2",
+        index: 1,
+        depth: 1,
+        breadth: 1,
+        nodeIds: [node.id],
+        status: "completed" as const,
+        packetStatus: "degraded" as const,
+        degradedNodeIds: [node.id],
+        newEvidenceCount: 1,
+        newVerifiedClaimCount: 1,
+        startedAt: 102,
+        completedAt: 104,
+      },
+    ],
     nodes: [
       {
         ...node,
@@ -190,6 +212,20 @@ function createV2TaskFixture(): ResearchTask {
     updatedAt: 104,
     endedAt: 104,
     stopReason: { code: "coverage_satisfied" as const, at: 104 },
+    scopeExpansionEvents: [
+      {
+        id: "scope-expansion-v2",
+        at: 103,
+        sourceSnapshotCapturedAt: 102,
+        packetIds: ["packet-v2"],
+        addedSourceTypes: ["mcp" as const],
+        scheduledFollowUpIds: ["follow-up-v2"],
+        unavailableSourceFollowUpIds: [],
+        duplicateFollowUpIds: [],
+        breadthLimitedFollowUpIds: [],
+        depthLimitedFollowUpIds: [],
+      },
+    ],
   };
   return {
     ...task,
@@ -327,11 +363,25 @@ describe("ResearchTask repository", () => {
     });
     expect(restored?.reportRuns[0]).toMatchObject({
       id: "run-v2",
+      waves: [
+        {
+          id: "wave-v2",
+          packetStatus: "degraded",
+          degradedNodeIds: [task.reportRuns[0].nodes[0].id],
+        },
+      ],
       claims: [{ id: "claim-v2", verificationStatus: "verified" }],
       learningPackets: [
         {
           id: "packet-v2",
           sourceAssessments: [{ sourceId: "source-v2", authority: "primary" }],
+        },
+      ],
+      scopeExpansionEvents: [
+        {
+          id: "scope-expansion-v2",
+          addedSourceTypes: ["mcp"],
+          scheduledFollowUpIds: ["follow-up-v2"],
         },
       ],
     });
@@ -340,6 +390,17 @@ describe("ResearchTask repository", () => {
       coveredStepIds: ["step-v2"],
     });
     expect(parseResearchTaskValue(task)).toEqual(task);
+    const oldV2Task = structuredClone(task);
+    for (const wave of oldV2Task.reportRuns[0].waves) {
+      delete wave.packetStatus;
+      delete wave.degradedNodeIds;
+    }
+    expect(parseResearchTaskValue(oldV2Task)?.reportRuns[0].waves[0]).toEqual(
+      expect.objectContaining({ id: "wave-v2", status: "completed" }),
+    );
+    expect(
+      parseResearchTaskValue(oldV2Task)?.reportRuns[0].waves[0].packetStatus,
+    ).toBeUndefined();
     expect(
       parseResearchTaskValue({
         ...task,

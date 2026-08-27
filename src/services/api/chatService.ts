@@ -67,6 +67,7 @@ import {
 import { createMessageOutputBlockBuilder } from "@/lib/chat/messageOutputBlocks";
 import { LONG_TEXT_TOOL_NAME } from "@/lib/chat/longText";
 import {
+  AUTO_MODE_SYSTEM_INSTRUCTION,
   applyChatMode,
   CHAT_MODE_SWITCH_TOOL_NAME,
   normalizeChatMode,
@@ -115,6 +116,7 @@ import {
 } from "./chat/builtinResultAggregators";
 import { mapWithConcurrencyGroups } from "@/lib/utils/concurrency";
 import { boundHistoryForRequest } from "@/lib/chat/requestContextBudget";
+import type { StructuredResponseFormat } from "@/lib/chat/responseFormat";
 import {
   appendAgentSystemInstruction,
   buildAgentSystemInstruction,
@@ -160,7 +162,10 @@ import {
 import type { RagQueryError } from "@/lib/knowledge/retrieveKnowledgeSources";
 import { writeWorkspaceText } from "@/services/workspace/sessionWorkspace";
 import { getResearchToolEmitters } from "@/services/research/runtime";
-import { DEEP_RESEARCH_QUERY_MAX_CHARS } from "@/lib/research";
+import {
+  DEEP_RESEARCH_QUERY_MAX_CHARS,
+  type ResearchBudgetPreset,
+} from "@/lib/research";
 import {
   ChatStreamEventError,
   ChatStreamSizeLimitError,
@@ -402,8 +407,12 @@ export interface StreamChatResponseOptions {
   executionWorkflow?: ChatExecutionWorkflow;
   /** Unaugmented user request used when Auto restarts as isolated Research. */
   researchLaunchMessage?: string;
+  /** Host-owned session default used for every new Research task. */
+  researchBudgetPreset?: ResearchBudgetPreset;
   /** Task whose unapproved plan the clarify phase is refining. */
   researchPendingTaskId?: string;
+  /** Internal-only native JSON Schema constraint for bounded model rounds. */
+  responseFormat?: StructuredResponseFormat;
   disableTools?: boolean;
   initialOutputBlocks?: MessageOutputBlock[];
   resumeLongTextBlockId?: string;
@@ -513,7 +522,10 @@ export const streamChatResponse = async (
   );
   const orchestratedModeEnabled = agentModeEnabled || researchModeEnabled;
   const automaticModeEnabled =
-    normalizedChatMode === "auto" && !orchestratedModeEnabled;
+    normalizedChatMode === "auto" &&
+    !orchestratedModeEnabled &&
+    toolCallsSupported &&
+    options?.disableTools !== true;
   const executionRunEnabled =
     agentModeEnabled ||
     (researchModeEnabled &&
@@ -662,6 +674,7 @@ export const streamChatResponse = async (
   if (
     config?.useSearch &&
     !orchestratedModeEnabled &&
+    !automaticModeEnabled &&
     onSearchStatus &&
     searchCompatibility.mode === "external"
   ) {
@@ -976,11 +989,12 @@ export const streamChatResponse = async (
           }),
         )
       : userSystemInstruction;
+  const researchBudgetPreset = options?.researchBudgetPreset ?? "standard";
   const workflowSystemInstruction =
     researchPhase === "start"
       ? [
           userSystemInstruction,
-          "You are starting a first-class Deep Research workflow. Call start_deep_research exactly once with the user's research request and the most appropriate bounded budget preset. Do not answer the research question, do not call any other tool, and do not claim that source access has begun.",
+          `You are starting a first-class Deep Research workflow. Call start_deep_research exactly once with the user's research request and budgetPreset \"${researchBudgetPreset}\". Do not answer the research question, do not call any other tool, and do not claim that source access has begun.`,
         ]
           .filter(Boolean)
           .join("\n\n")
@@ -1011,12 +1025,18 @@ export const streamChatResponse = async (
       functions: requirement.functions,
     })),
   );
-  const effectiveSystemInstruction = forcedToolDirective
+  const workflowWithForcedTools = forcedToolDirective
     ? appendAgentSystemInstruction(
         workflowSystemInstruction,
         forcedToolDirective,
       )
     : workflowSystemInstruction;
+  const effectiveSystemInstruction = automaticModeEnabled
+    ? appendAgentSystemInstruction(
+        workflowWithForcedTools,
+        AUTO_MODE_SYSTEM_INSTRUCTION,
+      )
+    : workflowWithForcedTools;
 
   if (agentRun) {
     const lease = acquireAgentRunLease({ sessionId, runId: agentRun.id });
@@ -1331,6 +1351,9 @@ export const streamChatResponse = async (
         attachments: requestAttachments,
         config: requestConfig,
         systemInstruction: effectiveSystemInstruction,
+        ...(options?.responseFormat
+          ? { responseFormat: options.responseFormat }
+          : {}),
         tools: requestTools,
         enableImageGeneration:
           !researchModeEnabled &&
@@ -1740,6 +1763,26 @@ export const streamChatResponse = async (
           });
         pendingToolCalls = [modeSwitchToolCall];
       }
+      if (researchPhase === "start") {
+        let normalizedStartCall = false;
+        pendingToolCalls = pendingToolCalls.map((toolCall) => {
+          if (toolCall.name !== "start_deep_research") return toolCall;
+          const args =
+            toolCall.args && typeof toolCall.args === "object"
+              ? toolCall.args
+              : {};
+          if (args.budgetPreset === researchBudgetPreset) return toolCall;
+          const normalized = {
+            ...toolCall,
+            args: { ...args, budgetPreset: researchBudgetPreset },
+          };
+          outputBlockBuilder.updateToolCall(normalized);
+          upsertToolCall(normalized);
+          normalizedStartCall = true;
+          return normalized;
+        });
+        if (normalizedStartCall) emitOutputBlocks();
+      }
       if (agentRun) {
         const usage = result.usage;
         await updateAgentRun((current) =>
@@ -1760,7 +1803,7 @@ export const streamChatResponse = async (
           const fallbackStartCall: ToolCall = {
             id: uuidv7(),
             name: "start_deep_research",
-            args: { query, budgetPreset: "standard" },
+            args: { query, budgetPreset: researchBudgetPreset },
             status: "pending",
           };
           pendingToolCalls = [fallbackStartCall];

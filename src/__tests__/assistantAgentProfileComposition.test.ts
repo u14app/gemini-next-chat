@@ -20,11 +20,11 @@ describe("assistant Agent profile composition", () => {
 
   it("exposes the requested runtime and capability controls", () => {
     for (const value of ["permissive", "balanced", "strict"]) {
-      expect(source).toContain(`<option value="${value}">`);
+      expect(source).toContain(`value: "${value}"`);
     }
 
     for (const value of ["auto", "manual", "disabled"]) {
-      expect(source).toContain(`<option value="${value}">`);
+      expect(source).toContain(`value: "${value}"`);
     }
 
     expect(source).toContain("assistant-agent-preferred-model");
@@ -42,8 +42,10 @@ describe("assistant Agent profile composition", () => {
     expect(source).toContain('t("agentMissingDependencies"');
   });
 
-  it("keeps native selects inside the editor focus trap", () => {
-    expect(source).toContain("select:not([disabled])");
+  it("uses shared select triggers inside the editor focus trap", () => {
+    expect(source).toContain("CustomSelect");
+    expect(source).toContain("button:not([disabled])");
+    expect(source).not.toContain("<select");
   });
 
   it.each(["en", "zh", "ja"])(

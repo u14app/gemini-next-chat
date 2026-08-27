@@ -74,10 +74,9 @@ export default function ResearchGlobalBar({
         ) : null}
         <Button
           size="sm"
-          variant="primary"
           onClick={onOpenWorkbench}
           aria-label={t("actions.returnWorkbench")}
-          className="h-9 bg-research-solid text-research-accent-foreground hover:bg-research-accent-hover sm:h-8"
+          className="h-9 sm:h-8"
         >
           <ArrowUpRight size={14} aria-hidden="true" />
           <span className="hidden sm:inline">

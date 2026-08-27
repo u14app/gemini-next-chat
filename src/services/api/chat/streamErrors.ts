@@ -12,6 +12,7 @@ export class ChatStreamEventError extends Error {
   constructor(
     message: string,
     readonly code = "CHAT_STREAM_ERROR",
+    readonly statusCode?: number,
   ) {
     super(message);
     this.name = "ChatStreamEventError";
@@ -52,6 +53,7 @@ export function createAbortError(signal?: AbortSignal): Error {
 export function createChatStreamEventError(event: {
   error?: string;
   code?: string;
+  statusCode?: number;
 }): ChatStreamEventError {
   const message = event.error || "The response stream failed.";
   if (event.code === "INCOMPLETE_PROVIDER_STREAM") {
@@ -63,5 +65,5 @@ export function createChatStreamEventError(event: {
   if (event.code === "RESPONSE_SIZE_LIMIT") {
     return new ChatStreamSizeLimitError(message);
   }
-  return new ChatStreamEventError(message, event.code);
+  return new ChatStreamEventError(message, event.code, event.statusCode);
 }

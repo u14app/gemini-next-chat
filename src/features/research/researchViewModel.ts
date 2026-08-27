@@ -36,6 +36,11 @@ export interface ResearchViewModelText {
   toolSourceDetail: (source: string) => string;
   internalToolResultSource: string;
   toolSafeDetail: string;
+  degradedWaveTitle: (wave: number) => string;
+  degradedWaveDetail: (count: number) => string;
+  scopeExpansionTitle: string;
+  scopeExpansionDetail: (scheduled: number) => string;
+  scopeExpansionLimitedDetail: (count: number) => string;
   reportKind: Record<"initial" | "continue" | "update", string>;
   statusTitle: (status: ResearchTask["status"]) => string;
 }
@@ -60,6 +65,14 @@ const DEFAULT_TEXT: ResearchViewModelText = {
   toolSourceDetail: (source) => `Read-only source: ${source}`,
   internalToolResultSource: "Internal tool result",
   toolSafeDetail: "Read-only operation; raw arguments and results are hidden.",
+  degradedWaveTitle: (wave) => `Wave ${wave} archived with evidence gaps`,
+  degradedWaveDetail: (count) =>
+    `${count} research nodes produced no valid learning packet. Preserved evidence remains available and the report will continue with explicit gaps.`,
+  scopeExpansionTitle: "Research scope expanded automatically",
+  scopeExpansionDetail: (scheduled) =>
+    `${scheduled} additional research directions will continue from committed evidence in this run.`,
+  scopeExpansionLimitedDetail: (count) =>
+    `${count} directions require sources that are unavailable in this conversation and will remain explicit report gaps.`,
   reportKind: {
     initial: "Initial report",
     continue: "Continued research",
@@ -345,6 +358,48 @@ function buildActivities(
       };
     });
   });
+  const degradedWaveActivities = (task.reportRuns ?? []).flatMap((run) =>
+    run.waves.flatMap((wave): ResearchActivityView[] => {
+      const degradedNodeIds = wave.degradedNodeIds ?? [];
+      if (wave.packetStatus !== "degraded" && degradedNodeIds.length === 0) {
+        return [];
+      }
+      return [
+        {
+          id: `${wave.id}-degraded-packets`,
+          createdAt:
+            wave.completedAt ?? wave.startedAt ?? run.endedAt ?? run.startedAt,
+          phase: "researching",
+          title: text.degradedWaveTitle(wave.index),
+          detail: text.degradedWaveDetail(degradedNodeIds.length),
+          tone: "warning",
+        },
+      ];
+    }),
+  );
+  const scopeExpansionActivities = (task.reportRuns ?? []).flatMap((run) =>
+    (run.scopeExpansionEvents ?? []).map((event): ResearchActivityView => ({
+      id: event.id,
+      createdAt: event.at,
+      phase: "researching",
+      title: text.scopeExpansionTitle,
+      detail: [
+        event.scheduledFollowUpIds.length > 0
+          ? text.scopeExpansionDetail(event.scheduledFollowUpIds.length)
+          : null,
+        event.unavailableSourceFollowUpIds.length > 0
+          ? text.scopeExpansionLimitedDetail(
+              event.unavailableSourceFollowUpIds.length,
+            )
+          : null,
+      ]
+        .filter((value): value is string => Boolean(value))
+        .join(" "),
+      ...(event.unavailableSourceFollowUpIds.length > 0
+        ? { tone: "warning" as const }
+        : {}),
+    })),
+  );
   const activities: ResearchActivityView[] = [
     {
       id: `${task.id}-created`,
@@ -363,6 +418,8 @@ function buildActivities(
         : text.planApprovalDetail,
     })),
     ...toolActivities,
+    ...degradedWaveActivities,
+    ...scopeExpansionActivities,
     ...task.reportVersions.map((report) => ({
       id: report.id,
       createdAt: report.createdAt,
@@ -496,18 +553,24 @@ function createRunView(
   const sortedWaves = [...run.waves].sort(
     (left, right) => left.index - right.index,
   );
-  const waves = sortedWaves.map((wave, index) => ({
-    id: wave.id,
-    index: index + 1,
-    depth: wave.depth,
-    status: toRunItemStatus(wave.status),
-    nodeIds: [...wave.nodeIds],
-    queryCount: wave.nodeIds.filter((nodeId) =>
-      Boolean(nodeById.get(nodeId)?.query),
-    ).length,
-    sourceCount: wave.newEvidenceCount,
-    verifiedClaimCount: wave.newVerifiedClaimCount,
-  }));
+  const waves = sortedWaves.map((wave, index) => {
+    return {
+      id: wave.id,
+      index: index + 1,
+      depth: wave.depth,
+      status: toRunItemStatus(wave.status),
+      nodeIds: [...wave.nodeIds],
+      queryCount: wave.nodeIds.filter((nodeId) =>
+        Boolean(nodeById.get(nodeId)?.query),
+      ).length,
+      sourceCount: wave.newEvidenceCount,
+      verifiedClaimCount: wave.newVerifiedClaimCount,
+      ...(wave.packetStatus ? { packetStatus: wave.packetStatus } : {}),
+      ...(wave.degradedNodeIds
+        ? { degradedNodeIds: [...wave.degradedNodeIds] }
+        : {}),
+    };
+  });
   const activeWaveIndex = sortedWaves.findIndex(
     (wave) => wave.status === "running",
   );
@@ -554,6 +617,11 @@ function createRunView(
       unresolved: run.claims.filter(
         (claim) => claim.verificationStatus === "unresolved",
       ).length,
+    },
+    coverage: {
+      coveredStepCount: run.coverage.coveredStepCount,
+      requiredStepCount: run.coverage.requiredStepCount,
+      ratio: run.coverage.stepRatio,
     },
     waves,
     nodes,

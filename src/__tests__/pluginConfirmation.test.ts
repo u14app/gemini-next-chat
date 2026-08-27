@@ -176,4 +176,25 @@ describe("plugin confirmation policy", () => {
       }),
     ).toBe(true);
   });
+
+  it("normalizes session research defaults within host limits", () => {
+    const normalized = normalizeSessionConfig({
+      researchBudgetPreset: "deep",
+      researchStrategy: {
+        initialBreadth: 99,
+        maxDepth: 0,
+        maxQueries: 24.9,
+        resultsPerQuery: 2,
+      },
+    });
+
+    expect(normalized?.researchBudgetPreset).toBe("deep");
+    expect(normalized?.researchStrategy).toEqual({
+      initialBreadth: 8,
+      maxDepth: 1,
+      maxQueries: 24,
+      resultsPerQuery: 3,
+    });
+    expect(normalizeSessionConfig({})?.researchStrategy).toBeUndefined();
+  });
 });

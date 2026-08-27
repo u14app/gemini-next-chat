@@ -182,6 +182,11 @@ describe("Agent Artifact workspace", () => {
     expect(
       screen.getByRole("tabpanel", { name: /Mutable scratch/ }),
     ).toBeTruthy();
+    const listContainer = screen.getByRole("tabpanel", {
+      name: /Mutable scratch/,
+    }).parentElement?.parentElement;
+    expect(listContainer?.className).toContain("max-h-[min(52dvh,32rem)]");
+    expect(listContainer?.className).toContain("overflow-y-auto");
     expect(
       screen.queryByRole("button", { name: "Preview published.txt" }),
     ).toBeNull();

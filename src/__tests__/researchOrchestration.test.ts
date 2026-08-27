@@ -22,6 +22,7 @@ import {
   getResearchVerificationQueryAllowance,
   isResearchWorkspaceSnapshotPath,
   markMutableResearchEvidenceStale,
+  mergeResearchSourceSnapshotForExpansion,
   resolveResearchStrategy,
   type ClaimRecord,
   type LearningPacket,
@@ -193,7 +194,7 @@ describe("Deep Research orchestration", () => {
     ).toHaveLength(2);
   });
 
-  it("expands only distinct in-scope follow-ups and pauses on scope changes", () => {
+  it("keeps the legacy default bounded to in-scope follow-ups", () => {
     const plan = createPlan();
     const run = createResearchReportRun({
       id: "run-1",
@@ -267,11 +268,156 @@ describe("Deep Research orchestration", () => {
       "follow-up-5",
       "follow-up-6",
     ]);
-    expect(expanded.blockedFollowUpIds).toEqual(["follow-up-3"]);
+    expect(expanded.depthLimitedFollowUpIds).toEqual([]);
+    expect(expanded.unavailableSourceFollowUpIds).toEqual(["follow-up-3"]);
     expect(expanded.run.phase).toBe("awaiting_scope_approval");
     expect(
       expanded.run.nodes.find((node) => node.id === expanded.addedNodeIds[0]),
     ).toMatchObject({ parentNodeId: parent.id, depth: 2, stepId: "step-1" });
+  });
+
+  it("adds an authorized scope expansion to the same run", () => {
+    const plan = createPlan();
+    const run = createResearchReportRun({
+      id: "run-auto-scope",
+      taskId: "task-auto-scope",
+      plan,
+      now: 10,
+    });
+    const packet: LearningPacket = {
+      id: "packet-auto-scope",
+      nodeId: run.nodes[0].id,
+      createdAt: 20,
+      learnings: [],
+      sourceAssessments: [],
+      followUps: [
+        {
+          id: "follow-up-auto-scope",
+          question: "Inspect the configured private benchmark",
+          rationale: "Close the remaining benchmark gap",
+          priority: "high",
+          scopeImpact: "source_expansion",
+          requiredSourceTypes: ["mcp"],
+        },
+      ],
+    };
+
+    const expanded = expandResearchFrontier(run, packet, 20, {
+      autoExpandScope: true,
+      allowedSourceTypes: ["web", "mcp"],
+    });
+
+    expect(expanded.run.id).toBe(run.id);
+    expect(expanded.run.phase).toBe(run.phase);
+    expect(expanded.scheduledFollowUpIds).toEqual(["follow-up-auto-scope"]);
+    expect(expanded.unavailableSourceFollowUpIds).toEqual([]);
+    expect(expanded.run.learningPackets).toHaveLength(1);
+  });
+
+  it("skips unavailable expansion sources without pausing other research", () => {
+    const plan = createPlan();
+    const run = createResearchReportRun({
+      id: "run-partial-scope",
+      taskId: "task-partial-scope",
+      plan,
+      now: 10,
+    });
+    const packet: LearningPacket = {
+      id: "packet-partial-scope",
+      nodeId: run.nodes[0].id,
+      createdAt: 20,
+      learnings: [],
+      sourceAssessments: [],
+      followUps: [
+        {
+          id: "follow-up-within",
+          question: "Continue with the approved public sources",
+          rationale: "Close the public evidence gap",
+          priority: "high",
+          scopeImpact: "within",
+          requiredSourceTypes: ["web"],
+        },
+        {
+          id: "follow-up-unavailable",
+          question: "Inspect an unavailable private knowledge collection",
+          rationale: "Would close a private evidence gap",
+          priority: "high",
+          scopeImpact: "source_expansion",
+          requiredSourceTypes: ["knowledge"],
+        },
+      ],
+    };
+
+    const expanded = expandResearchFrontier(run, packet, 20, {
+      autoExpandScope: true,
+      allowedSourceTypes: ["web"],
+    });
+
+    expect(expanded.run.id).toBe(run.id);
+    expect(expanded.run.phase).toBe(run.phase);
+    expect(expanded.scheduledFollowUpIds).toEqual(["follow-up-within"]);
+    expect(expanded.unavailableSourceFollowUpIds).toEqual([
+      "follow-up-unavailable",
+    ]);
+    expect(expanded.run.frontierNodeIds).toHaveLength(
+      run.frontierNodeIds.length,
+    );
+  });
+
+  it("adds only required current-context sources to an expansion snapshot", () => {
+    const approved = {
+      model: "provider:approved-model",
+      reasoningMode: "high" as const,
+      approvalMode: "balanced" as const,
+      searchEnabled: false,
+      toolIds: ["fetch_url"],
+      pluginIds: [],
+      skillIds: [],
+      knowledgeCollectionIds: [],
+      attachmentIds: [],
+      workspaceFileIds: [],
+      memoryScopes: [],
+      memoryScopeIds: {},
+      capturedAt: 10,
+    };
+    const configured = {
+      ...approved,
+      model: "provider:changed-model",
+      approvalMode: "strict" as const,
+      searchEnabled: true,
+      toolIds: [
+        "web_search",
+        "search_knowledge",
+        "inspect_attachment",
+        "read_workspace_file",
+        "plugin_read_benchmark",
+      ],
+      pluginIds: ["plugin-1"],
+      knowledgeCollectionIds: ["knowledge-1"],
+      attachmentIds: ["attachment-1"],
+      workspaceFileIds: ["workspace-1"],
+      capturedAt: 20,
+    };
+
+    const merged = mergeResearchSourceSnapshotForExpansion({
+      approved,
+      configured,
+      requiredSourceTypes: ["knowledge", "mcp"],
+      capturedAt: 30,
+    });
+
+    expect(merged.model).toBe("provider:approved-model");
+    expect(merged.approvalMode).toBe("balanced");
+    expect(merged.toolIds).toEqual([
+      "fetch_url",
+      "search_knowledge",
+      "plugin_read_benchmark",
+    ]);
+    expect(merged.pluginIds).toEqual(["plugin-1"]);
+    expect(merged.knowledgeCollectionIds).toEqual(["knowledge-1"]);
+    expect(merged.attachmentIds).toEqual([]);
+    expect(merged.workspaceFileIds).toEqual([]);
+    expect(merged.capturedAt).toBe(30);
   });
 
   it("verifies claims using primary or independent evidence and preserves conflicts", () => {
@@ -491,6 +637,21 @@ describe("Deep Research orchestration", () => {
       overallRatio: 1,
       complete: true,
     });
+    const regressedCoverage = calculateResearchCoverage(
+      plan.steps,
+      run.nodes.map((node) => ({ ...node, status: "completed" })),
+      claims.map((claim, index) =>
+        index === 0
+          ? { ...claim, verificationStatus: "unresolved" as const }
+          : claim,
+      ),
+    );
+    expect(regressedCoverage).toMatchObject({
+      requiredStepCount: 4,
+      coveredStepCount: 3,
+      stepRatio: 0.75,
+      complete: false,
+    });
     const baseEvaluation = {
       now: 30,
       coverage: { ...coverage, complete: false },
@@ -521,6 +682,20 @@ describe("Deep Research orchestration", () => {
         wavesWithoutNewVerifiedClaims: 2,
       })?.code,
     ).toBe("no_new_verified_claims");
+    expect(
+      getResearchStopReason(plan.strategy, {
+        ...baseEvaluation,
+        wavesWithoutNewSources: 1,
+        wavesWithoutNewVerifiedClaims: 1,
+      }),
+    ).toBeUndefined();
+    expect(
+      getResearchStopReason(plan.strategy, {
+        ...baseEvaluation,
+        wavesWithoutNewSources: 2,
+        wavesWithoutNewVerifiedClaims: 2,
+      })?.code,
+    ).toBe("no_new_sources");
 
     const stopCases = [
       [{ userAction: "cancel" as const }, "user_cancelled"],
@@ -529,7 +704,6 @@ describe("Deep Research orchestration", () => {
       [{ dependencyAvailable: false }, "dependency_unavailable"],
       [{ remainingToolCalls: 0 }, "budget_exhausted"],
       [{ sourceBodyCount: baseEvaluation.sourceBodyLimit }, "max_sources"],
-      [{ wavesWithoutNewSources: 1 }, "no_new_sources"],
       [{ frontierCount: 0, currentDepth: plan.strategy.maxDepth }, "max_depth"],
       [{ frontierCount: 0 }, "frontier_exhausted"],
     ] as const;

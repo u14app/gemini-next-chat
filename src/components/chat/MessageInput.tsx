@@ -128,6 +128,7 @@ import AgentCapabilityMenu, {
 import AgentSettingsDialog, {
   type AgentCapabilitySummary,
 } from "@/components/agent/AgentSettingsDialog";
+import ResearchSettingsDialog from "@/components/research/ResearchSettingsDialog";
 import { resolveAgentProfile } from "@/lib/assistant/profile";
 import {
   getAgentBuiltinToolNames,
@@ -140,6 +141,11 @@ import {
   getNextSupportedChatMode,
   normalizeChatMode,
 } from "@/lib/chat/mode";
+import {
+  resolveResearchStrategy,
+  type ResearchBudgetPreset,
+  type ResearchStrategy,
+} from "@/lib/research";
 
 type MessageInputVariant = "default" | "hero";
 
@@ -248,7 +254,11 @@ const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
     const [forcedSkillIds, setForcedSkillIds] = useState<string[]>([]);
     const [forcedPluginIds, setForcedPluginIds] = useState<string[]>([]);
     const [showAgentSettings, setShowAgentSettings] = useState(false);
+    const [showResearchSettings, setShowResearchSettings] = useState(false);
     const agentSettingsReturnFocusRef = useRef<HTMLButtonElement | null>(null);
+    const researchSettingsReturnFocusRef = useRef<HTMLButtonElement | null>(
+      null,
+    );
 
     const t = useTranslations("MessageInput");
     const tConfig = useTranslations("Config");
@@ -423,6 +433,16 @@ const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
     const currentSession = useMemo(
       () => sessions.find((session) => session.id === currentSessionId),
       [currentSessionId, sessions],
+    );
+    const researchBudgetPreset =
+      currentSession?.config?.researchBudgetPreset || "standard";
+    const researchStrategy = useMemo(
+      () =>
+        resolveResearchStrategy(
+          researchBudgetPreset,
+          currentSession?.config?.researchStrategy,
+        ),
+      [currentSession?.config?.researchStrategy, researchBudgetPreset],
     );
     const activeSkillIds = useMemo(
       () =>
@@ -696,8 +716,16 @@ const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
       updateSessionConfig(currentSessionId, { agentBudget: undefined });
     }, [currentSessionId, updateSessionConfig]);
 
-    const handleAgentSettingsOpen = useCallback(
-      (returnFocus: HTMLButtonElement | null) => {
+    const handleCapabilitySettingsOpen = useCallback(
+      (
+        mode: Extract<ChatMode, "agent" | "research">,
+        returnFocus: HTMLButtonElement | null,
+      ) => {
+        if (mode === "research") {
+          researchSettingsReturnFocusRef.current = returnFocus;
+          setShowResearchSettings(true);
+          return;
+        }
         agentSettingsReturnFocusRef.current = returnFocus;
         setShowAgentSettings(true);
       },
@@ -716,6 +744,30 @@ const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
         }
       });
     }, []);
+
+    const handleResearchSettingsClose = useCallback(() => {
+      const returnFocus = researchSettingsReturnFocusRef.current;
+      setShowResearchSettings(false);
+      window.requestAnimationFrame(() => {
+        if (returnFocus?.isConnected) {
+          returnFocus.focus({ preventScroll: true });
+        }
+        if (researchSettingsReturnFocusRef.current === returnFocus) {
+          researchSettingsReturnFocusRef.current = null;
+        }
+      });
+    }, []);
+
+    const handleResearchSettingsChange = useCallback(
+      (preset: ResearchBudgetPreset, strategy: ResearchStrategy) => {
+        if (!currentSessionId) return;
+        updateSessionConfig(currentSessionId, {
+          researchBudgetPreset: preset,
+          researchStrategy: strategy,
+        });
+      },
+      [currentSessionId, updateSessionConfig],
+    );
 
     const handlePluginActiveToggle = useCallback(
       (pluginId: string) => {
@@ -2063,6 +2115,15 @@ const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
             onClose={handleAgentSettingsClose}
           />
 
+          <ResearchSettingsDialog
+            open={showResearchSettings}
+            sessionId={currentSessionId}
+            budgetPreset={researchBudgetPreset}
+            strategy={researchStrategy}
+            onChange={handleResearchSettingsChange}
+            onClose={handleResearchSettingsClose}
+          />
+
           <div className="flex shrink-0 items-center gap-0.5">
             {/* Model Selector */}
             <div className="relative">
@@ -2155,7 +2216,7 @@ const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
                 options={chatModeOptions}
                 disabled={isInputBusy}
                 onModeChange={handleChatModeChange}
-                onOpenSettings={handleAgentSettingsOpen}
+                onOpenSettings={handleCapabilitySettingsOpen}
                 buttonClassName={`${iconButtonBaseClass} text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700 dark:text-muted-foreground dark:hover:bg-accent/50 dark:hover:text-foreground ${iconButtonFocusClass}`}
               />
             </div>

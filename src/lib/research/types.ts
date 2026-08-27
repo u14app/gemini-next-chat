@@ -287,6 +287,19 @@ export interface ResearchStopReason {
   detail?: string;
 }
 
+export interface ResearchScopeExpansionEvent {
+  id: string;
+  at: number;
+  sourceSnapshotCapturedAt: number;
+  packetIds: string[];
+  addedSourceTypes: ResearchSourceType[];
+  scheduledFollowUpIds: string[];
+  unavailableSourceFollowUpIds: string[];
+  duplicateFollowUpIds: string[];
+  breadthLimitedFollowUpIds: string[];
+  depthLimitedFollowUpIds: string[];
+}
+
 export interface ResearchNode {
   id: string;
   parentNodeId?: string;
@@ -308,6 +321,8 @@ export interface ResearchNode {
 export type ResearchWaveStatus =
   "queued" | "running" | "completed" | "paused" | "failed";
 
+export type ResearchWavePacketStatus = "valid" | "repaired" | "degraded";
+
 export interface ResearchWave {
   id: string;
   index: number;
@@ -315,6 +330,8 @@ export interface ResearchWave {
   breadth: number;
   nodeIds: string[];
   status: ResearchWaveStatus;
+  packetStatus?: ResearchWavePacketStatus;
+  degradedNodeIds?: string[];
   newEvidenceCount: number;
   newVerifiedClaimCount: number;
   startedAt?: number;
@@ -384,6 +401,7 @@ export interface ResearchReportRun {
   endedAt?: number;
   stopReason?: ResearchStopReason;
   checkpoint?: ResearchRunCheckpoint;
+  scopeExpansionEvents?: ResearchScopeExpansionEvent[];
 }
 
 export interface ResearchReportVersion {
@@ -436,6 +454,7 @@ export interface ResearchTask {
   endedAt?: number;
   budgetPreset: ResearchBudgetPreset;
   budget: ResolvedResearchBudget;
+  requestedStrategy?: ResearchStrategy;
   usage: ResearchUsage;
   sourceSnapshot?: ResearchSourceSnapshot;
   planVersions: ResearchPlanVersion[];
@@ -459,6 +478,7 @@ export interface CreateResearchTaskInput {
   cardMessageId?: string;
   goal: string;
   budgetPreset?: ResearchBudgetPreset;
+  requestedStrategy?: ResearchStrategy;
   profileBudget?: AgentRunBudget;
   now?: number;
 }

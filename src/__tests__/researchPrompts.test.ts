@@ -3,18 +3,22 @@ import { describe, expect, it } from "vitest";
 import {
   buildResearchExecutionPrompt,
   buildResearchPlanPrompt,
-  buildResearchScopeExpansionAdjustment,
   buildResearchSynthesisPrompt,
+  buildResearchWaveArchivePrompt,
   buildResearchWavePrompt,
   buildResearchWaveRepairPrompt,
+  createDegradedResearchWavePackets,
   createResearchReportRun,
   createResearchTask,
+  createResearchWaveAliasContext,
+  finalizeResearchWavePackets,
   getResearchClaimSignature,
   normalizeResearchPlanDraft,
   parseResearchPlan,
   parseResearchQuestionCoverage,
   parseResearchStepCoverage,
   parseResearchWavePackets,
+  RESEARCH_WAVE_RESPONSE_FORMAT,
   summarizeResearchReport,
   type ResearchPlanVersion,
 } from "@/lib/research";
@@ -139,6 +143,56 @@ describe("Deep Research prompts", () => {
     });
   });
 
+  it("normalizes blank optional time ranges without spending repair rounds", () => {
+    const blankRange = parseResearchPlan(
+      JSON.stringify({
+        ...planDraft,
+        scope: {
+          ...planDraft.scope,
+          timeRange: { start: "", end: "  ", description: "\n" },
+        },
+      }),
+    );
+    expect(blankRange.valid).toBe(true);
+    if (!blankRange.valid) throw new Error("Expected a valid plan.");
+    expect(blankRange.data.scope.timeRange).toBeUndefined();
+
+    const partialRange = parseResearchPlan(
+      JSON.stringify({
+        ...planDraft,
+        scope: {
+          ...planDraft.scope,
+          timeRange: {
+            start: " ",
+            end: "2026-12-31",
+            description: "Through the end of 2026",
+          },
+        },
+      }),
+    );
+    expect(partialRange.valid).toBe(true);
+    if (!partialRange.valid) throw new Error("Expected a valid plan.");
+    expect(partialRange.data.scope.timeRange).toEqual({
+      end: "2026-12-31",
+      description: "Through the end of 2026",
+    });
+
+    const invalidRange = parseResearchPlan(
+      JSON.stringify({
+        ...planDraft,
+        scope: {
+          ...planDraft.scope,
+          timeRange: { start: 2026, end: "" },
+        },
+      }),
+    );
+    expect(invalidRange.valid).toBe(false);
+    if (invalidRange.valid) throw new Error("Expected an invalid plan.");
+    expect(invalidRange.error.issues.join("\n")).toContain(
+      "scope.timeRange.start",
+    );
+  });
+
   it("keeps budget violations and duplicate step IDs fatal while tolerating stray keys", () => {
     const invalid = {
       ...planDraft,
@@ -241,33 +295,48 @@ describe("Deep Research prompts", () => {
     expect(prompt).toContain("3-8 non-overlapping steps");
     expect(prompt).not.toContain("request_user_input");
     expect(prompt).toContain("Do not ask the user questions in this call");
+    expect(prompt).toContain("omit `scope.timeRange` entirely");
+    expect(prompt).toContain("Never emit empty strings");
+    expect(prompt).not.toContain('"start": "optional"');
   });
 
-  it("accepts wave packets only when node and source references are committed", () => {
+  it("extracts the last valid alias archive and maps host-owned IDs", () => {
+    const aliases = {
+      nodes: [
+        {
+          key: "N1",
+          nodeId: "node-internal-1",
+          stepId: "step-1",
+          objective: "Document the systems",
+        },
+      ],
+      sources: [
+        {
+          key: "S1",
+          sourceId: "source-internal-1",
+          evidenceIds: ["evidence-internal-1"],
+          locator: "https://example.com/primary",
+          sourceType: "web" as const,
+          retrievedAt: 100,
+        },
+      ],
+    };
     const packet = {
       packets: [
         {
-          nodeId: "node-1",
+          nodeKey: "N1",
           learnings: [
             {
-              claimId: "C1",
-              claimText: "The documented limit is ten.",
-              stepId: "step-1",
+              claim: "The documented limit is ten.",
               importance: "major",
               stance: "supports",
-              statement: "The primary documentation states a limit of ten.",
-              sourceIds: ["source-1"],
-              evidenceIds: ["evidence-1"],
+              finding:
+                "The primary documentation states a {bounded} limit of ten.",
+              sourceKeys: ["S1"],
             },
           ],
-          sourceAssessments: [
-            {
-              sourceId: "source-1",
-              authority: "primary",
-              publisherId: "publisher-1",
-              rationale: "Official publisher documentation",
-            },
-          ],
+          // Omission is deliberately safe: the host defaults to unknown.
+          sourceAssessments: [],
           followUps: [
             {
               question: "Has the limit changed?",
@@ -280,239 +349,287 @@ describe("Deep Research prompts", () => {
         },
       ],
     };
-    const parsed = parseResearchWavePackets(JSON.stringify(packet), {
-      allowedNodeIds: ["node-1"],
-      allowedSourceIds: ["source-1"],
-      allowedEvidenceIds: ["evidence-1"],
-      allowedStepIds: ["step-1"],
-      now: 200,
-    });
+    const previous = JSON.stringify({ packets: [{ nodeKey: "N8" }] });
+    const parsed = parseResearchWavePackets(
+      `Preliminary object: ${previous}\n\n\`\`\`json\n${JSON.stringify(packet)}\n\`\`\`\nDone.`,
+      {
+        aliases,
+        existingClaimSignatures: {
+          "claim-existing": getResearchClaimSignature(
+            "step-1",
+            "The documented limit is ten.",
+          ),
+        },
+        now: 200,
+      },
+    );
     expect(parsed.valid).toBe(true);
-    if (!parsed.valid) throw new Error("Expected a valid packet.");
     expect(parsed.data[0]).toMatchObject({
-      nodeId: "node-1",
+      nodeId: "node-internal-1",
       createdAt: 200,
-      learnings: [{ claimId: "C1", sourceIds: ["source-1"] }],
-      sourceAssessments: [{ sourceId: "source-1", authority: "primary" }],
-    });
-
-    const aliased = JSON.parse(JSON.stringify(packet));
-    aliased.packets[0].learnings[0].sourceIds = ["source-alias"];
-    aliased.packets[0].sourceAssessments[0].sourceId = "source-alias";
-    const parsedAlias = parseResearchWavePackets(JSON.stringify(aliased), {
-      allowedNodeIds: ["node-1"],
-      allowedSourceIds: ["source-1"],
-      allowedEvidenceIds: ["evidence-1"],
-      allowedStepIds: ["step-1"],
-      canonicalSourceIdByAlias: { "source-alias": "source-1" },
-    });
-    expect(parsedAlias.valid).toBe(true);
-    if (!parsedAlias.valid) throw new Error("Expected alias normalization.");
-    expect(parsedAlias.data[0].learnings[0].sourceIds).toEqual(["source-1"]);
-    expect(parsedAlias.data[0].sourceAssessments[0].sourceId).toBe("source-1");
-
-    const forged = JSON.parse(JSON.stringify(packet));
-    forged.packets[0].learnings[0].sourceIds = ["source-forged"];
-    const rejected = parseResearchWavePackets(JSON.stringify(forged), {
-      allowedNodeIds: ["node-1"],
-      allowedSourceIds: ["source-1"],
-      allowedStepIds: ["step-1"],
-    });
-    expect(rejected).toMatchObject({
-      valid: false,
-      error: { code: "RESEARCH_WAVE_INVALID" },
-    });
-
-    const forgedMirror = JSON.parse(JSON.stringify(packet));
-    forgedMirror.packets[0].sourceAssessments[0].mirrorOfSourceId =
-      "source-forged";
-    const rejectedMirror = parseResearchWavePackets(
-      JSON.stringify(forgedMirror),
-      {
-        allowedNodeIds: ["node-1"],
-        allowedSourceIds: ["source-1"],
-        allowedStepIds: ["step-1"],
-      },
-    );
-    expect(rejectedMirror.valid).toBe(false);
-
-    const mirrorCycle = JSON.parse(JSON.stringify(packet));
-    mirrorCycle.packets[0].sourceAssessments = [
-      {
-        sourceId: "source-1",
-        authority: "secondary",
-        mirrorOfSourceId: "source-2",
-        rationale: "Mirrors source two.",
-      },
-      {
-        sourceId: "source-2",
-        authority: "secondary",
-        mirrorOfSourceId: "source-1",
-        rationale: "Mirrors source one.",
-      },
-    ];
-    const rejectedMirrorCycle = parseResearchWavePackets(
-      JSON.stringify(mirrorCycle),
-      {
-        allowedNodeIds: ["node-1"],
-        allowedSourceIds: ["source-1", "source-2"],
-        allowedEvidenceIds: ["evidence-1"],
-        allowedStepIds: ["step-1"],
-      },
-    );
-    expect(rejectedMirrorCycle.valid).toBe(false);
-    if (rejectedMirrorCycle.valid) {
-      throw new Error("Expected mirror-cycle rejection.");
-    }
-    expect(rejectedMirrorCycle.error.issues.join("\n")).toContain(
-      "Mirror relationship contains a cycle",
-    );
-
-    const wrongStep = JSON.parse(JSON.stringify(packet));
-    wrongStep.packets[0].learnings[0].stepId = "step-2";
-    const rejectedStepBinding = parseResearchWavePackets(
-      JSON.stringify(wrongStep),
-      {
-        allowedNodeIds: ["node-1"],
-        allowedSourceIds: ["source-1"],
-        allowedEvidenceIds: ["evidence-1"],
-        allowedStepIds: ["step-1", "step-2"],
-        expectedStepIdByNode: { "node-1": "step-1" },
-      },
-    );
-    expect(rejectedStepBinding.valid).toBe(false);
-    if (rejectedStepBinding.valid) {
-      throw new Error("Expected node-to-step binding rejection.");
-    }
-    expect(rejectedStepBinding.error.issues.join("\n")).toContain(
-      "Expected step-1 for node node-1",
-    );
-
-    const missingNode = parseResearchWavePackets(JSON.stringify(packet), {
-      allowedNodeIds: ["node-1", "node-2"],
-      allowedSourceIds: ["source-1"],
-      allowedStepIds: ["step-1"],
-    });
-    expect(missingNode.valid).toBe(false);
-    if (missingNode.valid) throw new Error("Expected missing-node rejection.");
-    expect(missingNode.error.issues).toContain(
-      "packets: Missing packet for node node-2.",
-    );
-
-    const claimCollision = JSON.parse(JSON.stringify(packet));
-    claimCollision.packets.push({
-      ...JSON.parse(JSON.stringify(packet.packets[0])),
-      nodeId: "node-2",
       learnings: [
         {
-          ...packet.packets[0].learnings[0],
-          claimText: "A different claim reused the same ID.",
+          claimId: "claim-existing",
+          stepId: "step-1",
+          sourceIds: ["source-internal-1"],
+          evidenceIds: ["evidence-internal-1"],
+        },
+      ],
+      sourceAssessments: [
+        { sourceId: "source-internal-1", authority: "unknown" },
+      ],
+    });
+    expect(parsed.data[0].id).toMatch(/^learning-packet-/);
+    expect(parsed.data[0].learnings[0].id).toMatch(/^learning-/);
+    expect(parsed.data[0].followUps[0].id).toMatch(/^follow-up-/);
+
+    const newer = structuredClone(packet);
+    newer.packets[0].learnings[0].claim = "The newer object wins.";
+    const chosen = parseResearchWavePackets(
+      `${JSON.stringify(packet)}\n${JSON.stringify(newer)}`,
+      { aliases },
+    );
+    expect(chosen.data[0].learnings[0].claimText).toBe(
+      "The newer object wins.",
+    );
+  });
+
+  it("isolates invalid and duplicate alias packets without losing valid packets", () => {
+    const aliases = {
+      nodes: [
+        { key: "N1", nodeId: "node-1", stepId: "step-1", objective: "One" },
+        { key: "N2", nodeId: "node-2", stepId: "step-2", objective: "Two" },
+      ],
+      sources: [
+        {
+          key: "S1",
+          sourceId: "source-1",
+          evidenceIds: ["evidence-1"],
+          locator: "https://example.com/one",
+          sourceType: "web" as const,
+          retrievedAt: 1,
+        },
+      ],
+    };
+    const learning = {
+      claim: "A bounded claim.",
+      importance: "major",
+      stance: "supports",
+      finding: "A bounded finding.",
+      sourceKeys: ["S1"],
+    };
+    const output = {
+      packets: [
+        {
+          nodeKey: "N1",
+          learnings: [learning],
+          sourceAssessments: [],
+          followUps: [],
+        },
+        {
+          nodeKey: "N1",
+          learnings: [{ ...learning, claim: "Do not overwrite the first." }],
+          sourceAssessments: [],
+          followUps: [],
+        },
+        {
+          nodeKey: "N2",
+          learnings: [{ ...learning, sourceKeys: ["S80"] }],
+          sourceAssessments: [],
+          followUps: [],
+        },
+        {
+          nodeKey: "N8",
+          learnings: [],
+          sourceAssessments: [],
+          followUps: [],
+        },
+      ],
+    };
+    const parsed = parseResearchWavePackets(JSON.stringify(output), {
+      aliases,
+    });
+    expect(parsed).toMatchObject({
+      valid: false,
+      data: [{ nodeId: "node-1" }],
+      missingNodeKeys: [],
+      invalidNodeKeys: ["N2"],
+      error: { code: "RESEARCH_WAVE_INVALID" },
+    });
+    expect(parsed.data[0].learnings[0].claimText).toBe("A bounded claim.");
+
+    const repaired = parseResearchWavePackets(
+      JSON.stringify({
+        packets: [
+          {
+            nodeKey: "N2",
+            learnings: [learning],
+            sourceAssessments: [],
+            followUps: [],
+          },
+        ],
+      }),
+      { aliases, requestedNodeKeys: ["N2"] },
+    );
+    expect(repaired).toMatchObject({
+      valid: true,
+      data: [{ nodeId: "node-2" }],
+      missingNodeKeys: [],
+    });
+  });
+
+  it("rejects truncated archives and creates host-owned degraded packets", () => {
+    const aliases = {
+      nodes: [
+        { key: "N1", nodeId: "node-1", stepId: "step-1", objective: "One" },
+      ],
+      sources: [],
+    };
+    const truncated = parseResearchWavePackets(
+      '{"packets":[{"nodeKey":"N1","learnings":[]',
+      { aliases },
+    );
+    expect(truncated).toMatchObject({
+      valid: false,
+      data: [],
+      missingNodeKeys: ["N1"],
+    });
+    const degraded = createDegradedResearchWavePackets({
+      aliases,
+      nodeKeys: ["N1"],
+      now: 300,
+    });
+    expect(degraded).toMatchObject([
+      {
+        nodeId: "node-1",
+        learnings: [],
+        sourceAssessments: [],
+        followUps: [],
+        createdAt: 300,
+      },
+    ]);
+  });
+
+  it("merges a targeted repair without overwriting valid packets and degrades only the remainder", () => {
+    const aliases = {
+      nodes: [
+        { key: "N1", nodeId: "node-1", stepId: "step-1", objective: "One" },
+        { key: "N2", nodeId: "node-2", stepId: "step-2", objective: "Two" },
+        {
+          key: "N3",
+          nodeId: "node-3",
+          stepId: "step-3",
+          objective: "Three",
+        },
+      ],
+      sources: [],
+    };
+    const packet = (id: string, nodeId: string) => ({
+      id,
+      nodeId,
+      learnings: [],
+      sourceAssessments: [],
+      followUps: [],
+      createdAt: 1,
+    });
+    const finalized = finalizeResearchWavePackets({
+      aliases,
+      initialPackets: [packet("valid-1", "node-1")],
+      repairedPackets: [
+        packet("must-not-overwrite", "node-1"),
+        packet("repaired-2", "node-2"),
+      ],
+      now: 500,
+    });
+    expect(finalized.packets.map((item) => item.id)).toEqual([
+      "valid-1",
+      "repaired-2",
+      expect.stringMatching(/^learning-packet-/),
+    ]);
+    expect(finalized.repairedNodeIds).toEqual(["node-2"]);
+    expect(finalized.degradedNodeIds).toEqual(["node-3"]);
+    expect(finalized.packets[2]).toMatchObject({
+      nodeId: "node-3",
+      learnings: [],
+      createdAt: 500,
+    });
+  });
+
+  it("builds aliases and closed-book archive/repair prompts without internal IDs in output", () => {
+    const task = createResearchTask({
+      id: "research-1",
+      sessionId: "session-1",
+      goal: "Compare systems",
+      now: 100,
+    });
+    const plan = createPlan();
+    const run = createResearchReportRun({
+      id: "run-1",
+      taskId: task.id,
+      plan,
+      now: 120,
+    });
+    const node = run.nodes[0];
+    const evidence = {
+      id: "evidence-internal-1",
+      sourceId: "source-internal-1",
+      sourceType: "web" as const,
+      stepId: node.stepId,
+      nodeId: node.id,
+      locator: "https://example.com/source",
+      retrievedAt: 130,
+      contentHash: "sha256:one",
+      claimIds: [],
+    };
+    const withEvidence = {
+      ...run,
+      nodes: run.nodes.map((item) =>
+        item.id === node.id ? { ...item, evidenceIds: [evidence.id] } : item,
+      ),
+    };
+    const aliases = createResearchWaveAliasContext({
+      run: withEvidence,
+      nodeIds: [node.id],
+      evidence: [evidence],
+      preferredEvidenceIds: [evidence.id],
+    });
+    expect(aliases).toMatchObject({
+      nodes: [{ key: "N1", nodeId: node.id, stepId: node.stepId }],
+      sources: [
+        {
+          key: "S1",
+          sourceId: evidence.sourceId,
+          evidenceIds: [evidence.id],
         },
       ],
     });
-    const rejectedCollision = parseResearchWavePackets(
-      JSON.stringify(claimCollision),
-      {
-        allowedNodeIds: ["node-1", "node-2"],
-        allowedSourceIds: ["source-1"],
-        allowedEvidenceIds: ["evidence-1"],
-        allowedStepIds: ["step-1"],
-      },
-    );
-    expect(rejectedCollision.valid).toBe(false);
-    if (rejectedCollision.valid) {
-      throw new Error("Expected a claim ID collision rejection.");
-    }
-    expect(rejectedCollision.error.issues.join("\n")).toContain(
-      "reused for a different claim",
-    );
+    const archivePrompt = buildResearchWaveArchivePrompt({
+      task,
+      plan,
+      run: withEvidence,
+      aliases,
+    });
+    expect(archivePrompt).toContain("closed-book pass");
+    expect(archivePrompt).toContain('"nodeKey":"N1"');
+    expect(archivePrompt).not.toContain('"nodeId":"research-node-id"');
 
-    const rejectedPriorCollision = parseResearchWavePackets(
-      JSON.stringify(packet),
-      {
-        allowedNodeIds: ["node-1"],
-        allowedSourceIds: ["source-1"],
-        allowedEvidenceIds: ["evidence-1"],
-        allowedStepIds: ["step-1"],
-        existingClaimSignatures: {
-          C1: getResearchClaimSignature(
-            "step-1",
-            "A different claim from an earlier wave.",
-          ),
-        },
-      },
-    );
-    expect(rejectedPriorCollision.valid).toBe(false);
-  });
-
-  it("builds a closed-book wave repair with exact committed ID bounds", () => {
     const prompt = buildResearchWaveRepairPrompt({
       invalidOutput: "The model returned prose instead of JSON.",
       issues: ["root: Expected one JSON object."],
-      allowedNodeIds: ["node-1"],
-      allowedSourceIds: ["source-1"],
-      allowedEvidenceIds: ["evidence-1"],
-      allowedStepIds: ["step-1"],
-      expectedStepIdByNode: { "node-1": "step-1" },
+      aliases,
+      requestedNodeKeys: ["N1"],
     });
 
     expect(prompt).toContain("Do not use tools, add sources, or invent facts");
-    expect(prompt).toContain('Allowed node IDs:\n["node-1"]');
-    expect(prompt).toContain('Allowed source IDs:\n["source-1"]');
-    expect(prompt).toContain('Allowed evidence IDs:\n["evidence-1"]');
-    expect(prompt).toContain('Expected step by node:\n{"node-1":"step-1"}');
+    expect(prompt).toContain('"key":"N1"');
+    expect(prompt).toContain('"key":"S1"');
+    expect(prompt).toContain("Do not repeat or revise packets");
     expect(prompt).toContain("root: Expected one JSON object.");
-    expect(
-      parseResearchWavePackets("not json", {
-        allowedNodeIds: ["node-1"],
-        allowedSourceIds: ["source-1"],
-      }).valid,
-    ).toBe(false);
-  });
-
-  it("turns out-of-scope follow-ups into a bounded plan-regeneration request", () => {
-    expect(
-      buildResearchScopeExpansionAdjustment([
-        {
-          id: "packet-1",
-          nodeId: "node-1",
-          learnings: [],
-          sourceAssessments: [],
-          followUps: [
-            {
-              id: "follow-up-1",
-              question: "Inspect the private benchmark.",
-              rationale: "Close a material evidence gap.",
-              priority: "high",
-              scopeImpact: "source_expansion",
-              requiredSourceTypes: ["mcp"],
-            },
-          ],
-          createdAt: 1,
-        },
-      ]),
-    ).toContain("Do not access any newly proposed source before approval");
-    expect(
-      buildResearchScopeExpansionAdjustment([
-        {
-          id: "packet-2",
-          nodeId: "node-2",
-          learnings: [],
-          sourceAssessments: [],
-          followUps: [
-            {
-              id: "follow-up-2",
-              question: "Stay within scope.",
-              rationale: "Continue the approved branch.",
-              priority: "medium",
-              scopeImpact: "within",
-              requiredSourceTypes: ["web"],
-            },
-          ],
-          createdAt: 1,
-        },
-      ]),
-    ).toBeUndefined();
+    expect(RESEARCH_WAVE_RESPONSE_FORMAT).toMatchObject({
+      name: "deep_research_wave_archive",
+      strict: true,
+      schema: { type: "object" },
+    });
   });
 
   it("separates adaptive execution from tool-free synthesis", () => {
@@ -537,7 +654,23 @@ describe("Deep Research prompts", () => {
       evidence: [],
     });
     const wave = buildResearchWavePrompt({
-      task,
+      task: {
+        ...task,
+        sourceSnapshot: {
+          model: "provider:model",
+          approvalMode: "balanced",
+          searchEnabled: true,
+          toolIds: ["web_search", "plugin_read"],
+          pluginIds: ["plugin-1"],
+          skillIds: [],
+          knowledgeCollectionIds: [],
+          attachmentIds: [],
+          workspaceFileIds: [],
+          memoryScopes: [],
+          memoryScopeIds: {},
+          capturedAt: 120,
+        },
+      },
       plan,
       run: {
         ...run,
@@ -564,6 +697,20 @@ describe("Deep Research prompts", () => {
             createdAt: 121,
           },
         ],
+        scopeExpansionEvents: [
+          {
+            id: "scope-expansion-1",
+            at: 122,
+            sourceSnapshotCapturedAt: 120,
+            packetIds: ["packet-1"],
+            addedSourceTypes: ["mcp"],
+            scheduledFollowUpIds: ["follow-up-1"],
+            unavailableSourceFollowUpIds: [],
+            duplicateFollowUpIds: [],
+            breadthLimitedFollowUpIds: [],
+            depthLimitedFollowUpIds: [],
+          },
+        ],
       },
       nodeIds: [run.nodes[0].id],
       evidence: [],
@@ -577,6 +724,9 @@ describe("Deep Research prompts", () => {
     expect(synthesis).toContain("explicit criteria");
     expect(wave).toContain("existing primary-source query");
     expect(wave).toContain("one material gap");
+    expect(wave).toContain("Host-authorized source types");
+    expect(wave).toContain('"mcp"');
+    expect(wave).toContain("without rewriting prior work");
   });
 
   it("provides a distinct synthesis contract for every supported deliverable", () => {

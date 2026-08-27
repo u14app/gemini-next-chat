@@ -483,7 +483,7 @@ export default function AgentArtifactWorkspace({
         </p>
       ) : null}
 
-      <div className="min-h-0 flex-1 overflow-y-auto p-3 custom-scrollbar">
+      <div className="max-h-[min(52dvh,32rem)] min-h-0 flex-1 overflow-y-auto p-3 custom-scrollbar">
         {loading && !hasLoaded ? (
           <div className="flex min-h-40 items-center justify-center gap-2 text-sm text-muted-foreground">
             <Loader2

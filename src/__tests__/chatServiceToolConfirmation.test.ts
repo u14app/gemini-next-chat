@@ -389,8 +389,70 @@ describe("chat service tool execution", () => {
     vi.mocked(createSearchProvider).mockReset();
   });
 
+  it("sends responseFormat only for an explicitly constrained internal round", async () => {
+    const requestBodies: any[] = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (_url, init) => {
+      requestBodies.push(JSON.parse(String(init?.body)));
+      return sseResponse([
+        { type: "content", content: '{"packets":[]}' },
+        { type: "done" },
+      ]);
+    });
+    const { streamChatResponse } = await import("../services/api/chatService");
+    const responseFormat = {
+      name: "research_wave",
+      schema: {
+        type: "object",
+        properties: { packets: { type: "array" } },
+        required: ["packets"],
+        additionalProperties: false,
+      },
+      strict: true,
+    } as const;
+
+    await streamChatResponse(
+      "session-plain",
+      "openai:gpt-4",
+      [],
+      "Ordinary chat",
+      [],
+      { useSearch: false },
+      () => undefined,
+    );
+    await streamChatResponse(
+      "session-structured",
+      "openai:gpt-4",
+      [],
+      "Archive the wave",
+      [],
+      { useSearch: false },
+      () => undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      [],
+      undefined,
+      undefined,
+      undefined,
+      { responseFormat },
+    );
+
+    expect(requestBodies).toHaveLength(2);
+    expect(requestBodies[0]).not.toHaveProperty("responseFormat");
+    expect(requestBodies[1].responseFormat).toEqual(responseFormat);
+  });
+
   it("lets Auto mode switch the current request without a preflight classifier", async () => {
+    mocks.searchCompatibility = { enabled: true, mode: "external" };
+    mocks.settingsState = {
+      ...mocks.settingsState,
+      search: { provider: "tavily", configs: { tavily: { apiKey: "search" } } },
+    };
     const onChatModeChange = vi.fn();
+    const onSearchStatus = vi.fn();
     const onToolUpdate = vi.fn();
     const fetchMock = vi
       .spyOn(globalThis, "fetch")
@@ -399,9 +461,16 @@ describe("chat service tool execution", () => {
         expect(body.modelName).toBe("gpt-4");
         expect(body.config.useAgentMode).toBe(false);
         expect(body.config).not.toHaveProperty("chatMode");
-        expect(body.tools.map((tool: any) => tool.function.name)).toContain(
+        expect(body.tools.map((tool: any) => tool.function.name)).toEqual([
           "switch_chat_mode",
-        );
+          "start_long_text_output",
+          "web_search",
+        ]);
+        expect(body.systemInstruction).toContain("CUSTOM AUTO SYSTEM");
+        expect(body.systemInstruction).toContain("<auto-mode>");
+        expect(
+          body.systemInstruction.indexOf("CUSTOM AUTO SYSTEM"),
+        ).toBeLessThan(body.systemInstruction.indexOf("<auto-mode>"));
         return sseResponse([
           {
             type: "tool_call",
@@ -432,6 +501,8 @@ describe("chat service tool execution", () => {
         expect(body.newMessage).not.toContain("SKILL INSTRUCTIONS");
         expect(body.newMessage).toBe("Clean research request.");
         expect(body.systemInstruction).not.toContain("<agent-mode>");
+        expect(body.systemInstruction).not.toContain("<auto-mode>");
+        expect(body.systemInstruction).toContain("CUSTOM AUTO SYSTEM");
         expect(body.systemInstruction).toContain(
           "first-class Deep Research workflow",
         );
@@ -480,7 +551,7 @@ describe("chat service tool execution", () => {
         [],
         {
           chatMode: "auto",
-          useSearch: false,
+          useSearch: true,
           useReasoning: false,
           useAgentMode: false,
           useDeepResearch: false,
@@ -488,8 +559,8 @@ describe("chat service tool execution", () => {
           temperature: 0.7,
         },
         () => undefined,
-        undefined,
-        undefined,
+        "CUSTOM AUTO SYSTEM",
+        onSearchStatus,
         onToolUpdate,
         undefined,
         undefined,
@@ -505,6 +576,7 @@ describe("chat service tool execution", () => {
             modelMessageId: "model-1",
           },
           researchLaunchMessage: "Clean research request.",
+          researchBudgetPreset: "deep",
           onChatModeChange,
         },
       );
@@ -514,6 +586,8 @@ describe("chat service tool execution", () => {
 
     expect(result).toBe("");
     expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(createSearchProvider).not.toHaveBeenCalled();
+    expect(onSearchStatus).not.toHaveBeenCalled();
     expect(onChatModeChange).toHaveBeenCalledWith(
       expect.objectContaining({
         chatMode: "research",
@@ -526,6 +600,7 @@ describe("chat service tool execution", () => {
     expect(start).toHaveBeenCalledOnce();
     expect(start.mock.calls[0]?.[0]).toMatchObject({
       query: "Clean research request.",
+      budgetPreset: "deep",
     });
     expect(startContext).toMatchObject({
       sessionId: "session-auto",
@@ -534,6 +609,146 @@ describe("chat service tool execution", () => {
       modelMessageId: "model-1",
     });
     expect(startContext).not.toHaveProperty("agentRunId");
+  });
+
+  it("removes the Auto directive after switching to Agent", async () => {
+    const onChatModeChange = vi.fn();
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementationOnce(async (_url, init) => {
+        const body = JSON.parse(String(init?.body));
+        expect(body.systemInstruction).toContain("CUSTOM AUTO SYSTEM");
+        expect(body.systemInstruction).toContain("<auto-mode>");
+        return sseResponse([
+          {
+            type: "tool_call",
+            toolCall: {
+              id: "switch-agent-1",
+              name: "switch_chat_mode",
+              args: { mode: "agent" },
+              status: "pending",
+            },
+          },
+          { type: "done" },
+        ]);
+      })
+      .mockImplementationOnce(async (_url, init) => {
+        const body = JSON.parse(String(init?.body));
+        expect(body.config).toMatchObject({
+          useAgentMode: true,
+          useDeepResearch: false,
+        });
+        expect(body.systemInstruction).toContain("CUSTOM AUTO SYSTEM");
+        expect(body.systemInstruction).toContain("<agent-mode>");
+        expect(body.systemInstruction).not.toContain("<auto-mode>");
+        expect(body.tools.map((tool: any) => tool.function.name)).toContain(
+          "update_task_plan",
+        );
+        return sseResponse([
+          { type: "content", content: "Agent completed the task." },
+          { type: "done" },
+        ]);
+      });
+
+    const { streamChatResponse } = await import("../services/api/chatService");
+    const result = await streamChatResponse(
+      "session-auto-agent",
+      "openai:gpt-4",
+      [],
+      "Process the uploaded files.",
+      [],
+      {
+        chatMode: "auto",
+        useSearch: false,
+        useReasoning: false,
+        useAgentMode: false,
+        useDeepResearch: false,
+        reasoningMode: "off",
+        temperature: 0.7,
+      },
+      () => undefined,
+      "CUSTOM AUTO SYSTEM",
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      [],
+      undefined,
+      undefined,
+      undefined,
+      {
+        agentRun: {
+          id: "auto-agent-run",
+          userMessageId: "user-agent-1",
+          modelMessageId: "model-agent-1",
+        },
+        onChatModeChange,
+      },
+    );
+
+    expect(result).toBe("Agent completed the task.");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(onChatModeChange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        chatMode: "agent",
+        useAgentMode: true,
+        useDeepResearch: false,
+      }),
+      "auto-agent-run",
+    );
+  });
+
+  it("keeps ordinary search preflight for Auto models without tool calls", async () => {
+    mocks.searchCompatibility = { enabled: true, mode: "external" };
+    mocks.settingsState = {
+      ...mocks.settingsState,
+      search: { provider: "tavily", configs: { tavily: { apiKey: "search" } } },
+    };
+    mocks.supportsToolCalls.mockReturnValue(false);
+    const onSearchStatus = vi.fn();
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementationOnce(async (url) => {
+        expect(url).toBe("/api/chat/generate");
+        return sseResponse([
+          {
+            type: "content",
+            content: '{"shouldSearch":false,"query":"ordinary lookup"}',
+          },
+          { type: "done" },
+        ]);
+      })
+      .mockImplementationOnce(async (_url, init) => {
+        const body = JSON.parse(String(init?.body));
+        expect(body.tools).toEqual([]);
+        expect(body.systemInstruction).toBeUndefined();
+        return sseResponse([
+          { type: "content", content: "Ordinary response." },
+          { type: "done" },
+        ]);
+      });
+
+    const { streamChatResponse } = await import("../services/api/chatService");
+    const result = await streamChatResponse(
+      "session-auto-no-tools",
+      "openai:gpt-4",
+      [],
+      "Look this up.",
+      [],
+      { chatMode: "auto", useSearch: true },
+      () => undefined,
+      undefined,
+      onSearchStatus,
+    );
+
+    expect(result).toBe("Ordinary response.");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(createSearchProvider).not.toHaveBeenCalled();
+    expect(onSearchStatus).toHaveBeenCalledWith(false, {
+      sources: [],
+      images: [],
+    });
   });
 
   it("starts Research deterministically when the model omits its start tool", async () => {
@@ -618,6 +833,7 @@ describe("chat service tool execution", () => {
         {
           executionWorkflow: { kind: "research", phase: "start" },
           researchLaunchMessage: "Research this topic.",
+          researchBudgetPreset: "quick",
         },
       );
     } finally {
@@ -628,7 +844,7 @@ describe("chat service tool execution", () => {
     expect(start).toHaveBeenCalledOnce();
     expect(startRequest).toEqual({
       query: "Research this topic.",
-      budgetPreset: "standard",
+      budgetPreset: "quick",
     });
     expect(startContext).toMatchObject({
       sessionId: "session-research",
@@ -2471,7 +2687,7 @@ describe("chat service tool execution", () => {
     expect(body.newMessage).toContain("请翻译成英文");
     expect(body.newMessage).toContain("[Skills]");
     expect(body.newMessage).toContain("Translation & Localization");
-    expect(body.systemInstruction).toBeUndefined();
+    expect(body.systemInstruction).toContain("<auto-mode>");
   });
 
   it("routes OpenAI Compatible image-only models through the direct image endpoint", async () => {
@@ -2706,7 +2922,7 @@ describe("chat service tool execution", () => {
       [],
       "Draw current market mood.",
       [],
-      { useSearch: true },
+      { chatMode: "chat", useSearch: true },
       () => undefined,
     );
 
@@ -2753,7 +2969,7 @@ describe("chat service tool execution", () => {
         [],
         "Find current docs.",
         [],
-        { useSearch: true },
+        { chatMode: "chat", useSearch: true },
         () => undefined,
         undefined,
         (isSearching, results) => {
@@ -3539,6 +3755,102 @@ describe("chat service tool execution", () => {
         }),
       ]),
     );
+  });
+
+  it("lets Auto run one focused external search without a search preflight", async () => {
+    mocks.searchCompatibility = { enabled: true, mode: "external" };
+    mocks.settingsState = {
+      ...mocks.settingsState,
+      search: {
+        provider: "firecrawl",
+        configs: { firecrawl: {} },
+      },
+    };
+    vi.mocked(createSearchProvider).mockResolvedValue({
+      sources: [
+        {
+          title: "Weather report",
+          url: "https://example.com/weather",
+          content: "Clear skies",
+        },
+      ],
+      images: [],
+    });
+    const onChatModeChange = vi.fn();
+    const searchStatuses: Array<{
+      active: boolean;
+      sourceCount: number;
+    }> = [];
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementationOnce(async (_url, init) => {
+        const body = JSON.parse(String(init?.body));
+        expect(body.systemInstruction).toContain("<auto-mode>");
+        expect(body.tools.map((tool: any) => tool.function.name)).toEqual([
+          "switch_chat_mode",
+          "start_long_text_output",
+          "web_search",
+        ]);
+        return sseResponse([
+          {
+            type: "tool_call",
+            toolCall: {
+              id: "auto-search-1",
+              name: "web_search",
+              args: { query: "today weather", max_results: 3 },
+              status: "pending",
+            },
+          },
+          { type: "done" },
+        ]);
+      })
+      .mockImplementationOnce(async (_url, init) => {
+        const body = JSON.parse(String(init?.body));
+        expect(body.systemInstruction).toContain("<auto-mode>");
+        return sseResponse([
+          { type: "content", content: "The weather is clear [^1]." },
+          { type: "done" },
+        ]);
+      });
+
+    const { streamChatResponse } = await import("../services/api/chatService");
+    const result = await streamChatResponse(
+      "session-auto-search",
+      "openai:gpt-4",
+      [],
+      "What is today's weather?",
+      [],
+      { chatMode: "auto", useSearch: true },
+      () => undefined,
+      undefined,
+      (active, results) =>
+        searchStatuses.push({
+          active,
+          sourceCount: results?.sources.length || 0,
+        }),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      [],
+      undefined,
+      undefined,
+      undefined,
+      { onChatModeChange },
+    );
+
+    expect(result).toBe("The weather is clear [^1].");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(createSearchProvider).toHaveBeenCalledOnce();
+    expect(createSearchProvider).toHaveBeenCalledWith(
+      { query: "today weather", maxResults: 3 },
+      undefined,
+    );
+    expect(searchStatuses).toEqual([
+      { active: true, sourceCount: 0 },
+      { active: false, sourceCount: 1 },
+    ]);
+    expect(onChatModeChange).not.toHaveBeenCalled();
   });
 
   it("keeps concurrent Agent search citations in provider tool-call order", async () => {

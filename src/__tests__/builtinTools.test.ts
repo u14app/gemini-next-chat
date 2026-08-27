@@ -319,6 +319,38 @@ describe("built-in tool registry", () => {
     ]);
   });
 
+  it("offers one focused external search tool in Auto mode", () => {
+    mocks.memoryState.settings.enabled = false;
+    const names = collectBuiltinTools({
+      message: "Find today's weather",
+      automaticModeEnabled: true,
+      useSearch: true,
+      searchMode: "external",
+    }).definitions.map((definition) => definition.function.name);
+
+    expect(names).toEqual([
+      "switch_chat_mode",
+      "start_long_text_output",
+      "web_search",
+    ]);
+    expect(names).not.toContain("search_web");
+    expect(names).not.toContain("request_user_input");
+    expect(names).not.toContain("read_workspace_file");
+    expect(names).toEqual(
+      getAgentBuiltinToolNames({
+        agentModeEnabled: false,
+        automaticModeEnabled: true,
+        memoryEnabled: false,
+        externalSearchEnabled: true,
+        knowledgeEnabled: false,
+        skillsEnabled: false,
+        mcpEnabled: false,
+        dynamicToolsEnabled: false,
+        workspaceEnabled: true,
+      }),
+    );
+  });
+
   it("pauses through the structured user-input controller", async () => {
     mocks.memoryState.settings.enabled = false;
     const binding = collectBuiltinTools({

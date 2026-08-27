@@ -74,6 +74,7 @@
       "title": "Complete skill parameters",
       "description": "These plain-text values are included in this model request. Do not enter secrets.",
       "selectPlaceholder": "Choose an option",
+      "selectRequired": "Choose an option for this required field.",
       "cancel": "Cancel send",
       "continue": "Continue and send"
     }

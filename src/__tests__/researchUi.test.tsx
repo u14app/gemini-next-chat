@@ -21,6 +21,8 @@ import {
 } from "@/components/research";
 import messageMessages from "@/i18n/locales/en/Message.json";
 import researchMessages from "@/i18n/locales/en/Research.json";
+import japaneseResearchMessages from "@/i18n/locales/ja/Research.json";
+import chineseResearchMessages from "@/i18n/locales/zh/Research.json";
 
 vi.mock("@/components/content/MarkdownRenderer", () => ({
   default: ({ content }: { content: string }) => (
@@ -225,6 +227,11 @@ const orchestratedTask: ResearchTaskViewModel = {
       conflicting: 1,
       unresolved: 1,
     },
+    coverage: {
+      coveredStepCount: 1,
+      requiredStepCount: 4,
+      ratio: 0.25,
+    },
     waves: [
       {
         id: "wave-1",
@@ -315,7 +322,55 @@ async function flushDialogFocus() {
 }
 
 describe("ResearchTaskCard", () => {
-  it("shows the active final report as a document block", async () => {
+  it("uses verified coverage and vertically centers the live activity icon", () => {
+    renderWithResearchMessages(
+      <ResearchTaskCard task={orchestratedTask} onOpenWorkbench={vi.fn()} />,
+    );
+
+    const progress = screen.getByRole("progressbar", {
+      name: "Research progress",
+    });
+    expect(progress.getAttribute("aria-valuenow")).toBe("1");
+    expect(progress.getAttribute("aria-valuemax")).toBe("4");
+    expect(progress.firstElementChild?.getAttribute("style")).toContain(
+      "width: 25%",
+    );
+    expect(progress.nextElementSibling?.textContent).toContain(
+      "Verified coverage 1/4 key steps",
+    );
+    expect(
+      screen.getByText("Collected primary documentation").closest("h3")
+        ?.className,
+    ).toContain("items-center");
+  });
+
+  it("explains that a legacy scope pause resumes from committed evidence", async () => {
+    const onResume = vi.fn();
+    const user = userEvent.setup();
+    renderWithResearchMessages(
+      <ResearchTaskCard
+        task={{
+          ...orchestratedTask,
+          status: "paused",
+          error: {
+            code: "RESEARCH_SCOPE_APPROVAL_REQUIRED",
+            message: "Scope expansion requires approval.",
+            recoverable: true,
+          },
+        }}
+        onOpenWorkbench={vi.fn()}
+        onResume={onResume}
+      />,
+    );
+
+    expect(
+      screen.getByText(/Resume to continue from committed evidence/),
+    ).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Resume" }));
+    expect(onResume).toHaveBeenCalledOnce();
+  });
+
+  it("shows the active final report without repeating summary or findings", async () => {
     const onOpenWorkbench = vi.fn();
     renderWithResearchMessages(
       <ResearchTaskCard
@@ -324,8 +379,8 @@ describe("ResearchTaskCard", () => {
       />,
     );
 
-    expect(screen.getByText("A concise card summary.")).toBeTruthy();
-    expect(screen.getByText("Finding one")).toBeTruthy();
+    expect(screen.queryByText("A concise card summary.")).toBeNull();
+    expect(screen.queryByText("Finding one")).toBeNull();
     expect(screen.queryByText("Finding four")).toBeNull();
     expect(screen.getByText("# Full report body")).toBeTruthy();
     expect(screen.queryByText("# Older full report body")).toBeNull();
@@ -350,6 +405,8 @@ describe("ResearchTaskCard", () => {
     );
 
     expect(screen.getByText(/One source could not/)).toBeTruthy();
+    expect(screen.queryByText("A concise card summary.")).toBeNull();
+    expect(screen.queryByText("Finding one")).toBeNull();
     expect(screen.queryByText("# Full report body")).toBeNull();
     expect(
       screen.queryByLabelText(
@@ -507,9 +564,12 @@ describe("ResearchGlobalBar", () => {
     );
 
     await user.click(screen.getByRole("button", { name: "Pause safely" }));
-    await user.click(
-      screen.getByRole("button", { name: "Return to research" }),
-    );
+    const returnButton = screen.getByRole("button", {
+      name: "Return to research",
+    });
+    expect(returnButton.className).toContain("border-gray-200");
+    expect(returnButton.className).not.toContain("bg-research-solid");
+    await user.click(returnButton);
     expect(onPause).toHaveBeenCalledOnce();
     expect(onOpenWorkbench).toHaveBeenCalledOnce();
     expect(screen.getByLabelText("Active deep research")).toBeTruthy();
@@ -517,6 +577,22 @@ describe("ResearchGlobalBar", () => {
 });
 
 describe("ResearchWorkbench", () => {
+  it("keeps the review brief and dialog keys in all research locales", () => {
+    for (const messages of [
+      researchMessages,
+      chineseResearchMessages,
+      japaneseResearchMessages,
+    ]) {
+      expect(messages.plan.willResearch).toBeTruthy();
+      expect(messages.plan.willNotResearch).toBeTruthy();
+      expect(messages.plan.advancedDisclosure).toBeTruthy();
+      expect(messages.adjust.title).toBeTruthy();
+      expect(messages.actions.closeAdjust).toBeTruthy();
+      expect(messages.actions.closeStrategy).toBeTruthy();
+      expect(messages.activity.degradedWaveTitle).toBeTruthy();
+    }
+  });
+
   it("renders full report versions only in the workbench and wires exports", async () => {
     const onDownloadMarkdown = vi.fn();
     const onPrintPdf = vi.fn();
@@ -535,9 +611,11 @@ describe("ResearchWorkbench", () => {
     expect(
       screen.getByTestId("research-report-markdown").textContent,
     ).toContain("Full report body");
-    await user.selectOptions(
-      screen.getByLabelText("Report version"),
-      "report-1",
+    await user.click(screen.getByRole("combobox", { name: "Report version" }));
+    await user.click(
+      screen.getByRole("option", {
+        name: "Version 1",
+      }),
     );
     expect(onSelectReportVersion).toHaveBeenCalledWith("report-1");
     expect(
@@ -660,7 +738,7 @@ describe("ResearchWorkbench", () => {
     ).toBe(false);
   });
 
-  it("uses max-w-5xl for every tab and expands the active plan step", async () => {
+  it("uses max-w-5xl for every tab and opens the first pre-run step", async () => {
     const user = userEvent.setup();
     renderWithResearchMessages(
       <ResearchWorkbench task={completedTask} onClose={vi.fn()} />,
@@ -675,68 +753,121 @@ describe("ResearchWorkbench", () => {
     }
 
     await user.click(screen.getByRole("tab", { name: "Research plan" }));
-    const activeStepSummary = screen
-      .getAllByText("Verify claims")
-      .map((item) => item.closest("summary"))
+    const firstStepTrigger = screen
+      .getAllByText("Collect sources")
+      .map((item) => item.closest("button"))
       .find(Boolean)!;
-    expect((activeStepSummary.parentElement as HTMLDetailsElement).open).toBe(
-      true,
-    );
+    expect(firstStepTrigger.getAttribute("aria-expanded")).toBe("true");
+    const contentId = firstStepTrigger.getAttribute("aria-controls")!;
+    const content = document.getElementById(contentId)!;
+    expect(content.className).toContain("grid-rows-[1fr]");
+    expect(content.className).toContain("duration-200");
+    expect(content.className).toContain("ease-out");
+    expect(content.hasAttribute("inert")).toBe(false);
+    await user.click(firstStepTrigger);
+    expect(firstStepTrigger.getAttribute("aria-expanded")).toBe("false");
+    expect(content.getAttribute("aria-hidden")).toBe("true");
+    expect(content.hasAttribute("inert")).toBe(true);
+    expect(content.className).toContain("grid-rows-[0fr]");
   });
 
-  it("shows every plan step and closes the plan with button, backdrop, or Escape", async () => {
+  it("shows the review brief and closes adjustment dialogs with button, backdrop, or Escape", async () => {
+    const onAdjustPlan = vi.fn();
+    const onUpdatePlanStrategy = vi.fn();
     const user = userEvent.setup();
     renderWithResearchMessages(
       <ResearchWorkbench
-        task={baseTask}
+        task={approvalTask}
         onClose={vi.fn()}
         onConfirmPlan={vi.fn()}
-        onAdjustPlan={vi.fn()}
+        onAdjustPlan={onAdjustPlan}
+        onUpdatePlanStrategy={onUpdatePlanStrategy}
       />,
     );
 
-    expect(screen.getAllByText("Plan ready for review")).toHaveLength(2);
+    expect(screen.getByText("Will research")).toBeTruthy();
+    expect(screen.getByText("Will not research")).toBeTruthy();
+    expect(
+      screen.getByRole("heading", {
+        name: "Recommend a research workflow using verifiable evidence.",
+      }),
+    ).toBeTruthy();
+    expect(screen.getByText("Anonymous social posts")).toBeTruthy();
     expect(screen.getByText("Web search")).toBeTruthy();
     expect(screen.getByText("Fetch URL")).toBeTruthy();
     expect(screen.getByText("Knowledge (2)")).toBeTruthy();
+    expect(screen.getByText("4 steps")).toBeTruthy();
+    expect(screen.getByText("16 queries")).toBeTruthy();
+    expect(
+      within(screen.getByText("4 steps").closest("footer")!)
+        .getAllByRole("button")
+        .map((button) => button.textContent),
+    ).toEqual(["Advanced strategy", "Adjust plan", "Start research"]);
+    for (const step of approvalTask.plan!.steps) {
+      expect(screen.getByText(step.title)).toBeTruthy();
+    }
+    const advancedDisclosure = screen
+      .getByText("Reconnaissance and advanced strategy")
+      .closest("button")!;
+    expect(advancedDisclosure.getAttribute("aria-expanded")).toBe("false");
+    expect(advancedDisclosure.parentElement?.className).toContain("rounded-lg");
+    const advancedContent = document.getElementById(
+      advancedDisclosure.getAttribute("aria-controls")!,
+    )!;
+    expect(advancedContent.getAttribute("aria-hidden")).toBe("true");
+    expect(advancedContent.hasAttribute("inert")).toBe(true);
     expect(
       screen.getAllByRole("button", { name: "Start research" }),
     ).toHaveLength(1);
-    const showFullPlan = screen.getByRole("button", {
-      name: "Show full plan",
-    });
-    await user.click(showFullPlan);
+
+    const adjustPlan = screen.getByRole("button", { name: "Adjust plan" });
+    await user.click(adjustPlan);
     await flushDialogFocus();
-    let dialog = screen.getByRole("dialog", { name: "Research plan" });
-    expect(
-      within(dialog).getByText(
-        "Compare the systems using primary documentation.",
-      ),
-    ).toBeTruthy();
-    for (const step of baseTask.plan!.steps) {
-      expect(within(dialog).getByText(step.title)).toBeTruthy();
-    }
-    expect(within(dialog).getByText("Web search")).toBeTruthy();
+    let dialog = screen.getByRole("dialog", { name: "Adjust research plan" });
 
     await user.click(
-      within(dialog).getByRole("button", { name: "Close research plan" }),
+      within(dialog).getByRole("button", { name: "Close plan adjustment" }),
     );
-    expect(screen.queryByRole("dialog", { name: "Research plan" })).toBeNull();
-    expect(document.activeElement).toBe(showFullPlan);
+    expect(
+      screen.queryByRole("dialog", { name: "Adjust research plan" }),
+    ).toBeNull();
+    expect(document.activeElement).toBe(adjustPlan);
 
-    await user.click(showFullPlan);
+    await user.click(adjustPlan);
     await flushDialogFocus();
-    dialog = screen.getByRole("dialog", { name: "Research plan" });
+    dialog = screen.getByRole("dialog", { name: "Adjust research plan" });
     fireEvent.mouseDown(dialog.parentElement!);
-    expect(screen.queryByRole("dialog", { name: "Research plan" })).toBeNull();
-    expect(document.activeElement).toBe(showFullPlan);
+    expect(
+      screen.queryByRole("dialog", { name: "Adjust research plan" }),
+    ).toBeNull();
+    expect(document.activeElement).toBe(adjustPlan);
 
-    await user.click(showFullPlan);
+    await user.click(adjustPlan);
     await flushDialogFocus();
-    dialog = screen.getByRole("dialog", { name: "Research plan" });
+    dialog = screen.getByRole("dialog", { name: "Adjust research plan" });
     fireEvent.keyDown(dialog, { key: "Escape" });
-    expect(screen.queryByRole("dialog", { name: "Research plan" })).toBeNull();
-    expect(document.activeElement).toBe(showFullPlan);
+    expect(
+      screen.queryByRole("dialog", { name: "Adjust research plan" }),
+    ).toBeNull();
+    expect(document.activeElement).toBe(adjustPlan);
+
+    const strategy = screen.getByRole("button", {
+      name: "Advanced strategy",
+    });
+    await user.click(strategy);
+    await flushDialogFocus();
+    const strategyDialog = screen.getByRole("dialog", {
+      name: "Advanced research strategy",
+    });
+    expect(
+      within(strategyDialog).getByRole("spinbutton", { name: "Breadth" }),
+    ).toBeTruthy();
+    await user.click(
+      within(strategyDialog).getByRole("button", {
+        name: "Close advanced strategy",
+      }),
+    );
+    expect(document.activeElement).toBe(strategy);
   });
 
   it("lets the activity list use the full workbench width", async () => {
@@ -778,7 +909,8 @@ describe("ResearchWorkbench", () => {
     ).toBeTruthy();
   });
 
-  it("discloses the approved strategy, scope, deliverable, and reconnaissance", () => {
+  it("discloses the approved strategy, scope, deliverable, and reconnaissance", async () => {
+    const user = userEvent.setup();
     renderWithResearchMessages(
       <ResearchWorkbench
         task={approvalTask}
@@ -787,10 +919,14 @@ describe("ResearchWorkbench", () => {
       />,
     );
 
+    const advancedDisclosure = screen
+      .getByText("Reconnaissance and advanced strategy")
+      .closest("button")!;
+    await user.click(advancedDisclosure);
+    expect(advancedDisclosure.getAttribute("aria-expanded")).toBe("true");
+
     expect(screen.getAllByText("Decision memo").length).toBeGreaterThan(0);
-    expect(
-      screen.getAllByText("Product and engineering leads").length,
-    ).toBeGreaterThan(0);
+    expect(screen.getByText(/Product and engineering leads/)).toBeTruthy();
     expect(screen.getAllByText("16").length).toBeGreaterThan(0);
     expect(
       screen.getAllByText(
@@ -806,6 +942,29 @@ describe("ResearchWorkbench", () => {
     expect(
       screen.getAllByText("Major claims require independent support.").length,
     ).toBeGreaterThan(0);
+    const strategyGrid = screen.getAllByText("Deliverable")[0].closest("dl")!;
+    expect(strategyGrid.className).toContain("rounded-lg");
+
+    const reconDisclosure = screen.getByRole("button", {
+      name: /Planning reconnaissance: 2\/2 queries/,
+    });
+    expect(reconDisclosure.getAttribute("aria-expanded")).toBe("false");
+    const closedChevron = reconDisclosure.lastElementChild!;
+    expect(closedChevron.getAttribute("class")).not.toContain("rotate-180");
+    await user.click(reconDisclosure);
+    expect(reconDisclosure.getAttribute("aria-expanded")).toBe("true");
+    expect(reconDisclosure.lastElementChild?.getAttribute("class")).toContain(
+      "rotate-180",
+    );
+    const reconContent = document.getElementById(
+      reconDisclosure.getAttribute("aria-controls")!,
+    )!;
+    expect(
+      reconContent.firstElementChild?.firstElementChild?.className,
+    ).toContain("rounded-md");
+    expect(
+      reconContent.firstElementChild?.firstElementChild?.className,
+    ).toContain("border");
   });
 
   it("uses one responsive semantic topology and inspects nodes by keyboard", async () => {
@@ -826,14 +985,16 @@ describe("ResearchWorkbench", () => {
     expect(screen.getByText("Wave 1")).toBeTruthy();
     expect(screen.getByText("Wave 2")).toBeTruthy();
 
-    const pendingNodeSummary = screen
+    const pendingNodeTrigger = screen
       .getByText("Check regional deployment variants")
-      .closest("summary")!;
-    const pendingNode = pendingNodeSummary.parentElement as HTMLDetailsElement;
-    expect(pendingNode.open).toBe(false);
-    pendingNodeSummary.focus();
+      .closest("button")!;
+    expect(pendingNodeTrigger.getAttribute("aria-expanded")).toBe("false");
+    expect(pendingNodeTrigger.className).toContain("rounded-md");
+    expect(pendingNodeTrigger.className).toContain("border-transparent");
+    pendingNodeTrigger.focus();
     await user.keyboard("{Enter}");
-    expect(pendingNode.open).toBe(true);
+    expect(pendingNodeTrigger.getAttribute("aria-expanded")).toBe("true");
+    expect(pendingNodeTrigger.className).toContain("border-research-border");
 
     const inspector = screen.getByLabelText("Research node inspector");
     expect(
@@ -848,6 +1009,71 @@ describe("ResearchWorkbench", () => {
     ).toBeTruthy();
     expect(screen.getAllByText("9/16").length).toBeGreaterThan(0);
     expect(screen.getAllByText("2/4").length).toBeGreaterThan(0);
+
+    const activeStepSummary = screen
+      .getAllByText("Verify claims")
+      .map((item) => item.closest("button"))
+      .find(Boolean)!;
+    expect(activeStepSummary.getAttribute("aria-expanded")).toBe("true");
+    const stepLedger = screen.getByRole("heading", {
+      name: "Research steps",
+    }).parentElement!;
+    const topologyHeading = screen.getByRole("heading", {
+      name: "Research topology",
+    });
+    const topology = topologyHeading.parentElement!.parentElement!;
+    const topologyFrame = waves.parentElement!.parentElement!;
+    expect(topologyFrame.className).toContain("rounded-lg");
+    expect(
+      within(inspector).getByRole("heading", {
+        name: "Check regional deployment variants",
+      }).parentElement?.previousElementSibling?.className,
+    ).toContain("rounded-md");
+    const metricGrid = within(inspector).getByText("Evidence").closest("dl")!;
+    expect(metricGrid.className).toContain("rounded-lg");
+    expect(
+      stepLedger.compareDocumentPosition(topology) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  it("shows degraded wave warnings as non-blocking research activity", async () => {
+    const user = userEvent.setup();
+    renderWithResearchMessages(
+      <ResearchWorkbench
+        task={{
+          ...orchestratedTask,
+          activities: [
+            ...orchestratedTask.activities,
+            {
+              id: "wave-2-degraded",
+              createdAt: Date.UTC(2026, 7, 24, 1),
+              phase: "researching",
+              title: "Wave 2 archived with evidence gaps",
+              detail:
+                "One research node produced no valid learning packet; preserved evidence remains available.",
+              tone: "warning",
+            },
+          ],
+        }}
+        onClose={vi.fn()}
+      />,
+    );
+
+    await user.click(screen.getByRole("tab", { name: "Activity" }));
+    const warning = screen.getByRole("heading", {
+      name: "Wave 2 archived with evidence gaps",
+    });
+    expect(warning.className).toContain("text-amber");
+    const warningItem = warning.closest("li")!;
+    expect(warningItem.querySelector('[class*="bg-amber"]')).toBeNull();
+    expect(warningItem.querySelector('[class*="rounded-md"]')).toBeNull();
+    expect(warningItem.querySelector("svg")?.className.baseVal).toContain(
+      "text-amber",
+    );
+    expect(
+      screen.getByText(/preserved evidence remains available/i),
+    ).toBeTruthy();
   });
 
   it("has no automated WCAG A/AA violations in the orchestration view", async () => {
@@ -865,10 +1091,49 @@ describe("ResearchWorkbench", () => {
     expect(results.violations.map((violation) => violation.id)).toEqual([]);
   });
 
-  it("has no automated WCAG A/AA violations in the completed state", async () => {
+  it("has no automated WCAG A/AA violations before plan approval", async () => {
     const { container } = renderWithResearchMessages(
-      <ResearchWorkbench task={completedTask} onClose={vi.fn()} />,
+      <ResearchWorkbench
+        task={approvalTask}
+        onClose={vi.fn()}
+        onConfirmPlan={vi.fn()}
+        onAdjustPlan={vi.fn()}
+        onUpdatePlanStrategy={vi.fn()}
+      />,
     );
+    const results = await axe.run(container, {
+      runOnly: {
+        type: "tag",
+        values: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"],
+      },
+      rules: { "color-contrast": { enabled: false } },
+    });
+
+    expect(results.violations.map((violation) => violation.id)).toEqual([]);
+  });
+
+  it("has no automated WCAG A/AA violations in degraded activity", async () => {
+    const user = userEvent.setup();
+    const { container } = renderWithResearchMessages(
+      <ResearchWorkbench
+        task={{
+          ...orchestratedTask,
+          activities: [
+            ...orchestratedTask.activities,
+            {
+              id: "wave-degraded-a11y",
+              createdAt: Date.UTC(2026, 7, 24, 2),
+              phase: "researching",
+              title: "Wave 2 archived with evidence gaps",
+              detail: "Preserved evidence remains available.",
+              tone: "warning",
+            },
+          ],
+        }}
+        onClose={vi.fn()}
+      />,
+    );
+    await user.click(screen.getByRole("tab", { name: "Activity" }));
     const results = await axe.run(container, {
       runOnly: {
         type: "tag",

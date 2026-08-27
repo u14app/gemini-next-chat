@@ -701,7 +701,13 @@ const ChatAppShell = ({
             </Button>
           </div>
         ) : null}
-        {viewMode !== "research" ? <ConnectedResearchGlobalBar /> : null}
+        {viewMode !== "research" ? (
+          <div className="pointer-events-none absolute inset-x-0 top-14 z-20">
+            <div className="pointer-events-auto">
+              <ConnectedResearchGlobalBar />
+            </div>
+          </div>
+        ) : null}
         {viewMode === "research" ? (
           researchTaskId ? (
             <ConnectedResearchWorkbench

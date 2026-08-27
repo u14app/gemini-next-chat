@@ -131,12 +131,17 @@ describe("MessageInput composition", () => {
     expect(messageInput).toContain("reasoningMode");
     expect(messageInput).toContain("AgentCapabilityMenu");
     expect(messageInput).toContain("AgentSettingsDialog");
+    expect(messageInput).toContain("ResearchSettingsDialog");
     expect(messageInput).toContain("data-chat-mode={chatMode}");
     expect(messageInput).toContain("handleApprovalModeChange");
     expect(messageInput).toContain("handleAgentBudgetChange");
     expect(messageInput).toContain("handleAgentBudgetReset");
-    expect(messageInput).toContain("handleAgentSettingsOpen");
+    expect(messageInput).toContain("handleCapabilitySettingsOpen");
     expect(messageInput).toContain("handleAgentSettingsClose");
+    expect(messageInput).toContain("handleResearchSettingsClose");
+    expect(messageInput).toContain("handleResearchSettingsChange");
+    expect(messageInput).toContain("researchBudgetPreset");
+    expect(messageInput).toContain("researchStrategy");
     expect(messageInput).toContain(
       "returnFocus.focus({ preventScroll: true })",
     );

@@ -19,7 +19,7 @@ import {
   formatToolDisplayName,
   getBuiltinToolLabelKey,
 } from "@/lib/utils/toolDisplay";
-import { selectVisibleResearchTaskId } from "./pendingTask";
+import { selectGlobalActiveResearchTaskId } from "./pendingTask";
 import { useAgentRunStore } from "@/store/core/agentRunStore";
 import { useChatStore } from "@/store/core/chatStore";
 import { useResearchStore } from "@/store/core/researchStore";
@@ -64,6 +64,14 @@ function useResearchTaskViewModel(taskId: string | null) {
       toolSourceDetail: (source) => t("activity.toolSource", { source }),
       internalToolResultSource: t("evidence.internalResult"),
       toolSafeDetail: t("activity.toolSafeDetail"),
+      degradedWaveTitle: (wave) => t("activity.degradedWaveTitle", { wave }),
+      degradedWaveDetail: (count) =>
+        t("activity.degradedWaveDetail", { count }),
+      scopeExpansionTitle: t("activity.scopeExpansionTitle"),
+      scopeExpansionDetail: (count) =>
+        t("activity.scopeExpansionDetail", { count }),
+      scopeExpansionLimitedDetail: (count) =>
+        t("activity.scopeExpansionLimitedDetail", { count }),
       reportKind: {
         initial: t("activity.reportKind.initial"),
         continue: t("activity.reportKind.continue"),
@@ -180,18 +188,9 @@ export function ConnectedResearchTaskCard({
 export function ConnectedResearchGlobalBar() {
   const activeTaskId = useResearchStore((state) => state.activeTaskId);
   const tasksById = useResearchStore((state) => state.tasksById);
-  const loadSessionTasks = useResearchStore((state) => state.loadSessionTasks);
-  const currentSessionId = useChatStore((state) => state.currentSessionId);
-  useEffect(() => {
-    if (currentSessionId) void loadSessionTasks(currentSessionId);
-  }, [currentSessionId, loadSessionTasks]);
   const visibleTaskId = useMemo(
-    () =>
-      selectVisibleResearchTaskId(
-        { tasksById, activeTaskId },
-        currentSessionId,
-      ),
-    [activeTaskId, currentSessionId, tasksById],
+    () => selectGlobalActiveResearchTaskId({ tasksById, activeTaskId }),
+    [activeTaskId, tasksById],
   );
   const { viewModel } = useResearchTaskViewModel(visibleTaskId);
   const runtime = useResearchRuntime();

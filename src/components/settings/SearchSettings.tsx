@@ -9,6 +9,7 @@ import { parseModelString } from "@/lib/utils/model";
 import { useChatStore } from "@/store/core/chatStore";
 import { useCoreSettingsStore } from "@/store/core/coreSettingsStore";
 import { useSettingsStore } from "@/store/core/settingsStore";
+import { CustomSelect } from "@/components/ui/controls";
 import { SearchProviderItem } from "./SearchProviderItem";
 import { SEARCH_CONFIG_LIMITS } from "@/config/limits";
 // Base URLs moved to API routes
@@ -218,20 +219,22 @@ const SearchSettings = () => {
           >
             {t("timeRange")}
           </label>
-          <select
+          <CustomSelect
             id="search-time-range"
             value={search.timeRange}
-            onChange={(event) =>
-              setSearchTimeRange(event.target.value as typeof search.timeRange)
+            onChange={(value) =>
+              setSearchTimeRange(value as typeof search.timeRange)
             }
-            className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-800 outline-none transition-colors focus:border-blue-400 focus:ring-2 focus:ring-blue-500/20 dark:border-border dark:bg-background dark:text-foreground"
-          >
-            <option value="any">{t("timeRangeAny")}</option>
-            <option value="day">{t("timeRangeDay")}</option>
-            <option value="week">{t("timeRangeWeek")}</option>
-            <option value="month">{t("timeRangeMonth")}</option>
-            <option value="year">{t("timeRangeYear")}</option>
-          </select>
+            options={[
+              { value: "any", label: t("timeRangeAny") },
+              { value: "day", label: t("timeRangeDay") },
+              { value: "week", label: t("timeRangeWeek") },
+              { value: "month", label: t("timeRangeMonth") },
+              { value: "year", label: t("timeRangeYear") },
+            ]}
+            ariaLabel={t("timeRange")}
+            selectButtonClassName="flex w-full items-center justify-between rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-800 outline-none transition-colors focus:border-blue-400 focus:ring-2 focus:ring-blue-500/20 dark:border-border dark:bg-background dark:text-foreground"
+          />
           <p className="text-xs leading-5 text-muted-foreground">
             {t("timeRangeHint")}
           </p>

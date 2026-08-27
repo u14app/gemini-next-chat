@@ -60,7 +60,7 @@ import { logDevError } from "@/lib/utils/devLogger";
 import type { MarketLoadResult } from "@/lib/market/loadResult";
 import MarketLoadNotice from "@/components/ui/MarketLoadNotice";
 import { Button } from "@/components/ui/primitives";
-import { SimpleSwitch } from "@/components/ui/controls";
+import { CustomSelect, SimpleSwitch } from "@/components/ui/controls";
 import { diffAgentProfiles } from "@/lib/assistant/profileHistory";
 import { useAgentProfileRevisionStore } from "@/store/core/agentProfileRevisionStore";
 
@@ -866,11 +866,9 @@ const AssistantEditorModal = ({
                         className="shrink-0 text-muted-foreground"
                         aria-hidden="true"
                       />
-                      <select
-                        aria-label={t("agentRevisionHistory")}
+                      <CustomSelect
                         value={selectedRevisionId}
-                        onChange={(event) => {
-                          const revisionId = event.target.value;
+                        onChange={(revisionId) => {
                           setSelectedRevisionId(revisionId);
                           const revision = profileRevisions.find(
                             (candidate) => candidate.id === revisionId,
@@ -881,23 +879,28 @@ const AssistantEditorModal = ({
                             );
                           }
                         }}
-                        className="h-9 min-w-0 flex-1 rounded-lg border border-border bg-muted/30 px-2 text-xs text-foreground outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
-                      >
-                        <option value="">
-                          {t("agentCurrentDraft", { count: draftDiffCount })}
-                        </option>
-                        {profileRevisions.map((revision) => (
-                          <option key={revision.id} value={revision.id}>
-                            {t("agentRevisionOption", {
+                        options={[
+                          {
+                            value: "",
+                            label: t("agentCurrentDraft", {
+                              count: draftDiffCount,
+                            }),
+                          },
+                          ...profileRevisions.map((revision) => ({
+                            value: revision.id,
+                            label: t("agentRevisionOption", {
                               sequence: revision.sequence,
                               count: revision.changes.length,
                               time: new Date(
                                 revision.createdAt,
                               ).toLocaleString(),
-                            })}
-                          </option>
-                        ))}
-                      </select>
+                            }),
+                          })),
+                        ]}
+                        ariaLabel={t("agentRevisionHistory")}
+                        className="min-w-0 flex-1"
+                        selectButtonClassName="flex h-9 w-full items-center justify-between rounded-lg border border-border bg-muted/30 px-2 text-xs text-foreground outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+                      />
                     </div>
                     <Button
                       variant="bare"
@@ -919,30 +922,36 @@ const AssistantEditorModal = ({
                     >
                       {t("agentApprovalMode")}
                     </label>
-                    <select
+                    <CustomSelect
                       id={approvalModeInputId}
                       name="assistant-agent-approval-mode"
                       value={agentProfile.runtime.approvalMode}
-                      onChange={(event) =>
+                      onChange={(value) =>
                         updateAgentProfile((profile) => ({
                           ...profile,
                           runtime: {
                             ...profile.runtime,
-                            approvalMode: event.target
-                              .value as AgentApprovalMode,
+                            approvalMode: value as AgentApprovalMode,
                           },
                         }))
                       }
-                      className="h-9 w-full rounded-lg border border-border bg-background px-2.5 text-xs text-foreground outline-none transition-[border-color,box-shadow] focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
-                    >
-                      <option value="permissive">
-                        {t("agentApprovalPermissive")}
-                      </option>
-                      <option value="balanced">
-                        {t("agentApprovalBalanced")}
-                      </option>
-                      <option value="strict">{t("agentApprovalStrict")}</option>
-                    </select>
+                      options={[
+                        {
+                          value: "permissive",
+                          label: t("agentApprovalPermissive"),
+                        },
+                        {
+                          value: "balanced",
+                          label: t("agentApprovalBalanced"),
+                        },
+                        {
+                          value: "strict",
+                          label: t("agentApprovalStrict"),
+                        },
+                      ]}
+                      ariaLabel={t("agentApprovalMode")}
+                      selectButtonClassName="flex h-9 w-full items-center justify-between rounded-lg border border-border bg-background px-2.5 text-xs text-foreground outline-none transition-[border-color,box-shadow] focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+                    />
                   </div>
 
                   <div className="space-y-1">
@@ -952,30 +961,32 @@ const AssistantEditorModal = ({
                     >
                       {t("agentPreferredModel")}
                     </label>
-                    <select
+                    <CustomSelect
                       id={preferredModelInputId}
                       name="assistant-agent-preferred-model"
                       value={agentProfile.runtime.preferredModel || ""}
-                      onChange={(event) =>
+                      onChange={(value) =>
                         updateAgentProfile((profile) => ({
                           ...profile,
                           runtime: {
                             ...profile.runtime,
-                            preferredModel: event.target.value || undefined,
+                            preferredModel: value || undefined,
                           },
                         }))
                       }
-                      className="h-9 w-full rounded-lg border border-border bg-background px-2.5 text-xs text-foreground outline-none transition-[border-color,box-shadow] focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
-                    >
-                      <option value="">{t("agentUseChatModel")}</option>
-                      {preferredModelOptions.map((model) => (
-                        <option key={model} value={model}>
-                          {model === selectedModel
-                            ? t("agentCurrentModel", { model })
-                            : model}
-                        </option>
-                      ))}
-                    </select>
+                      options={[
+                        { value: "", label: t("agentUseChatModel") },
+                        ...preferredModelOptions.map((model) => ({
+                          value: model,
+                          label:
+                            model === selectedModel
+                              ? t("agentCurrentModel", { model })
+                              : model,
+                        })),
+                      ]}
+                      ariaLabel={t("agentPreferredModel")}
+                      selectButtonClassName="flex h-9 w-full items-center justify-between rounded-lg border border-border bg-background px-2.5 text-xs text-foreground outline-none transition-[border-color,box-shadow] focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+                    />
                   </div>
                 </div>
 
@@ -1010,31 +1021,34 @@ const AssistantEditorModal = ({
                     >
                       {t("agentReasoningMode")}
                     </label>
-                    <select
+                    <CustomSelect
                       id={reasoningModeInputId}
                       name="assistant-agent-reasoning-mode"
                       value={agentProfile.runtime.reasoningMode || "auto"}
-                      onChange={(event) =>
+                      onChange={(value) =>
                         updateAgentProfile((profile) => ({
                           ...profile,
                           runtime: {
                             ...profile.runtime,
-                            reasoningMode: event.target.value as NonNullable<
+                            reasoningMode: value as NonNullable<
                               AgentProfileV2["runtime"]["reasoningMode"]
                             >,
                           },
                         }))
                       }
-                      className="h-9 w-full rounded-lg border border-border bg-background px-2.5 text-xs text-foreground outline-none transition-[border-color,box-shadow] focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
-                    >
-                      <option value="off">{t("agentReasoningOff")}</option>
-                      <option value="auto">{t("agentReasoningAuto")}</option>
-                      <option value="low">{t("agentReasoningLow")}</option>
-                      <option value="medium">
-                        {t("agentReasoningMedium")}
-                      </option>
-                      <option value="high">{t("agentReasoningHigh")}</option>
-                    </select>
+                      options={[
+                        { value: "off", label: t("agentReasoningOff") },
+                        { value: "auto", label: t("agentReasoningAuto") },
+                        { value: "low", label: t("agentReasoningLow") },
+                        {
+                          value: "medium",
+                          label: t("agentReasoningMedium"),
+                        },
+                        { value: "high", label: t("agentReasoningHigh") },
+                      ]}
+                      ariaLabel={t("agentReasoningMode")}
+                      selectButtonClassName="flex h-9 w-full items-center justify-between rounded-lg border border-border bg-background px-2.5 text-xs text-foreground outline-none transition-[border-color,box-shadow] focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+                    />
                   </div>
                 </div>
 
@@ -1311,29 +1325,31 @@ const AssistantEditorModal = ({
                             >
                               {skill.title}
                             </span>
-                            <select
-                              aria-label={t("agentSkillModeAria", {
+                            <CustomSelect
+                              value={mode}
+                              onChange={(value) =>
+                                setSkillMode(skill.id, value as AgentSkillMode)
+                              }
+                              options={[
+                                {
+                                  value: "auto",
+                                  label: t("agentSkillAuto"),
+                                },
+                                {
+                                  value: "manual",
+                                  label: t("agentSkillManual"),
+                                },
+                                {
+                                  value: "disabled",
+                                  label: t("agentSkillDisabled"),
+                                },
+                              ]}
+                              ariaLabel={t("agentSkillModeAria", {
                                 title: skill.title,
                               })}
-                              value={mode}
-                              onChange={(event) =>
-                                setSkillMode(
-                                  skill.id,
-                                  event.target.value as AgentSkillMode,
-                                )
-                              }
-                              className="h-7 shrink-0 rounded-md border border-border bg-muted/40 px-2 text-[11px] text-foreground outline-none transition-[border-color,box-shadow] focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
-                            >
-                              <option value="auto">
-                                {t("agentSkillAuto")}
-                              </option>
-                              <option value="manual">
-                                {t("agentSkillManual")}
-                              </option>
-                              <option value="disabled">
-                                {t("agentSkillDisabled")}
-                              </option>
-                            </select>
+                              className="shrink-0"
+                              selectButtonClassName="flex h-7 w-full items-center justify-between rounded-md border border-border bg-muted/40 px-2 text-[11px] text-foreground outline-none transition-[border-color,box-shadow] focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+                            />
                           </div>
                         );
                       })}

@@ -432,6 +432,11 @@ export function useChatRequestPreparation({
     agentRun,
     memoryScopes,
     memoryScopeIds,
+    researchBudgetPreset:
+      useChatStore
+        .getState()
+        .sessions.find((session) => session.id === sessionId)?.config
+        ?.researchBudgetPreset || "standard",
     onChatModeChange: (config, agentRunId) => {
       if (!isActive()) return;
       const modeConfig = {

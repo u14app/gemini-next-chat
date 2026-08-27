@@ -29,6 +29,7 @@ export const POST = withStreamApiHandler(
       attachments: parsed.attachments,
       config: parsed.config,
       systemInstruction: parsed.systemInstruction,
+      responseFormat: parsed.responseFormat,
       tools: parsed.tools,
       enableImageGeneration: parsed.enableImageGeneration,
       enableGoogleSearch: parsed.enableGoogleSearch,

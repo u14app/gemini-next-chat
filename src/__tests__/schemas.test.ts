@@ -121,6 +121,37 @@ describe("api schemas", () => {
     ).toThrow();
   });
 
+  it("accepts the internal structured response format contract", () => {
+    const responseFormat = {
+      name: "research_wave",
+      schema: {
+        type: "object",
+        properties: { packets: { type: "array" } },
+        required: ["packets"],
+        additionalProperties: false,
+      },
+      strict: true,
+    };
+    const parsed = ChatRequestSchema.parse({
+      provider: { type: "Gemini", apiKeySecret: encryptedSecret },
+      modelName: "gemini-test",
+      history: [],
+      newMessage: "archive",
+      responseFormat,
+    });
+
+    expect(parsed.responseFormat).toEqual(responseFormat);
+    expect(() =>
+      ChatRequestSchema.parse({
+        provider: { type: "Gemini", apiKeySecret: encryptedSecret },
+        modelName: "gemini-test",
+        history: [],
+        newMessage: "archive",
+        responseFormat: { ...responseFormat, name: "invalid name" },
+      }),
+    ).toThrow();
+  });
+
   it("accepts Deep Research independently from Agent mode", () => {
     const parsed = ChatRequestSchema.parse({
       provider: { type: "Gemini", apiKeySecret: encryptedSecret },

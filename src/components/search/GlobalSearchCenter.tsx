@@ -11,7 +11,7 @@ import {
   AlertTriangle,
   Brain,
   ChevronDown,
-  FileText,
+  Folder,
   LoaderCircle,
   LibraryBig,
   MessageSquare,
@@ -49,6 +49,7 @@ import { useChatStore } from "@/store/core/chatStore";
 import { useKnowledgeStore } from "@/store/core/knowledgeStore";
 import { useMemoryStore } from "@/store/core/memoryStore";
 import { GlobalSearchModalFrame } from "./GlobalSearchModalFrame";
+import { CustomSelect } from "@/components/ui/controls";
 import { Button } from "@/components/ui/primitives";
 
 export interface GlobalSearchCenterProps {
@@ -79,7 +80,7 @@ function HighlightedText({ value, query }: { value: string; query: string }) {
 function SourceIcon({ source }: { source: GlobalSearchSource }) {
   const props = { size: 16, "aria-hidden": true as const };
   if (source === "knowledge") return <LibraryBig {...props} />;
-  if (source === "workspace") return <FileText {...props} />;
+  if (source === "workspace") return <Folder {...props} />;
   if (source === "memory") return <Brain {...props} />;
   return <MessageSquare {...props} />;
 }
@@ -602,75 +603,98 @@ const GlobalSearchCenter = ({
                 )}
               </div>
 
-              <label className="min-w-0 space-y-1 text-xs text-muted-foreground">
+              <label
+                htmlFor="global-search-workspace-filter"
+                className="min-w-0 space-y-1 text-xs text-muted-foreground"
+              >
                 <span>{t("filterWorkspace")}</span>
-                <select
+                <CustomSelect
+                  id="global-search-workspace-filter"
                   value={workspaceId}
-                  onChange={(event) => {
-                    updateViewState({ workspaceId: event.target.value });
+                  onChange={(value) => {
+                    updateViewState({ workspaceId: value });
                     setSelectedIndex(0);
                   }}
-                  className="h-9 w-full rounded-lg border border-border bg-background px-2 text-sm text-foreground outline-none transition-[border-color,box-shadow] focus:border-brand/50 focus:ring-2 focus:ring-brand/10"
-                >
-                  <option value="all">{t("allWorkspaces")}</option>
-                  {workspaces.map((workspace) => (
-                    <option key={workspace.id} value={workspace.id}>
-                      {workspace.name}
-                    </option>
-                  ))}
-                </select>
+                  options={[
+                    { value: "all", label: t("allWorkspaces") },
+                    ...workspaces.map((workspace) => ({
+                      value: workspace.id,
+                      label: workspace.name,
+                    })),
+                  ]}
+                  ariaLabel={t("filterWorkspace")}
+                  selectButtonClassName="flex h-9 w-full items-center justify-between rounded-lg border border-border bg-background px-2 text-sm text-foreground outline-none transition-[border-color,box-shadow] focus:border-brand/50 focus:ring-2 focus:ring-brand/10"
+                />
               </label>
-              <label className="min-w-0 space-y-1 text-xs text-muted-foreground">
+              <label
+                htmlFor="global-search-role-filter"
+                className="min-w-0 space-y-1 text-xs text-muted-foreground"
+              >
                 <span>{t("filterRole")}</span>
-                <select
+                <CustomSelect
+                  id="global-search-role-filter"
                   value={role}
-                  onChange={(event) => {
+                  onChange={(value) => {
                     updateViewState({
-                      role: event.target.value as GlobalSearchRoleFilter,
+                      role: value as GlobalSearchRoleFilter,
                     });
                     setSelectedIndex(0);
                   }}
-                  className="h-9 w-full rounded-lg border border-border bg-background px-2 text-sm text-foreground outline-none transition-[border-color,box-shadow] focus:border-brand/50 focus:ring-2 focus:ring-brand/10"
-                >
-                  <option value="all">{t("allRoles")}</option>
-                  <option value="user">{t("roleUser")}</option>
-                  <option value="model">{t("roleModel")}</option>
-                </select>
+                  options={[
+                    { value: "all", label: t("allRoles") },
+                    { value: "user", label: t("roleUser") },
+                    { value: "model", label: t("roleModel") },
+                  ]}
+                  ariaLabel={t("filterRole")}
+                  selectButtonClassName="flex h-9 w-full items-center justify-between rounded-lg border border-border bg-background px-2 text-sm text-foreground outline-none transition-[border-color,box-shadow] focus:border-brand/50 focus:ring-2 focus:ring-brand/10"
+                />
               </label>
-              <label className="min-w-0 space-y-1 text-xs text-muted-foreground">
+              <label
+                htmlFor="global-search-date-filter"
+                className="min-w-0 space-y-1 text-xs text-muted-foreground"
+              >
                 <span>{t("filterDate")}</span>
-                <select
+                <CustomSelect
+                  id="global-search-date-filter"
                   value={date}
-                  onChange={(event) => {
+                  onChange={(value) => {
                     updateViewState({
-                      date: event.target.value as GlobalSearchDateFilter,
+                      date: value as GlobalSearchDateFilter,
                     });
                     setSelectedIndex(0);
                   }}
-                  className="h-9 w-full rounded-lg border border-border bg-background px-2 text-sm text-foreground outline-none transition-[border-color,box-shadow] focus:border-brand/50 focus:ring-2 focus:ring-brand/10"
-                >
-                  <option value="all">{t("anyDate")}</option>
-                  <option value="7">{t("last7Days")}</option>
-                  <option value="30">{t("last30Days")}</option>
-                  <option value="90">{t("last90Days")}</option>
-                </select>
+                  options={[
+                    { value: "all", label: t("anyDate") },
+                    { value: "7", label: t("last7Days") },
+                    { value: "30", label: t("last30Days") },
+                    { value: "90", label: t("last90Days") },
+                  ]}
+                  ariaLabel={t("filterDate")}
+                  selectButtonClassName="flex h-9 w-full items-center justify-between rounded-lg border border-border bg-background px-2 text-sm text-foreground outline-none transition-[border-color,box-shadow] focus:border-brand/50 focus:ring-2 focus:ring-brand/10"
+                />
               </label>
-              <label className="min-w-0 space-y-1 text-xs text-muted-foreground">
+              <label
+                htmlFor="global-search-sort"
+                className="min-w-0 space-y-1 text-xs text-muted-foreground"
+              >
                 <span>{t("sort")}</span>
-                <select
+                <CustomSelect
+                  id="global-search-sort"
                   value={sort}
-                  onChange={(event) => {
+                  onChange={(value) => {
                     updateViewState({
-                      sort: event.target.value as GlobalSearchViewState["sort"],
+                      sort: value as GlobalSearchViewState["sort"],
                     });
                     setSelectedIndex(0);
                   }}
-                  className="h-9 w-full rounded-lg border border-border bg-background px-2 text-sm text-foreground outline-none transition-[border-color,box-shadow] focus:border-brand/50 focus:ring-2 focus:ring-brand/10"
-                >
-                  <option value="relevance">{t("sortRelevance")}</option>
-                  <option value="newest">{t("sortNewest")}</option>
-                  <option value="oldest">{t("sortOldest")}</option>
-                </select>
+                  options={[
+                    { value: "relevance", label: t("sortRelevance") },
+                    { value: "newest", label: t("sortNewest") },
+                    { value: "oldest", label: t("sortOldest") },
+                  ]}
+                  ariaLabel={t("sort")}
+                  selectButtonClassName="flex h-9 w-full items-center justify-between rounded-lg border border-border bg-background px-2 text-sm text-foreground outline-none transition-[border-color,box-shadow] focus:border-brand/50 focus:ring-2 focus:ring-brand/10"
+                />
               </label>
             </div>
           )}

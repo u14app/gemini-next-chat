@@ -1,6 +1,9 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
+import enMessages from "../i18n/locales/en/MessageInput.json";
+import jaMessages from "../i18n/locales/ja/MessageInput.json";
+import zhMessages from "../i18n/locales/zh/MessageInput.json";
 
 describe("AgentCapabilityMenu composition", () => {
   it("keeps the mode picker focused on mode selection", () => {
@@ -23,7 +26,7 @@ describe("AgentCapabilityMenu composition", () => {
     expect(source).not.toContain("agentCapabilitiesTools");
   });
 
-  it("uses a neutral icon trigger and limits Agent settings to Auto or Agent", () => {
+  it("uses a neutral trigger and limits settings to Agent or Research", () => {
     const source = readFileSync(
       resolve(process.cwd(), "src/components/agent/AgentCapabilityMenu.tsx"),
       "utf8",
@@ -43,11 +46,16 @@ describe("AgentCapabilityMenu composition", () => {
     expect(source.match(/<SettingsButton/g)).toHaveLength(2);
     expect(source).toContain('content={label} position="left" portal');
     expect(source).not.toContain('title={t("agentSettingsOpen")}');
-    expect(source).toContain('mode === "auto" || mode === "agent"');
+    expect(source).toContain('mode === "agent" || mode === "research"');
+    expect(source).toContain('t("researchSettingsOpen")');
     expect(source).toContain("max-md:h-9 max-md:w-9 text-research-accent");
     expect(source).toContain("<Settings2");
     expect(source).toContain("close();");
-    expect(source).toContain("onOpenSettings();");
+    expect(source).toContain("onOpenSettings(settingsMode);");
+    expect(source).toContain(
+      "onOpenSettings(settingsMode, desktopTriggerRef.current)",
+    );
+    expect(source).toContain("onOpenSettings(mode, mobileTriggerRef.current)");
     expect(source).toContain("desktopTriggerRef.current");
     expect(source).toContain("mobileTriggerRef.current");
     expect(source).toContain("headerAction=");
@@ -56,8 +64,22 @@ describe("AgentCapabilityMenu composition", () => {
     expect(source).toContain('align="end"');
     expect(source).toContain('placement="responsive-sheet"');
     expect(source).toContain('className="border-b border-border px-2 py-1"');
+    expect(source).toContain("bg-background/80 text-current ring-1");
+    expect(source).not.toContain("text-current shadow-sm ring-1");
     expect(source).not.toContain(
       'className="border-b border-border px-3 py-2.5"',
+    );
+  });
+
+  it("keeps the concise Research description in every locale", () => {
+    expect(enMessages.chatModeResearchDescription).toBe(
+      "Uses evidence from multiple sources.",
+    );
+    expect(zhMessages.chatModeResearchDescription).toBe(
+      "基于多来源证据开展深入研究。",
+    );
+    expect(jaMessages.chatModeResearchDescription).toBe(
+      "複数の情報源を根拠に詳しく調査します。",
     );
   });
 });

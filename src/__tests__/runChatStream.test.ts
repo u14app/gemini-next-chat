@@ -23,6 +23,7 @@ vi.mock("../lib/streaming/gemini", () => ({
 }));
 
 import { runChatStream, type ProviderRuntime } from "@/lib/chat/runChatStream";
+import { STRUCTURED_OUTPUT_CAPABILITY_ERROR_CODE } from "@/lib/chat/responseFormat";
 
 function makeRuntime(): {
   runtime: ProviderRuntime;
@@ -55,6 +56,17 @@ function baseOptions(type: string) {
     config: {},
   };
 }
+
+const responseFormat = {
+  name: "research_wave",
+  schema: {
+    type: "object",
+    properties: { packets: { type: "array" } },
+    required: ["packets"],
+    additionalProperties: false,
+  },
+  strict: true,
+} as const;
 
 // 每个 provider 分支都必须把适配器产出的事件原样透传给 send，并以 done 收尾
 const CASES: Array<{ type: string; stream: () => ReturnType<typeof vi.fn> }> = [
@@ -99,6 +111,27 @@ describe("runChatStream transport-free dispatch", () => {
         "done",
       ]);
       expect(sent[0]).toEqual({ type: "content", content: "hello" });
+      expect(stream()).toHaveBeenCalledWith(
+        expect.not.objectContaining({ responseFormat: expect.anything() }),
+      );
+    },
+  );
+
+  it.each(CASES)(
+    "forwards an internal response format to $type",
+    async ({ type, stream }) => {
+      const { runtime } = makeRuntime();
+
+      await runChatStream({
+        ...baseOptions(type),
+        responseFormat,
+        runtime,
+        send: () => undefined,
+      });
+
+      expect(stream()).toHaveBeenCalledWith(
+        expect.objectContaining({ responseFormat }),
+      );
     },
   );
 
@@ -119,5 +152,33 @@ describe("runChatStream transport-free dispatch", () => {
 
     expect(logStreamError).toHaveBeenCalledWith(failure, expect.anything());
     expect(sent).toEqual([]);
+  });
+
+  it("preserves only explicit structured output capability failures", async () => {
+    const failure = Object.assign(
+      new Error("Unknown parameter: response_format"),
+      { status: 400 },
+    );
+    mocks.streamGeminiResponse.mockRejectedValue(failure);
+    const { runtime, logStreamError } = makeRuntime();
+
+    await expect(
+      runChatStream({
+        ...baseOptions("Google"),
+        responseFormat,
+        runtime,
+        send: () => undefined,
+      }),
+    ).rejects.toMatchObject({
+      code: STRUCTURED_OUTPUT_CAPABILITY_ERROR_CODE,
+      statusCode: 400,
+    });
+    expect(logStreamError).toHaveBeenCalledWith(
+      expect.objectContaining({
+        code: STRUCTURED_OUTPUT_CAPABILITY_ERROR_CODE,
+        statusCode: 400,
+      }),
+      expect.anything(),
+    );
   });
 });

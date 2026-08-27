@@ -75,6 +75,12 @@ describe("ResearchTask domain", () => {
     expect(task.status).toBe("draft");
     expect(task.schemaVersion).toBe(RESEARCH_TASK_SCHEMA_VERSION);
     expect(task.budgetPreset).toBe("standard");
+    expect(task.requestedStrategy).toEqual({
+      initialBreadth: 4,
+      maxDepth: 2,
+      maxQueries: 16,
+      resultsPerQuery: 5,
+    });
     expect(task.reportRuns).toEqual([]);
     expect(canTransitionResearchTask("draft", "plan_ready")).toBe(true);
     expect(canTransitionResearchTask("draft", "completed")).toBe(false);
@@ -86,6 +92,110 @@ describe("ResearchTask domain", () => {
     expect(() =>
       transitionResearchTask(task, "completed", { now: 110 }),
     ).toThrow(ResearchTaskTransitionError);
+  });
+
+  it("snapshots and clamps the requested task strategy at creation", () => {
+    const requestedStrategy = {
+      initialBreadth: 7,
+      maxDepth: 3,
+      maxQueries: 30,
+      resultsPerQuery: 6,
+    };
+    const task = createResearchTask({
+      id: "research-strategy",
+      sessionId: "session-1",
+      goal: "Keep a task-level strategy snapshot",
+      budgetPreset: "deep",
+      requestedStrategy,
+      now: 100,
+    });
+
+    requestedStrategy.maxQueries = 4;
+    expect(task.requestedStrategy).toEqual({
+      initialBreadth: 7,
+      maxDepth: 3,
+      maxQueries: 30,
+      resultsPerQuery: 6,
+    });
+    expect(
+      createResearchTask({
+        id: "research-clamped-strategy",
+        sessionId: "session-1",
+        goal: "Clamp a task-level strategy snapshot",
+        requestedStrategy: {
+          initialBreadth: 99,
+          maxDepth: 0,
+          maxQueries: 99,
+          resultsPerQuery: 1,
+        },
+        now: 100,
+      }).requestedStrategy,
+    ).toEqual({
+      initialBreadth: 8,
+      maxDepth: 1,
+      maxQueries: 48,
+      resultsPerQuery: 3,
+    });
+  });
+
+  it("recovers a legacy task strategy from its approved plan", () => {
+    const task = createResearchTask({
+      id: "research-legacy-strategy",
+      sessionId: "session-1",
+      goal: "Recover a legacy strategy",
+      now: 100,
+    });
+    const planStrategy = {
+      initialBreadth: 3,
+      maxDepth: 2,
+      maxQueries: 12,
+      resultsPerQuery: 7,
+    };
+    const legacyTask = {
+      ...task,
+      requestedStrategy: undefined,
+      planVersions: [
+        {
+          id: "plan-legacy",
+          version: 1,
+          title: "Legacy plan",
+          summary: "Legacy plan",
+          objective: "Recover its strategy",
+          scope: {
+            audience: "Maintainers",
+            includes: ["Strategy"],
+            excludes: [],
+            allowedSourceTypes: ["web" as const],
+          },
+          assumptions: [],
+          deliverable: {
+            kind: "research_report" as const,
+            description: "A report",
+            requiredSections: ["Sources"],
+          },
+          strategy: planStrategy,
+          recon: {
+            status: "completed" as const,
+            sourceFeasibility: "verified" as const,
+            startedAt: 1,
+            completedAt: 2,
+            timeoutMs: 30_000,
+            queryLimit: 2,
+            resultsPerQuery: 5,
+            usage: { queryCount: 0, resultCount: 0, wallTimeMs: 1 },
+            queries: [],
+          },
+          steps: [],
+          completionCriteria: ["Recovered"],
+          createdAt: 100,
+        },
+      ],
+      activePlanVersion: 1,
+    };
+
+    expect(recoverResearchTask(legacyTask, 110).requestedStrategy).toEqual(
+      planStrategy,
+    );
   });
 
   it("allows a recoverable failure to retry or be dismissed", () => {

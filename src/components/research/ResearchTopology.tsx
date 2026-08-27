@@ -16,6 +16,7 @@ import { useTranslations } from "next-intl";
 import { InlineStatus } from "@/components/ui/primitives";
 import { cn } from "@/lib/utils/cn";
 
+import ResearchDisclosure from "./ResearchDisclosure";
 import type {
   ResearchNodeView,
   ResearchPlanView,
@@ -89,11 +90,15 @@ function PlanList({ items }: { items: string[] }) {
 export function ResearchPlanContract({
   plan,
   compact = false,
+  advancedOnly = false,
 }: {
   plan: ResearchPlanView;
   compact?: boolean;
+  advancedOnly?: boolean;
 }) {
   const t = useTranslations("Research");
+  const [reconOpen, setReconOpen] = useState(false);
+  const recon = plan.recon;
   const hasScope = Boolean(
     plan.scope &&
     (plan.scope.audience ||
@@ -102,14 +107,21 @@ export function ResearchPlanContract({
       plan.scope.includes.length ||
       plan.scope.excludes.length),
   );
-  const hasPlanContract = Boolean(
-    plan.objective ||
-    hasScope ||
-    plan.assumptions?.length ||
-    plan.deliverable ||
-    plan.strategy ||
-    plan.completionCriteria?.length,
-  );
+  const hasPlanContract = advancedOnly
+    ? Boolean(
+        plan.assumptions?.length ||
+        plan.deliverable ||
+        plan.strategy ||
+        plan.completionCriteria?.length,
+      )
+    : Boolean(
+        plan.objective ||
+        hasScope ||
+        plan.assumptions?.length ||
+        plan.deliverable ||
+        plan.strategy ||
+        plan.completionCriteria?.length,
+      );
 
   if (!hasPlanContract && !plan.recon) return null;
 
@@ -118,7 +130,7 @@ export function ResearchPlanContract({
       {plan.strategy || plan.deliverable ? (
         <dl
           className={cn(
-            "grid gap-px overflow-hidden border border-research-border bg-research-border",
+            "grid gap-px overflow-hidden rounded-lg border border-research-border bg-research-border",
             compact ? "grid-cols-2" : "grid-cols-2 sm:grid-cols-4",
           )}
         >
@@ -168,7 +180,7 @@ export function ResearchPlanContract({
         </dl>
       ) : null}
 
-      {!compact && plan.objective ? (
+      {!compact && !advancedOnly && plan.objective ? (
         <section>
           <h4 className="text-[11px] font-semibold tracking-[0.12em] text-muted-foreground uppercase">
             {t("plan.objective")}
@@ -179,7 +191,7 @@ export function ResearchPlanContract({
         </section>
       ) : null}
 
-      {!compact && hasScope && plan.scope ? (
+      {!compact && !advancedOnly && hasScope && plan.scope ? (
         <section>
           <h4 className="text-[11px] font-semibold tracking-[0.12em] text-muted-foreground uppercase">
             {t("plan.scope")}
@@ -289,40 +301,50 @@ export function ResearchPlanContract({
         </section>
       ) : null}
 
-      {plan.recon ? (
-        <details className="group border-t border-border pt-3">
-          <summary className="flex min-h-9 cursor-pointer list-none items-center gap-2 rounded-sm text-xs font-medium text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
-            <Search
-              size={14}
-              className="text-research-accent"
-              aria-hidden="true"
-            />
-            <span className="min-w-0 flex-1">
-              {t("plan.reconSummary", {
-                used: plan.recon.queryCount,
-                limit: plan.recon.maxQueries,
-              })}
-            </span>
-            <ChevronDown
-              size={14}
-              className="transition-transform group-open:rotate-180 motion-reduce:transition-none"
-              aria-hidden="true"
-            />
-          </summary>
-          <div className="pb-1 pt-2">
+      {recon ? (
+        <ResearchDisclosure
+          open={reconOpen}
+          onOpenChange={setReconOpen}
+          className="border-t border-border pt-3"
+          triggerClassName="flex min-h-9 w-full cursor-pointer items-center gap-2 rounded-sm text-left text-xs font-medium text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          summary={(isOpen) => (
+            <>
+              <Search
+                size={14}
+                className="text-research-accent"
+                aria-hidden="true"
+              />
+              <span className="min-w-0 flex-1">
+                {t("plan.reconSummary", {
+                  used: recon.queryCount,
+                  limit: recon.maxQueries,
+                })}
+              </span>
+              <ChevronDown
+                size={14}
+                className={cn(
+                  "transition-transform duration-200 ease-out motion-reduce:transition-none",
+                  isOpen && "rotate-180",
+                )}
+                aria-hidden="true"
+              />
+            </>
+          )}
+        >
+          <div className="mt-2 rounded-md border border-border p-3">
             <InlineStatus
-              tone={plan.recon.status === "completed" ? "neutral" : "warning"}
+              tone={recon.status === "completed" ? "neutral" : "warning"}
             >
               {t("plan.reconDisclosure")}
             </InlineStatus>
-            {plan.recon.status !== "completed" ? (
+            {recon.status !== "completed" ? (
               <p className="mt-2 text-xs leading-5 text-amber-700 dark:text-amber-300">
-                {t(`plan.reconStatus.${plan.recon.status}`)}
+                {t(`plan.reconStatus.${recon.status}`)}
               </p>
             ) : null}
-            {plan.recon.queries.length ? (
+            {recon.queries.length ? (
               <ol className="mt-3 space-y-2">
-                {plan.recon.queries.map((item, index) => (
+                {recon.queries.map((item, index) => (
                   <li
                     key={item.id}
                     className="grid grid-cols-[1.5rem_minmax(0,1fr)] gap-2 text-xs"
@@ -348,7 +370,7 @@ export function ResearchPlanContract({
               </ol>
             ) : null}
           </div>
-        </details>
+        </ResearchDisclosure>
       ) : null}
     </div>
   );
@@ -430,7 +452,7 @@ function NodeInspector({
       aria-labelledby={`research-node-inspector-${node.id}`}
     >
       <div className="flex items-start gap-3">
-        <span className="mt-0.5 inline-flex h-7 w-7 shrink-0 items-center justify-center border border-border bg-muted/30">
+        <span className="mt-0.5 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-border bg-muted/30">
           <RunStatusIcon status={node.status} />
         </span>
         <div className="min-w-0 flex-1">
@@ -446,7 +468,7 @@ function NodeInspector({
         </div>
       </div>
 
-      <dl className="mt-4 grid grid-cols-2 gap-px overflow-hidden border border-border bg-border text-xs">
+      <dl className="mt-4 grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-border bg-border text-xs">
         <div className="bg-background px-3 py-2.5">
           <dt className="text-muted-foreground">{t("metrics.evidence")}</dt>
           <dd className="mt-1 font-mono tabular-nums text-foreground">
@@ -529,6 +551,76 @@ function NodeInspector({
   );
 }
 
+function TopologyNode({
+  node,
+  index,
+  selected,
+  onSelect,
+}: {
+  node: ResearchNodeView;
+  index: number;
+  selected: boolean;
+  onSelect: (nodeId: string) => void;
+}) {
+  const t = useTranslations("Research");
+  const defaultOpen = node.status === "in_progress";
+  const [open, setOpen] = useState(defaultOpen);
+
+  useEffect(() => {
+    if (defaultOpen) setOpen(true);
+  }, [defaultOpen]);
+
+  return (
+    <li className="relative border-l border-border pl-4 before:absolute before:top-[1.35rem] before:left-0 before:w-3 before:border-t before:border-border last:pb-0">
+      <ResearchDisclosure
+        open={open}
+        onOpenChange={(nextOpen) => {
+          setOpen(nextOpen);
+          if (nextOpen) onSelect(node.id);
+        }}
+        ariaCurrent={selected ? "true" : undefined}
+        triggerClassName={cn(
+          "flex min-h-11 w-full cursor-pointer items-start gap-2 rounded-md border border-transparent px-2 py-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+          selected && "border-research-border bg-research-soft",
+        )}
+        summary={(isOpen) => (
+          <>
+            <span className="mt-0.5 font-mono text-[10px] tabular-nums text-muted-foreground">
+              {String(index + 1).padStart(2, "0")}
+            </span>
+            <RunStatusIcon status={node.status} />
+            <span className="min-w-0 flex-1 wrap-break-word text-xs font-medium leading-5 text-foreground">
+              {node.objective}
+            </span>
+            <ChevronDown
+              size={13}
+              className={cn(
+                "mt-0.5 shrink-0 text-muted-foreground transition-transform duration-200 ease-out motion-reduce:transition-none",
+                isOpen && "rotate-180",
+              )}
+              aria-hidden
+            />
+          </>
+        )}
+      >
+        <div className="pb-3 pl-9 pr-2 text-[11px] leading-5 text-muted-foreground">
+          {node.query ? (
+            <p className="wrap-break-word font-mono">{node.query}</p>
+          ) : (
+            <p>{t("run.queryPending")}</p>
+          )}
+          <p className="mt-1 font-mono tabular-nums">
+            {t("run.nodeSummary", {
+              sources: node.evidenceIds.length,
+              claims: node.verifiedClaimCount,
+            })}
+          </p>
+        </div>
+      </ResearchDisclosure>
+    </li>
+  );
+}
+
 function WaveGroup({
   wave,
   nodes,
@@ -541,96 +633,61 @@ function WaveGroup({
   onSelectNode: (nodeId: string) => void;
 }) {
   const t = useTranslations("Research");
-  const isActive = wave.status === "in_progress";
+  const defaultOpen =
+    wave.status === "in_progress" || wave.status === "completed";
+  const [open, setOpen] = useState(defaultOpen);
+
+  useEffect(() => {
+    if (defaultOpen) setOpen(true);
+  }, [defaultOpen]);
 
   return (
     <li>
-      <details
-        open={isActive || wave.status === "completed" || undefined}
-        className="group/wave"
+      <ResearchDisclosure
+        open={open}
+        onOpenChange={setOpen}
+        triggerClassName="flex min-h-12 w-full cursor-pointer items-center gap-3 border-b border-border px-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+        summary={(isOpen) => (
+          <>
+            <RunStatusIcon status={wave.status} />
+            <span className="min-w-0 flex-1">
+              <span className="block text-xs font-semibold text-foreground">
+                {t("run.wave", { wave: wave.index })}
+              </span>
+              <span className="mt-0.5 block text-[11px] text-muted-foreground">
+                {t("run.waveSummary", {
+                  queries: wave.queryCount,
+                  sources: wave.sourceCount,
+                  claims: wave.verifiedClaimCount,
+                })}
+              </span>
+            </span>
+            <span className="font-mono text-[10px] tabular-nums text-muted-foreground">
+              {t("run.nodeDepth", { depth: wave.depth })}
+            </span>
+            <ChevronDown
+              size={14}
+              className={cn(
+                "transition-transform duration-200 ease-out motion-reduce:transition-none",
+                isOpen && "rotate-180",
+              )}
+              aria-hidden
+            />
+          </>
+        )}
       >
-        <summary className="flex min-h-12 cursor-pointer list-none items-center gap-3 border-b border-border px-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
-          <RunStatusIcon status={wave.status} />
-          <span className="min-w-0 flex-1">
-            <span className="block text-xs font-semibold text-foreground">
-              {t("run.wave", { wave: wave.index })}
-            </span>
-            <span className="mt-0.5 block text-[11px] text-muted-foreground">
-              {t("run.waveSummary", {
-                queries: wave.queryCount,
-                sources: wave.sourceCount,
-                claims: wave.verifiedClaimCount,
-              })}
-            </span>
-          </span>
-          <span className="font-mono text-[10px] tabular-nums text-muted-foreground">
-            {t("run.nodeDepth", { depth: wave.depth })}
-          </span>
-          <ChevronDown
-            size={14}
-            className="transition-transform group-open/wave:rotate-180 motion-reduce:transition-none"
-            aria-hidden
-          />
-        </summary>
         <ol className="border-b border-border bg-muted/10 px-3 py-2">
           {nodes.map((node, index) => (
-            <li
+            <TopologyNode
               key={node.id}
-              className="relative border-l border-border pl-4 before:absolute before:top-[1.35rem] before:left-0 before:w-3 before:border-t before:border-border last:pb-0"
-            >
-              <details
-                open={node.status === "in_progress" || undefined}
-                onToggle={(event) => {
-                  if (event.currentTarget.open) onSelectNode(node.id);
-                }}
-                className="group/node"
-              >
-                <summary
-                  className={cn(
-                    "flex min-h-11 cursor-pointer list-none items-start gap-2 rounded-sm px-2 py-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden",
-                    selectedNodeId === node.id && "bg-research-soft",
-                  )}
-                  aria-current={selectedNodeId === node.id ? "true" : undefined}
-                  onKeyDown={(event) => {
-                    if (event.key !== "Enter" && event.key !== " ") return;
-                    event.preventDefault();
-                    const details = event.currentTarget
-                      .parentElement as HTMLDetailsElement;
-                    details.open = !details.open;
-                    if (details.open) onSelectNode(node.id);
-                  }}
-                >
-                  <span className="mt-0.5 font-mono text-[10px] tabular-nums text-muted-foreground">
-                    {String(index + 1).padStart(2, "0")}
-                  </span>
-                  <RunStatusIcon status={node.status} />
-                  <span className="min-w-0 flex-1 wrap-break-word text-xs font-medium leading-5 text-foreground">
-                    {node.objective}
-                  </span>
-                  <ChevronDown
-                    size={13}
-                    className="mt-0.5 shrink-0 text-muted-foreground transition-transform group-open/node:rotate-180 motion-reduce:transition-none"
-                    aria-hidden
-                  />
-                </summary>
-                <div className="pb-3 pl-9 pr-2 text-[11px] leading-5 text-muted-foreground">
-                  {node.query ? (
-                    <p className="wrap-break-word font-mono">{node.query}</p>
-                  ) : (
-                    <p>{t("run.queryPending")}</p>
-                  )}
-                  <p className="mt-1 font-mono tabular-nums">
-                    {t("run.nodeSummary", {
-                      sources: node.evidenceIds.length,
-                      claims: node.verifiedClaimCount,
-                    })}
-                  </p>
-                </div>
-              </details>
-            </li>
+              node={node}
+              index={index}
+              selected={selectedNodeId === node.id}
+              onSelect={onSelectNode}
+            />
           ))}
         </ol>
-      </details>
+      </ResearchDisclosure>
     </li>
   );
 }
@@ -705,7 +762,7 @@ export function ResearchTopology({ task }: { task: ResearchTaskViewModel }) {
           {t("run.waveCount", { count: run.waves.length })}
         </p>
       </div>
-      <div className="grid overflow-hidden border border-border bg-background lg:grid-cols-[minmax(0,1.35fr)_minmax(18rem,0.65fr)]">
+      <div className="grid overflow-hidden rounded-lg border border-border bg-background lg:grid-cols-[minmax(0,1.35fr)_minmax(18rem,0.65fr)]">
         <div className="min-w-0 lg:border-r lg:border-border">
           <ol className="divide-y divide-border" aria-label={t("run.waves")}>
             {run.waves.map((wave) => (
