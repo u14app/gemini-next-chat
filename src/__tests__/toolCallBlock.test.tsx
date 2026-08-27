@@ -245,7 +245,7 @@ describe("ToolCallBlock built-in tool presentation", () => {
     [
       "lucide-search",
       "lucide-book-open",
-      "lucide-sparkles",
+      "lucide-scroll-text",
       "lucide-square-code",
       "lucide-globe",
       "lucide-list-checks",
@@ -308,7 +308,7 @@ describe("ToolCallBlock built-in tool presentation", () => {
     );
   });
 
-  it("keeps the existing formatter and wrench icon for plugin tools", async () => {
+  it("keeps the existing formatter and Cable icon for plugin tools", async () => {
     const { container } = renderBlock({
       id: "plugin-tool",
       name: "create_issue",
@@ -321,7 +321,7 @@ describe("ToolCallBlock built-in tool presentation", () => {
     await userEvent.click(screen.getByRole("button", { name: /Used 1 Tool/ }));
 
     expect(screen.getByText("Create Issue")).toBeTruthy();
-    expect(container.querySelector(".lucide-wrench")).toBeTruthy();
+    expect(container.querySelector(".lucide-cable")).toBeTruthy();
   });
 
   it("renders a structured workspace snapshot before the raw payload", async () => {

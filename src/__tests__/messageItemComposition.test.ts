@@ -19,6 +19,9 @@ describe("MessageItem composition", () => {
       messageItem.lastIndexOf("<BubblesLoading"),
     );
     expect(messageItem).toContain('aria-label={t("generatingResponse")}');
+    expect(messageItem).toContain(
+      'className="mt-2 first:mt-0 h-8 w-14 text-red-300 dark:text-red-400"',
+    );
   });
 
   it("opens shared workspace text files in the existing reading dialog", () => {

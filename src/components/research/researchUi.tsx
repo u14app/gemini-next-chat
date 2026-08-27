@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useId, useState } from "react";
+import React, { useEffect, useId, useState } from "react";
 import {
   Activity,
   AlertTriangle,
@@ -29,6 +29,7 @@ import { getSafeExternalHref } from "@/lib/security/clientUrl";
 import { cn } from "@/lib/utils/cn";
 
 import type {
+  ResearchActivityView,
   ResearchEvidenceView,
   ResearchPlanView,
   ResearchStrategyView,
@@ -71,7 +72,7 @@ function StatusIcon({ status }: { status: ResearchTaskStatus }) {
   const tone = STATUS_TONE[status];
   const className = cn(
     "shrink-0",
-    tone === "active" && "text-research-accent",
+    tone === "active" && "text-research-accent-text",
     tone === "success" && "text-emerald-600 dark:text-emerald-400",
     tone === "warning" && "text-amber-600 dark:text-amber-400",
     tone === "danger" && "text-red-600 dark:text-red-400",
@@ -109,7 +110,7 @@ function StatusLabel({ status }: { status: ResearchTaskStatus }) {
     <span
       className={cn(
         "inline-flex items-center gap-1.5 text-xs font-medium",
-        tone === "active" && "text-research-accent",
+        tone === "active" && "text-research-accent-text",
         tone === "success" && "text-emerald-700 dark:text-emerald-300",
         tone === "warning" && "text-amber-700 dark:text-amber-300",
         tone === "danger" && "text-red-700 dark:text-red-300",
@@ -122,8 +123,77 @@ function StatusLabel({ status }: { status: ResearchTaskStatus }) {
   );
 }
 
+/**
+ * Wall-clock elapsed time for a run, ticking once a second while the run is
+ * live and frozen the moment it stops. Without this the card's elapsed cell is
+ * only refreshed when persisted usage happens to change, which reads as a
+ * stalled task.
+ */
+function useElapsedMs(startedAt: number | undefined, live: boolean): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!live || !startedAt) return;
+    setNow(Date.now());
+    const timer = window.setInterval(() => setNow(Date.now()), 1_000);
+    return () => window.clearInterval(timer);
+  }, [live, startedAt]);
+  if (!startedAt) return 0;
+  return Math.max(0, now - startedAt);
+}
+
+/**
+ * The run's activity timeline. Shared by the workbench panel and the progress
+ * card so the two never drift; `limit` keeps the card to a glanceable tail.
+ */
+function ActivityList({
+  activities,
+  limit,
+  live = false,
+}: {
+  activities: ResearchActivityView[];
+  limit?: number;
+  live?: boolean;
+}) {
+  const items = limit ? activities.slice(-limit) : activities;
+  return (
+    <ol className="border-l border-border pl-4">
+      {items.map((item, index) => {
+        const isNewest = live && index === items.length - 1;
+        return (
+          <li key={item.id} className="relative pb-3 last:pb-0">
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <h3 className="flex min-w-0 items-baseline gap-1.5 wrap-break-word text-sm font-medium">
+                {isNewest ? (
+                  <LoaderCircle
+                    size={12}
+                    className="shrink-0 animate-spin text-research-accent motion-reduce:animate-none"
+                    aria-hidden="true"
+                  />
+                ) : null}
+                {item.title}
+              </h3>
+              <time className="shrink-0 text-[11px] text-muted-foreground">
+                {new Date(item.createdAt).toLocaleTimeString()}
+              </time>
+            </div>
+            {item.detail ? (
+              <p className="mt-1 wrap-break-word text-xs leading-5 text-muted-foreground">
+                {item.detail}
+              </p>
+            ) : null}
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
+
 function TaskMetrics({ task }: { task: ResearchTaskViewModel }) {
   const t = useTranslations("Research");
+  const liveElapsedMs = useElapsedMs(
+    task.run?.startedAt,
+    ACTIVE_RESEARCH_STATUSES.has(task.status) && !task.run?.endedAt,
+  );
   if (task.run) {
     return (
       <dl className="grid grid-cols-2 gap-px overflow-hidden border border-border bg-border text-xs sm:grid-cols-3">
@@ -162,7 +232,7 @@ function TaskMetrics({ task }: { task: ResearchTaskViewModel }) {
         <div className="bg-background px-2.5 py-2">
           <dt className="text-muted-foreground">{t("metrics.elapsed")}</dt>
           <dd className="mt-0.5 font-mono font-medium tabular-nums text-foreground">
-            {formatDuration(task.usage.elapsedMs)}
+            {formatDuration(liveElapsedMs || task.usage.elapsedMs)}
           </dd>
         </div>
       </dl>
@@ -394,7 +464,7 @@ function AdjustmentForm({
           variant="primary"
           type="submit"
           disabled={!instruction.trim() || submitting}
-          className="bg-research-accent text-research-accent-foreground hover:bg-research-accent-hover"
+          className="bg-research-solid text-research-accent-foreground hover:bg-research-accent-hover"
         >
           {submitting ? t("adjust.submitting") : t("adjust.submit")}
         </Button>
@@ -518,7 +588,7 @@ function StrategyAdjustmentForm({
           variant="primary"
           type="submit"
           disabled={submitting}
-          className="bg-research-accent text-research-accent-foreground hover:bg-research-accent-hover"
+          className="bg-research-solid text-research-accent-foreground hover:bg-research-accent-hover"
         >
           {submitting
             ? t("strategyAdjust.submitting")
@@ -556,7 +626,7 @@ function TaskActions({
             size="sm"
             variant="primary"
             onClick={actions.onConfirmPlan}
-            className="bg-research-accent text-research-accent-foreground hover:bg-research-accent-hover"
+            className="bg-research-solid text-research-accent-foreground hover:bg-research-accent-hover"
           >
             <Play size={14} aria-hidden="true" />
             {t("actions.start")}
@@ -602,7 +672,7 @@ function TaskActions({
             size="sm"
             variant="primary"
             onClick={actions.onResume}
-            className="bg-research-accent text-research-accent-foreground hover:bg-research-accent-hover"
+            className="bg-research-solid text-research-accent-foreground hover:bg-research-accent-hover"
           >
             <Play size={14} aria-hidden="true" />
             {t("actions.resume")}
@@ -613,7 +683,7 @@ function TaskActions({
             size="sm"
             variant="primary"
             onClick={actions.onRetry}
-            className="bg-research-accent text-research-accent-foreground hover:bg-research-accent-hover"
+            className="bg-research-solid text-research-accent-foreground hover:bg-research-accent-hover"
           >
             <RotateCcw size={14} aria-hidden="true" />
             {retryLabel}
@@ -782,6 +852,7 @@ function EvidenceInspector({
 }
 
 export {
+  ActivityList,
   AdjustmentForm,
   EvidenceInspector,
   PlanSteps,
@@ -790,4 +861,5 @@ export {
   TaskActions,
   TaskMetrics,
   formatDuration,
+  useElapsedMs,
 };

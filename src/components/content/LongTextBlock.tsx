@@ -97,7 +97,7 @@ const LongTextBlock = React.memo(function LongTextBlock({
   return (
     <section
       ref={rootRef}
-      className="long-text-block my-4 w-full overflow-hidden rounded-xl border border-border bg-card/70 shadow-sm"
+      className="long-text-block my-4 w-full overflow-hidden rounded-xl border border-border bg-card/70"
       aria-label={t("longTextDocumentAria", { title: presentation.title })}
       aria-busy={isStreaming || undefined}
     >
@@ -153,7 +153,7 @@ const LongTextBlock = React.memo(function LongTextBlock({
         className={
           forceExpanded
             ? "px-4 py-5 md:px-7 md:py-7"
-            : "relative h-[15rem] overflow-hidden px-4 py-4 md:h-[20rem] md:px-7 md:py-6"
+            : "relative h-60 overflow-hidden px-4 py-4 md:h-80 md:px-7 md:py-6"
         }
       >
         {isNearViewport ? (

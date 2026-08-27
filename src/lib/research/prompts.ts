@@ -56,61 +56,56 @@ const boundedText = (max: number) => z.string().trim().min(1).max(max);
 const boundedTextList = (maxItems: number, maxChars: number) =>
   z.array(boundedText(maxChars)).max(maxItems);
 
-const timeRangeSchema = z
-  .object({
-    start: boundedText(100).optional(),
-    end: boundedText(100).optional(),
-    description: boundedText(500).optional(),
-  })
-  .strict();
+// These plan schemas deliberately allow unknown keys: a stray field from the
+// model is stripped instead of failing the whole plan. Host-owned values
+// (strategy, source scope) are coerced by the runtime before validation.
+const timeRangeSchema = z.object({
+  start: boundedText(100).optional(),
+  end: boundedText(100).optional(),
+  description: boundedText(500).optional(),
+});
 
-const scopeSchema = z
-  .object({
-    audience: boundedText(500),
-    timeRange: timeRangeSchema.optional(),
-    includes: boundedTextList(20, 1_000),
-    excludes: boundedTextList(20, 1_000),
-    allowedSourceTypes: z.array(sourceTypeSchema).min(1).max(6),
-  })
-  .strict();
+const scopeSchema = z.object({
+  audience: boundedText(500),
+  timeRange: timeRangeSchema.optional(),
+  includes: boundedTextList(20, 1_000),
+  excludes: boundedTextList(20, 1_000),
+  allowedSourceTypes: z.array(sourceTypeSchema).min(1).max(6),
+});
 
-const deliverableSchema = z
-  .object({
-    kind: z.enum([
-      "research_report",
-      "comparison",
-      "decision_memo",
-      "exact_answer",
-    ]),
-    description: boundedText(2_000),
-    requiredSections: boundedTextList(12, 500).min(1),
-  })
-  .strict();
+const deliverableSchema = z.object({
+  kind: z.enum([
+    "research_report",
+    "comparison",
+    "decision_memo",
+    "exact_answer",
+  ]),
+  description: boundedText(2_000),
+  requiredSections: boundedTextList(12, 500).min(1),
+});
 
-const strategySchema = z
-  .object({
-    initialBreadth: z
-      .number()
-      .int()
-      .min(RESEARCH_STRATEGY_LIMITS.initialBreadth.min)
-      .max(RESEARCH_STRATEGY_LIMITS.initialBreadth.max),
-    maxDepth: z
-      .number()
-      .int()
-      .min(RESEARCH_STRATEGY_LIMITS.maxDepth.min)
-      .max(RESEARCH_STRATEGY_LIMITS.maxDepth.max),
-    maxQueries: z
-      .number()
-      .int()
-      .min(RESEARCH_STRATEGY_LIMITS.maxQueries.min)
-      .max(RESEARCH_STRATEGY_LIMITS.maxQueries.max),
-    resultsPerQuery: z
-      .number()
-      .int()
-      .min(RESEARCH_STRATEGY_LIMITS.resultsPerQuery.min)
-      .max(RESEARCH_STRATEGY_LIMITS.resultsPerQuery.max),
-  })
-  .strict();
+const strategySchema = z.object({
+  initialBreadth: z
+    .number()
+    .int()
+    .min(RESEARCH_STRATEGY_LIMITS.initialBreadth.min)
+    .max(RESEARCH_STRATEGY_LIMITS.initialBreadth.max),
+  maxDepth: z
+    .number()
+    .int()
+    .min(RESEARCH_STRATEGY_LIMITS.maxDepth.min)
+    .max(RESEARCH_STRATEGY_LIMITS.maxDepth.max),
+  maxQueries: z
+    .number()
+    .int()
+    .min(RESEARCH_STRATEGY_LIMITS.maxQueries.min)
+    .max(RESEARCH_STRATEGY_LIMITS.maxQueries.max),
+  resultsPerQuery: z
+    .number()
+    .int()
+    .min(RESEARCH_STRATEGY_LIMITS.resultsPerQuery.min)
+    .max(RESEARCH_STRATEGY_LIMITS.resultsPerQuery.max),
+});
 
 const stableIdSchema = z
   .string()
@@ -120,29 +115,25 @@ const stableIdSchema = z
   .regex(/^[A-Za-z0-9][A-Za-z0-9_-]*$/);
 const committedReferenceSchema = boundedText(240);
 
-const planStepSchema = z
-  .object({
-    id: stableIdSchema,
-    title: boundedText(500),
-    objective: boundedText(2_000),
-    questions: boundedTextList(8, 2_000).min(1),
-    queryTopics: boundedTextList(8, 1_000).min(1),
-    sourcePriorities: z
-      .array(
-        z
-          .object({
-            sourceType: sourceTypeSchema,
-            priority: prioritySchema,
-            rationale: boundedText(1_000).optional(),
-          })
-          .strict(),
-      )
-      .min(1)
-      .max(6),
-    evidenceCriteria: boundedTextList(8, 1_000).min(1),
-    priority: prioritySchema,
-  })
-  .strict();
+const planStepSchema = z.object({
+  id: stableIdSchema,
+  title: boundedText(500),
+  objective: boundedText(2_000),
+  questions: boundedTextList(8, 2_000).min(1),
+  queryTopics: boundedTextList(8, 1_000).min(1),
+  sourcePriorities: z
+    .array(
+      z.object({
+        sourceType: sourceTypeSchema,
+        priority: prioritySchema,
+        rationale: boundedText(1_000).optional(),
+      }),
+    )
+    .min(1)
+    .max(6),
+  evidenceCriteria: boundedTextList(8, 1_000).min(1),
+  priority: prioritySchema,
+});
 
 const planDraftSchema = z
   .object({
@@ -153,13 +144,14 @@ const planDraftSchema = z
     assumptions: boundedTextList(20, 1_000),
     deliverable: deliverableSchema,
     strategy: strategySchema,
-    steps: z.array(planStepSchema).min(3).max(8),
+    steps: z.array(planStepSchema).min(2).max(8),
     completionCriteria: boundedTextList(12, 1_000).min(1),
   })
-  .strict()
   .superRefine((plan, context) => {
+    // Duplicate step IDs break evidence attribution, so they stay fatal.
+    // Overlapping query topics and out-of-scope source types are repaired
+    // deterministically by the runtime instead of failing the plan.
     const stepIds = new Set<string>();
-    const queryTopics = new Set<string>();
     for (const [index, step] of plan.steps.entries()) {
       if (stepIds.has(step.id)) {
         context.addIssue({
@@ -169,30 +161,6 @@ const planDraftSchema = z
         });
       }
       stepIds.add(step.id);
-      for (const [topicIndex, topic] of step.queryTopics.entries()) {
-        const normalized = topic
-          .normalize("NFKC")
-          .trim()
-          .replace(/\s+/g, " ")
-          .toLowerCase();
-        if (queryTopics.has(normalized)) {
-          context.addIssue({
-            code: "custom",
-            path: ["steps", index, "queryTopics", topicIndex],
-            message: "Query topics must be distinct across plan steps.",
-          });
-        }
-        queryTopics.add(normalized);
-      }
-      for (const source of step.sourcePriorities) {
-        if (!plan.scope.allowedSourceTypes.includes(source.sourceType)) {
-          context.addIssue({
-            code: "custom",
-            path: ["steps", index, "sourcePriorities"],
-            message: `Source type ${source.sourceType} is outside the approved scope.`,
-          });
-        }
-      }
     }
   });
 
@@ -319,6 +287,65 @@ export function parseResearchPlan(
   return { valid: true, data: parsed.data };
 }
 
+function normalizeQueryTopic(topic: string): string {
+  return topic.normalize("NFKC").trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+/**
+ * Repairs the plan properties the host owns outright, so a model that drifts on
+ * them costs a deterministic rewrite instead of a failed research task. The
+ * strategy is host-approved and overwritten when the plan version is stored,
+ * and source permissions can only ever narrow to what the task actually has.
+ */
+export function normalizeResearchPlanDraft({
+  plan,
+  strategy,
+  allowedSourceTypes,
+}: {
+  plan: ResearchPlanDraftV2;
+  strategy: ResearchStrategy;
+  allowedSourceTypes: readonly ResearchScope["allowedSourceTypes"][number][];
+}): ResearchPlanDraftV2 {
+  const allowed: readonly ResearchScope["allowedSourceTypes"][number][] =
+    allowedSourceTypes.length > 0 ? allowedSourceTypes : ["web"];
+  const allowedSet = new Set(allowed);
+  const scopedSourceTypes = plan.scope.allowedSourceTypes.filter((sourceType) =>
+    allowedSet.has(sourceType),
+  );
+  const seenTopics = new Set<string>();
+  return {
+    ...plan,
+    strategy,
+    scope: {
+      ...plan.scope,
+      allowedSourceTypes:
+        scopedSourceTypes.length > 0 ? scopedSourceTypes : [...allowed],
+    },
+    steps: plan.steps.map((step) => {
+      const sourcePriorities = step.sourcePriorities.filter((source) =>
+        allowedSet.has(source.sourceType),
+      );
+      // Overlapping topics waste the query budget on duplicate searches, but a
+      // step must keep at least one topic to remain executable.
+      const distinctTopics = step.queryTopics.filter((topic) => {
+        const normalized = normalizeQueryTopic(topic);
+        if (seenTopics.has(normalized)) return false;
+        seenTopics.add(normalized);
+        return true;
+      });
+      return {
+        ...step,
+        queryTopics:
+          distinctTopics.length > 0 ? distinctTopics : [step.queryTopics[0]],
+        sourcePriorities:
+          sourcePriorities.length > 0
+            ? sourcePriorities
+            : [{ sourceType: allowed[0], priority: "high" as const }],
+      };
+    }),
+  };
+}
+
 const PLAN_JSON_SHAPE = `{
   "title": "short title",
   "summary": "scope, source strategy, deliverable, and completion criteria",
@@ -373,10 +400,10 @@ export function buildResearchPlanPrompt({
     approvedStrategy ?? resolveResearchStrategy(task.budgetPreset);
   return [
     reconnaissanceAllowed
-      ? "Prepare a Deep Research v2 plan. After any necessary clarification, you may call web_search at most twice for public search summaries only (maximum five results per query). Do not fetch source bodies and do not treat reconnaissance as report evidence."
-      : "Prepare a Deep Research v2 plan. Public reconnaissance is unavailable in this planning call; mark source feasibility as unverified and do not use tools other than request_user_input.",
-    "If a missing answer would materially change scope, audience, date range, source permission, or deliverable, call request_user_input once with 1-3 concise questions. Otherwise do not ask.",
-    "After clarification, output exactly one JSON object and no prose or Markdown fence. The object must use the shape below with no additional fields:",
+      ? "Prepare a Deep Research v2 plan. You may call web_search at most twice for public search summaries only (maximum five results per query). Do not fetch source bodies and do not treat reconnaissance as report evidence."
+      : "Prepare a Deep Research v2 plan. Public reconnaissance is unavailable in this planning call; mark source feasibility as unverified and do not use any tool.",
+    "Do not ask the user questions in this call. Where the request is genuinely ambiguous, choose the most useful reading and record it in `assumptions`; the user reviews and confirms the plan afterwards.",
+    "Output exactly one JSON object and no prose or Markdown fence. The object must use the shape below:",
     PLAN_JSON_SHAPE,
     "Use 3-8 non-overlapping steps with stable unique IDs. Make query topics distinct, state the evidence threshold for each step, and never claim research has begun.",
     `Use this approved strategy exactly: ${JSON.stringify(strategy)}. Do not increase source permissions or budgets.`,
@@ -406,7 +433,7 @@ export function buildResearchPlanRepairPrompt({
 }): string {
   return [
     "Repair the invalid Deep Research v2 plan. Do not use tools.",
-    "Return exactly one JSON object with no prose or Markdown fence and no additional fields.",
+    "Return exactly one JSON object with no prose or Markdown fence.",
     PLAN_JSON_SHAPE,
     `Research goal:\n${task.goal}`,
     strategy ? `Use this strategy exactly: ${JSON.stringify(strategy)}.` : "",
@@ -475,6 +502,9 @@ export function buildResearchScopeExpansionAdjustment(
   ].join("\n\n");
 }
 
+const WAVE_JSON_SHAPE =
+  '{"packets":[{"nodeId":"research-node-id","learnings":[{"claimId":"C1","claimText":"atomic claim","stepId":"step-1","importance":"major|background","stance":"supports|contradicts|context","statement":"bounded learning","sourceIds":["committed-source-id"],"evidenceIds":["committed-evidence-id"]}],"sourceAssessments":[{"sourceId":"committed-source-id","authority":"primary|secondary|unknown","publisherId":"publisher identity if known","mirrorOfSourceId":"committed original source ID if mirrored","rationale":"why this classification applies"}],"followUps":[{"question":"next query","rationale":"why it closes a gap","priority":"high|medium|low","scopeImpact":"within|source_expansion|scope_expansion","requiredSourceTypes":["web"]}]}]}';
+
 export function buildResearchWavePrompt({
   task,
   plan,
@@ -495,7 +525,7 @@ export function buildResearchWavePrompt({
     "Search with distinct queries, prefer primary/current sources, fetch full documents instead of citing snippets, and record contradictions.",
     "Do not use evidence marked stale or unavailable to verify a claim; refresh it first when it remains relevant.",
     "Do not draft the final report. After tool work, output exactly one JSON object with no prose or Markdown fence.",
-    'Output shape: {"packets":[{"nodeId":"research-node-id","learnings":[{"claimId":"C1","claimText":"atomic claim","stepId":"step-1","importance":"major|background","stance":"supports|contradicts|context","statement":"bounded learning","sourceIds":["committed-source-id"],"evidenceIds":["committed-evidence-id"]}],"sourceAssessments":[{"sourceId":"committed-source-id","authority":"primary|secondary|unknown","publisherId":"publisher identity if known","mirrorOfSourceId":"committed original source ID if mirrored","rationale":"why this classification applies"}],"followUps":[{"question":"next query","rationale":"why it closes a gap","priority":"high|medium|low","scopeImpact":"within|source_expansion|scope_expansion","requiredSourceTypes":["web"]}]}]}',
+    `Output shape: ${WAVE_JSON_SHAPE}`,
     "Return one packet per selected node. Every learning must cite committed source IDs from this run and every cited source must have one assessment. Never invent IDs. Mark any permission or scope change explicitly instead of performing it.",
     `Research goal:\n${task.goal}`,
     `Approved plan v${plan.version}:\n${JSON.stringify({
@@ -533,6 +563,38 @@ export function buildResearchWavePrompt({
         ...claim.contradictingEvidenceIds,
       ]),
     ])}`,
+  ].join("\n\n");
+}
+
+export function buildResearchWaveRepairPrompt({
+  invalidOutput,
+  issues,
+  allowedNodeIds,
+  allowedSourceIds,
+  allowedEvidenceIds,
+  allowedStepIds,
+  expectedStepIdByNode,
+}: {
+  invalidOutput: string;
+  issues: readonly string[];
+  allowedNodeIds: readonly string[];
+  allowedSourceIds: readonly string[];
+  allowedEvidenceIds: readonly string[];
+  allowedStepIds: readonly string[];
+  expectedStepIdByNode: Readonly<Record<string, string>>;
+}): string {
+  return [
+    "Repair the invalid Deep Research wave packet using only the committed tool calls and results in the conversation history. Do not use tools, add sources, or invent facts.",
+    "Return exactly one JSON object with no prose or Markdown fence.",
+    `Output shape: ${WAVE_JSON_SHAPE}`,
+    "Return one packet for every allowed node. Use only the allowed IDs below, preserve each node's approved step binding, and omit any learning that cannot cite committed source and evidence IDs.",
+    `Allowed node IDs:\n${JSON.stringify(allowedNodeIds)}`,
+    `Expected step by node:\n${JSON.stringify(expectedStepIdByNode)}`,
+    `Allowed step IDs:\n${JSON.stringify(allowedStepIds)}`,
+    `Allowed source IDs:\n${JSON.stringify(allowedSourceIds)}`,
+    `Allowed evidence IDs:\n${JSON.stringify(allowedEvidenceIds)}`,
+    `Validation issues:\n${issues.slice(0, 40).join("\n")}`,
+    `Invalid output:\n${invalidOutput.slice(0, 30_000)}`,
   ].join("\n\n");
 }
 

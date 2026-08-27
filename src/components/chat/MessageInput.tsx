@@ -20,13 +20,13 @@ import {
   Cpu,
   Globe,
   Lightbulb,
-  Blocks,
+  Cable,
   Link,
   ChevronDown,
   FileUp,
   ImageUp,
   Square,
-  Library,
+  LibraryBig,
   PencilSparkles,
   ScrollText,
   Quote,
@@ -1656,7 +1656,7 @@ const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
                     }}
                     disabled={attachmentActionsDisabled}
                   >
-                    <Library
+                    <LibraryBig
                       size={14}
                       className="text-purple-500 dark:text-purple-400"
                       aria-hidden="true"
@@ -1726,7 +1726,7 @@ const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
                       className={`${iconButtonBaseClass} transition-colors ${iconButtonFocusClass} ${activePlugins.length > 0 ? "text-cyan-500 dark:text-cyan-400 hover:bg-cyan-50 dark:hover:bg-cyan-900/20" : "text-gray-500 dark:text-muted-foreground hover:text-gray-700 dark:hover:text-foreground hover:bg-gray-100 dark:hover:bg-accent/50"}`}
                       disabled={isInputBusy}
                     >
-                      <Blocks size={16} aria-hidden="true" />
+                      <Cable size={16} aria-hidden="true" />
                     </Button>
                   </DropdownMenuTrigger>
                 </Tooltip>
@@ -1775,7 +1775,7 @@ const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
                                     className="w-4 h-4 object-contain"
                                     alt=""
                                     fallback={
-                                      <Blocks size={14} aria-hidden="true" />
+                                      <Cable size={14} aria-hidden="true" />
                                     }
                                   />
                                   <span className="min-w-0 truncate">
@@ -1827,7 +1827,7 @@ const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
                                     className="w-4 h-4 object-contain"
                                     alt=""
                                     fallback={
-                                      <Blocks size={14} aria-hidden="true" />
+                                      <Cable size={14} aria-hidden="true" />
                                     }
                                   />
                                   <span className="truncate">
@@ -1855,7 +1855,7 @@ const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
               </DropdownMenu>
             </div>
 
-                        {/* Skill Toggle Button */}
+            {/* Skill Toggle Button */}
             <div className="relative">
               <DropdownMenu
                 open={showSkillSelect}

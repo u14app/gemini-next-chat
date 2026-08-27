@@ -5,7 +5,7 @@ import { useTranslations } from "next-intl";
 import {
   X,
   Check,
-  Library,
+  LibraryBig,
   FileText,
   Folder,
   ChevronLeft,
@@ -348,7 +348,7 @@ const KnowledgeSelectionModal: React.FC<KnowledgeSelectionModalProps> = ({
               id={titleId}
               className="text-lg font-bold text-gray-800 dark:text-foreground flex items-center gap-2"
             >
-              <Library
+              <LibraryBig
                 size={20}
                 className="text-purple-500"
                 aria-hidden="true"

@@ -60,8 +60,8 @@ import {
   Info,
   Loader2,
   RefreshCw,
-  Library,
-  Sparkles,
+  LibraryBig,
+  ScrollText,
   Signature,
   FileImage,
   Quote,
@@ -1572,7 +1572,7 @@ const MessageItem: React.FC<MessageItemProps> = ({
                       portal
                     >
                       <span className="inline-flex max-w-full items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700 dark:border-emerald-900/70 dark:bg-emerald-950/30 dark:text-emerald-200">
-                        <Sparkles size={11} aria-hidden="true" />
+                        <ScrollText size={11} aria-hidden="true" />
                         <span className="truncate">{skill.title}</span>
                       </span>
                     </Tooltip>
@@ -1655,7 +1655,7 @@ const MessageItem: React.FC<MessageItemProps> = ({
 
               {isModelResponseLoading ? (
                 <div
-                  className="mt-2 h-8 w-14 text-red-300 dark:text-red-400"
+                  className="mt-2 first:mt-0 h-8 w-14 text-red-300 dark:text-red-400"
                   role="status"
                   aria-label={t("generatingResponse")}
                 >
@@ -2012,7 +2012,7 @@ const MessageItem: React.FC<MessageItemProps> = ({
                       onClick={handleImmersiveReading}
                     />
                     <ActionButton
-                      icon={<Library size={13} />}
+                      icon={<LibraryBig size={13} />}
                       tooltip={t("addToKnowledge")}
                       onClick={handleAddToKnowledge}
                       containerClass="hidden! md:flex!"
@@ -2183,7 +2183,7 @@ const MessageItem: React.FC<MessageItemProps> = ({
                           disabled={mutationActionsDisabled}
                           onSelect={handleAddToKnowledge}
                         >
-                          <Library
+                          <LibraryBig
                             size={14}
                             className="text-gray-500 dark:text-muted-foreground"
                             aria-hidden="true"

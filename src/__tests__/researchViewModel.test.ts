@@ -265,6 +265,64 @@ describe("research task view model", () => {
     expect(JSON.stringify(activity)).not.toContain("must-not-render");
   });
 
+  it("hides legacy internal result filenames in Research activity", async () => {
+    let run = createAgentRun({
+      id: "run-internal",
+      sessionId: "session-1",
+      now: 100,
+    });
+    run = prepareToolExecution(run, {
+      id: "execution-internal",
+      callId: "call-internal",
+      toolName: "read_workspace_file",
+      definitionFingerprint: "fingerprint",
+      argumentsHash: "arguments-hash",
+      policy: {
+        effects: ["local_read"],
+        idempotency: "idempotent",
+        sensitivity: "user_data",
+        origin: "builtin",
+      },
+      at: 110,
+    });
+    run = markToolExecutionRunning(run, "execution-internal", 120);
+    run = commitToolExecution(run, "execution-internal", { at: 130 });
+    run = recordAgentEvidence(
+      run,
+      [
+        {
+          sourceId: "source-internal",
+          url: "workspace:///tool-results/call-internal.json",
+          title: "tool-results/call-internal.json",
+          retrievedAt: 125,
+          contentHash: "sha256:internal",
+          retrievalKind: "attachment",
+          toolCallId: "call-internal",
+        },
+      ],
+      135,
+    );
+    const task = {
+      ...createResearchTask({
+        id: "research-internal",
+        sessionId: "session-1",
+        goal: "Research safely",
+        now: 100,
+      }),
+      executionRunIds: [run.id],
+    };
+
+    const viewModel = await createResearchTaskViewModel(task, {
+      [run.id]: run,
+    });
+    expect(
+      viewModel.activities.find((item) => item.id === "execution-internal"),
+    ).toMatchObject({
+      title: "Completed read_workspace_file",
+      detail: "Read-only source: Internal tool result",
+    });
+  });
+
   it("maps explicit v2 run, step, node, claim, and query state", async () => {
     const draft = createResearchTask({
       id: "research-live",
@@ -342,6 +400,14 @@ describe("research task view model", () => {
       stepId: plan.steps[0].id,
       nodeId: "node-1",
       verificationStatus: "verified",
+      linkedClaims: [
+        {
+          id: "claim-1",
+          text: "The first claim is verified.",
+          importance: "major",
+          verificationStatus: "verified",
+        },
+      ],
     });
     expect(viewModel.plan?.steps[0].evidenceIds).toEqual([
       viewModel.evidence[0].id,

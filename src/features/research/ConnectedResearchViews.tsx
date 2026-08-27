@@ -13,11 +13,13 @@ import {
   StatusLabel,
   type ResearchTaskViewModel,
 } from "@/components/research";
-import {
-  isActiveResearchStatus,
-  isTerminalResearchStatus,
-} from "@/lib/research";
+import { isActiveResearchStatus } from "@/lib/research";
 import { openResearchTask } from "@/lib/research/navigation";
+import {
+  formatToolDisplayName,
+  getBuiltinToolLabelKey,
+} from "@/lib/utils/toolDisplay";
+import { selectVisibleResearchTaskId } from "./pendingTask";
 import { useAgentRunStore } from "@/store/core/agentRunStore";
 import { useChatStore } from "@/store/core/chatStore";
 import { useResearchStore } from "@/store/core/researchStore";
@@ -30,13 +32,18 @@ import {
 
 function useResearchTaskViewModel(taskId: string | null) {
   const t = useTranslations("Research");
+  const contentT = useTranslations("Content");
   const task = useResearchStore((state) =>
     taskId ? state.tasksById[taskId] : undefined,
   );
   const runsById = useAgentRunStore((state) => state.runsById);
   const [viewModel, setViewModel] = useState<ResearchTaskViewModel>();
-  const text = useMemo<ResearchViewModelText>(
-    () => ({
+  const text = useMemo<ResearchViewModelText>(() => {
+    const getToolDisplayName = (tool: string) => {
+      const labelKey = getBuiltinToolLabelKey(tool);
+      return labelKey ? contentT(labelKey) : formatToolDisplayName(tool);
+    };
+    return {
       artifactUnavailable: t("report.artifactUnavailable"),
       fallbackReportTitle: (version) => t("report.fallbackTitle", { version }),
       continueChangeSummary: t("report.continueChangeSummary"),
@@ -48,10 +55,14 @@ function useResearchTaskViewModel(taskId: string | null) {
       planApprovalDetail: t("activity.planAwaitingApproval"),
       reportPublishedTitle: (version) =>
         t("activity.reportPublished", { version }),
-      toolRunningTitle: (tool) => t("activity.toolRunning", { tool }),
-      toolCommittedTitle: (tool) => t("activity.toolCommitted", { tool }),
-      toolFailedTitle: (tool) => t("activity.toolFailed", { tool }),
+      toolRunningTitle: (tool) =>
+        t("activity.toolRunning", { tool: getToolDisplayName(tool) }),
+      toolCommittedTitle: (tool) =>
+        t("activity.toolCommitted", { tool: getToolDisplayName(tool) }),
+      toolFailedTitle: (tool) =>
+        t("activity.toolFailed", { tool: getToolDisplayName(tool) }),
       toolSourceDetail: (source) => t("activity.toolSource", { source }),
+      internalToolResultSource: t("evidence.internalResult"),
       toolSafeDetail: t("activity.toolSafeDetail"),
       reportKind: {
         initial: t("activity.reportKind.initial"),
@@ -60,9 +71,8 @@ function useResearchTaskViewModel(taskId: string | null) {
       },
       statusTitle: (status) =>
         t("activity.status", { status: t(`status.${status}`) }),
-    }),
-    [t],
-  );
+    };
+  }, [contentT, t]);
 
   useEffect(() => {
     let cancelled = false;
@@ -175,25 +185,14 @@ export function ConnectedResearchGlobalBar() {
   useEffect(() => {
     if (currentSessionId) void loadSessionTasks(currentSessionId);
   }, [currentSessionId, loadSessionTasks]);
-  const visibleTaskId = useMemo(() => {
-    if (!currentSessionId) return null;
-    const active = activeTaskId ? tasksById[activeTaskId] : undefined;
-    if (
-      active?.sessionId === currentSessionId &&
-      !isTerminalResearchStatus(active.status)
-    ) {
-      return active.id;
-    }
-    return (
-      Object.values(tasksById)
-        .filter(
-          (task) =>
-            task.sessionId === currentSessionId &&
-            !isTerminalResearchStatus(task.status),
-        )
-        .sort((left, right) => right.updatedAt - left.updatedAt)[0]?.id ?? null
-    );
-  }, [activeTaskId, currentSessionId, tasksById]);
+  const visibleTaskId = useMemo(
+    () =>
+      selectVisibleResearchTaskId(
+        { tasksById, activeTaskId },
+        currentSessionId,
+      ),
+    [activeTaskId, currentSessionId, tasksById],
+  );
   const { viewModel } = useResearchTaskViewModel(visibleTaskId);
   const runtime = useResearchRuntime();
   if (!visibleTaskId || !viewModel) return null;

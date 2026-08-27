@@ -273,6 +273,7 @@ export type ResearchStopReasonCode =
   | "max_sources"
   | "budget_exhausted"
   | "no_new_sources"
+  | "invalid_model_output"
   | "no_new_verified_claims"
   | "frontier_exhausted"
   | "user_paused"

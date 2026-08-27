@@ -20,6 +20,7 @@ import {
   getResearchStopReason,
   getResearchVerificationQueryReserve,
   getResearchVerificationQueryAllowance,
+  isResearchWorkspaceSnapshotPath,
   markMutableResearchEvidenceStale,
   resolveResearchStrategy,
   type ClaimRecord,
@@ -97,6 +98,16 @@ const evidence = (
 });
 
 describe("Deep Research orchestration", () => {
+  it("excludes host-owned research artifacts from approved workspace snapshots", () => {
+    expect(isResearchWorkspaceSnapshotPath("sources/approved.md")).toBe(true);
+    expect(
+      isResearchWorkspaceSnapshotPath("research/checkpoints/wave.json"),
+    ).toBe(false);
+    expect(
+      isResearchWorkspaceSnapshotPath("tool-results/call-large.json"),
+    ).toBe(false);
+  });
+
   it("resolves raised query presets and clamps advanced settings", () => {
     expect(resolveResearchStrategy("quick")).toEqual({
       initialBreadth: 2,

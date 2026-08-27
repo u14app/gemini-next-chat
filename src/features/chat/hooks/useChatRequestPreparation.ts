@@ -38,6 +38,7 @@ import {
 } from "@/lib/memory/entities";
 import { getSuppressedMemoryIds } from "@/lib/memory/compression";
 import { appendContextToChatInput } from "@/lib/utils/chatInput";
+import { getPendingResearchPlanTaskId } from "@/features/research/pendingTask";
 import { buildReplyPromptContext } from "@/lib/chat/streamResilience";
 import { mergeSources } from "@/lib/chat/searchUpdate";
 import { createCitationSources } from "@/lib/utils/citations";
@@ -389,6 +390,11 @@ export function useChatRequestPreparation({
           })
         : promptWithReply,
       researchLaunchText: promptWithReply,
+      // A reply sent while a plan is awaiting approval refines that plan
+      // instead of launching a second research task.
+      researchPendingPlanTaskId: effectiveContext.researchModeEnabled
+        ? (getPendingResearchPlanTaskId(session?.id) ?? undefined)
+        : undefined,
       effectiveContext,
       injectedMemoryIds: directMemoryContext.injectedMemoryIds,
     };

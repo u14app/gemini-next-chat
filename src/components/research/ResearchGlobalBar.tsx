@@ -6,7 +6,12 @@ import { useTranslations } from "next-intl";
 
 import { Button } from "@/components/ui/primitives";
 
-import { StatusLabel } from "./researchUi";
+import {
+  ACTIVE_RESEARCH_STATUSES,
+  StatusLabel,
+  formatDuration,
+  useElapsedMs,
+} from "./researchUi";
 import type { ResearchTaskViewModel } from "./types";
 
 export interface ResearchGlobalBarProps {
@@ -21,6 +26,14 @@ export default function ResearchGlobalBar({
   onPause,
 }: ResearchGlobalBarProps) {
   const t = useTranslations("Research");
+  const isRunning = ACTIVE_RESEARCH_STATUSES.has(task.status);
+  const elapsedMs = useElapsedMs(
+    task.run?.startedAt,
+    isRunning && !task.run?.endedAt,
+  );
+  // The bar is the only research affordance once the card scrolls away, so it
+  // carries the same proof-of-life the progress card does.
+  const latestActivity = task.activities.at(-1);
 
   return (
     <aside
@@ -29,10 +42,24 @@ export default function ResearchGlobalBar({
     >
       <div className="mx-auto flex min-h-10 max-w-5xl items-center gap-3">
         <div className="min-w-0 flex-1">
-          <div aria-live="polite" aria-atomic="true">
+          <div
+            className="flex flex-wrap items-center gap-x-2"
+            aria-live="polite"
+            aria-atomic="true"
+          >
             <StatusLabel status={task.status} />
+            {task.run ? (
+              <span className="font-mono text-xs tabular-nums text-muted-foreground">
+                {formatDuration(elapsedMs || task.usage.elapsedMs)}
+              </span>
+            ) : null}
           </div>
           <p className="truncate text-xs text-foreground/80">{task.title}</p>
+          {isRunning && latestActivity ? (
+            <p className="truncate text-[11px] text-muted-foreground">
+              {latestActivity.title}
+            </p>
+          ) : null}
         </div>
         {onPause ? (
           <Button
@@ -50,7 +77,7 @@ export default function ResearchGlobalBar({
           variant="primary"
           onClick={onOpenWorkbench}
           aria-label={t("actions.returnWorkbench")}
-          className="h-9 bg-research-accent text-research-accent-foreground hover:bg-research-accent-hover sm:h-8"
+          className="h-9 bg-research-solid text-research-accent-foreground hover:bg-research-accent-hover sm:h-8"
         >
           <ArrowUpRight size={14} aria-hidden="true" />
           <span className="hidden sm:inline">

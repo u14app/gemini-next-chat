@@ -138,6 +138,7 @@
       "max_sources": "已达到来源正文上限",
       "budget_exhausted": "研究预算已耗尽",
       "no_new_sources": "最近一个波次没有新增正式来源",
+      "invalid_model_output": "模型返回的研究波次格式无效",
       "no_new_verified_claims": "连续波次没有新增已验证主张",
       "frontier_exhausted": "已无可行且在范围内的研究节点",
       "user_paused": "用户已暂停研究",
@@ -183,7 +184,19 @@
   },
   "card": {
     "knownGaps": "已知缺口",
-    "reportAvailable": "报告版本 {version} 已保存，可在工作台中查看"
+    "reportAvailable": "报告版本 {version} 已保存，可在工作台中查看",
+    "preparingSteps": {
+      "scope": "正在拟定研究范围",
+      "sources": "正在评估来源可行性",
+      "review": "正在检查研究计划"
+    },
+    "replyHint": "可直接在对话中回复以调整此计划，确认无误后开始研究。",
+    "budgetSummary": "{preset} · {queries} 次检索 · 深度 {depth}",
+    "fullContract": "完整研究约定",
+    "liveActivity": "最新动态",
+    "progress": "研究进度",
+    "progressSummary": "已完成 {completed}/{total} 个步骤",
+    "progressDepth": "第 {wave}/{waves} 轮 · 深度 {depth}/{maxDepth}"
   },
   "global": {
     "label": "正在运行的深度研究"
@@ -251,6 +264,10 @@
     "none": "尚无证据",
     "emptyTitle": "尚无证据",
     "emptyDescription": "研究步骤推进后，对应证据会显示在这里。",
+    "sourceLabel": "来源",
+    "unlinkedClaim": "尚未关联正式论据。",
+    "internalResult": "内部工具结果",
+    "technicalDetails": "技术信息",
     "openSource": "打开来源：{title}",
     "retrieved": "检索时间",
     "location": "位置",
@@ -287,6 +304,10 @@
     "verified": "已验证",
     "unsupported": "缺少支持",
     "unresolved": "尚未解决"
+  },
+  "claimImportance": {
+    "major": "主要论据",
+    "background": "背景论据"
   },
   "authority": {
     "primary": "一手来源",

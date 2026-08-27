@@ -19,6 +19,7 @@ import {
   ResearchWorkbench,
   type ResearchTaskViewModel,
 } from "@/components/research";
+import messageMessages from "@/i18n/locales/en/Message.json";
 import researchMessages from "@/i18n/locales/en/Research.json";
 
 vi.mock("@/components/content/MarkdownRenderer", () => ({
@@ -59,6 +60,14 @@ const baseTask: ResearchTaskViewModel = {
       stance: "supports",
       freshness: "current",
       excerpt: "This evidence supports the first claim.",
+      linkedClaims: [
+        {
+          id: "claim-1",
+          text: "The documented workflow separates discovery from verification.",
+          importance: "major",
+          verificationStatus: "verified",
+        },
+      ],
       questionIndexes: [0],
       domain: "example.com",
     },
@@ -91,7 +100,7 @@ const baseTask: ResearchTaskViewModel = {
   },
 };
 
-const completedTask: ResearchTaskViewModel = {
+const partialTask: ResearchTaskViewModel = {
   ...baseTask,
   status: "partial_completed",
   gapSummary: "One source could not be independently verified.",
@@ -109,10 +118,16 @@ const completedTask: ResearchTaskViewModel = {
       version: 2,
       createdAt: Date.UTC(2026, 7, 24),
       title: "Updated research systems report",
-      markdown: "# Full report body that belongs only in the workbench",
+      markdown: "# Full report body",
       changeSummary: "Rechecked mutable web sources.",
     },
   ],
+};
+
+const completedTask: ResearchTaskViewModel = {
+  ...partialTask,
+  status: "completed",
+  gapSummary: undefined,
 };
 
 const v2Plan: NonNullable<ResearchTaskViewModel["plan"]> = {
@@ -194,6 +209,7 @@ const orchestratedTask: ResearchTaskViewModel = {
   run: {
     id: "run-1",
     phase: "exploring",
+    startedAt: 1_000,
     currentWave: 2,
     currentDepth: 2,
     maxDepth: 2,
@@ -287,7 +303,7 @@ function renderWithResearchMessages(node: React.ReactNode) {
   return render(
     <NextIntlClientProvider
       locale="en"
-      messages={{ Research: researchMessages }}
+      messages={{ Message: messageMessages, Research: researchMessages }}
     >
       {node}
     </NextIntlClientProvider>,
@@ -299,20 +315,47 @@ async function flushDialogFocus() {
 }
 
 describe("ResearchTaskCard", () => {
-  it("keeps the full report out of chat while exposing summary and gaps", () => {
+  it("shows the active final report as a document block", async () => {
+    const onOpenWorkbench = vi.fn();
     renderWithResearchMessages(
-      <ResearchTaskCard task={completedTask} onOpenWorkbench={vi.fn()} />,
+      <ResearchTaskCard
+        task={completedTask}
+        onOpenWorkbench={onOpenWorkbench}
+      />,
     );
 
     expect(screen.getByText("A concise card summary.")).toBeTruthy();
     expect(screen.getByText("Finding one")).toBeTruthy();
     expect(screen.queryByText("Finding four")).toBeNull();
+    expect(screen.getByText("# Full report body")).toBeTruthy();
+    expect(screen.queryByText("# Older full report body")).toBeNull();
     expect(
-      screen.queryByText(
-        "# Full report body that belongs only in the workbench",
+      screen.getByLabelText(
+        "Long text document: Updated research systems report",
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByText(/One source could not/)).toBeNull();
+
+    await userEvent.click(
+      screen.getByRole("button", {
+        name: "Open long text document Updated research systems report in full screen",
+      }),
+    );
+    expect(onOpenWorkbench).toHaveBeenCalledOnce();
+  });
+
+  it("keeps a partial report out of the chat document block", () => {
+    renderWithResearchMessages(
+      <ResearchTaskCard task={partialTask} onOpenWorkbench={vi.fn()} />,
+    );
+
+    expect(screen.getByText(/One source could not/)).toBeTruthy();
+    expect(screen.queryByText("# Full report body")).toBeNull();
+    expect(
+      screen.queryByLabelText(
+        "Long text document: Updated research systems report",
       ),
     ).toBeNull();
-    expect(screen.getByText(/One source could not/)).toBeTruthy();
   });
 
   it("confirms a plan and submits a natural-language adjustment", async () => {
@@ -481,7 +524,7 @@ describe("ResearchWorkbench", () => {
     const user = userEvent.setup();
     renderWithResearchMessages(
       <ResearchWorkbench
-        task={completedTask}
+        task={partialTask}
         onClose={vi.fn()}
         onDownloadMarkdown={onDownloadMarkdown}
         onPrintPdf={onPrintPdf}
@@ -563,6 +606,11 @@ describe("ResearchWorkbench", () => {
     expect(screen.getByRole("tabpanel", { name: "Evidence" })).toBeTruthy();
     expect(screen.queryByLabelText("Select evidence")).toBeNull();
     expect(
+      screen.getByText(
+        "The documented workflow separates discovery from verification.",
+      ),
+    ).toBeTruthy();
+    expect(
       screen.getByRole("button", { name: "Step 1: Collect sources" }),
     ).toBeTruthy();
     const sourceLinks = screen.getAllByRole("link", {
@@ -570,6 +618,69 @@ describe("ResearchWorkbench", () => {
     });
     expect(sourceLinks[0].getAttribute("href")).toBe(
       "https://example.com/research",
+    );
+  });
+
+  it("shows internal results as subdued metadata instead of claim titles", async () => {
+    const user = userEvent.setup();
+    const internalPath =
+      "workspace:///tool-results/call_20c0093384754c92a9e8eef2.json";
+    renderWithResearchMessages(
+      <ResearchWorkbench
+        task={{
+          ...completedTask,
+          evidence: [
+            {
+              id: "evidence-internal",
+              title: "tool-results/call_20c0093384754c92a9e8eef2.json",
+              sourceType: "workspace",
+              locator: internalPath,
+              retrievedAt: Date.UTC(2026, 7, 24),
+              linkedClaims: [],
+            },
+          ],
+        }}
+        onClose={vi.fn()}
+      />,
+    );
+
+    await user.click(screen.getByRole("tab", { name: "Evidence" }));
+    expect(screen.getByText("Not yet linked to a formal claim.")).toBeTruthy();
+    expect(screen.getAllByText("Internal tool result").length).toBeGreaterThan(
+      0,
+    );
+    expect(
+      screen.queryByRole("heading", {
+        name: "tool-results/call_20c0093384754c92a9e8eef2.json",
+      }),
+    ).toBeNull();
+    const technicalDetails = screen.getByText("Technical details");
+    expect(
+      (technicalDetails.closest("details") as HTMLDetailsElement).open,
+    ).toBe(false);
+  });
+
+  it("uses max-w-5xl for every tab and expands the active plan step", async () => {
+    const user = userEvent.setup();
+    renderWithResearchMessages(
+      <ResearchWorkbench task={completedTask} onClose={vi.fn()} />,
+    );
+
+    for (const tabName of ["Report", "Research plan", "Evidence", "Activity"]) {
+      await user.click(screen.getByRole("tab", { name: tabName }));
+      expect(
+        screen.getByRole("tabpanel", { name: tabName }).firstElementChild
+          ?.className,
+      ).toContain("max-w-5xl");
+    }
+
+    await user.click(screen.getByRole("tab", { name: "Research plan" }));
+    const activeStepSummary = screen
+      .getAllByText("Verify claims")
+      .map((item) => item.closest("summary"))
+      .find(Boolean)!;
+    expect((activeStepSummary.parentElement as HTMLDetailsElement).open).toBe(
+      true,
     );
   });
 

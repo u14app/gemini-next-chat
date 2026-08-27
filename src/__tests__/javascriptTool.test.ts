@@ -23,6 +23,7 @@ import { createJavaScriptBinding } from "../services/api/chat/builtinTools/javas
 
 const context = {
   sessionId: "session-1",
+  model: "openai:test-model",
   emit: {},
 };
 

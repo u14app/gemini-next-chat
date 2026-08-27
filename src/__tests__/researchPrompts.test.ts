@@ -6,9 +6,11 @@ import {
   buildResearchScopeExpansionAdjustment,
   buildResearchSynthesisPrompt,
   buildResearchWavePrompt,
+  buildResearchWaveRepairPrompt,
   createResearchReportRun,
   createResearchTask,
   getResearchClaimSignature,
+  normalizeResearchPlanDraft,
   parseResearchPlan,
   parseResearchQuestionCoverage,
   parseResearchStepCoverage,
@@ -137,7 +139,7 @@ describe("Deep Research prompts", () => {
     });
   });
 
-  it("rejects duplicate steps, out-of-scope sources, extra fields, and invalid budgets", () => {
+  it("keeps budget violations and duplicate step IDs fatal while tolerating stray keys", () => {
     const invalid = {
       ...planDraft,
       strategy: { ...planDraft.strategy, maxQueries: 49 },
@@ -155,22 +157,25 @@ describe("Deep Research prompts", () => {
     expect(parsed.valid).toBe(false);
     if (parsed.valid) throw new Error("Expected an invalid plan.");
     expect(parsed.error.issues.join("\n")).toContain("maxQueries");
-    expect(parsed.error.issues.join("\n")).toContain("Unrecognized key");
+
+    // A stray key is dropped rather than failing the whole plan.
+    const tolerated = parseResearchPlan(
+      JSON.stringify({
+        ...planDraft,
+        scope: { ...planDraft.scope, surprise: true },
+      }),
+    );
+    expect(tolerated.valid).toBe(true);
+    if (!tolerated.valid) throw new Error("Expected a valid plan.");
+    expect(tolerated.data.scope).not.toHaveProperty("surprise");
 
     const semantic = parseResearchPlan(
       JSON.stringify({
         ...planDraft,
         steps: [
           planDraft.steps[0],
-          {
-            ...planDraft.steps[1],
-            id: "step-1",
-            queryTopics: [planDraft.steps[0].queryTopics[0].toUpperCase()],
-          },
-          {
-            ...planDraft.steps[2],
-            sourcePriorities: [{ sourceType: "mcp", priority: "high" }],
-          },
+          { ...planDraft.steps[1], id: "step-1" },
+          planDraft.steps[2],
         ],
       }),
     );
@@ -179,12 +184,48 @@ describe("Deep Research prompts", () => {
     expect(semantic.error.issues.join("\n")).toContain(
       "Step IDs must be unique",
     );
-    expect(semantic.error.issues.join("\n")).toContain(
-      "outside the approved scope",
+  });
+
+  it("repairs host-owned plan properties instead of failing the plan", () => {
+    const drifted = parseResearchPlan(
+      JSON.stringify({
+        ...planDraft,
+        steps: [
+          planDraft.steps[0],
+          {
+            ...planDraft.steps[1],
+            queryTopics: [
+              planDraft.steps[0].queryTopics[0].toUpperCase(),
+              ...planDraft.steps[1].queryTopics,
+            ],
+          },
+          {
+            ...planDraft.steps[2],
+            sourcePriorities: [{ sourceType: "mcp", priority: "high" }],
+          },
+        ],
+      }),
     );
-    expect(semantic.error.issues.join("\n")).toContain(
-      "Query topics must be distinct",
+    expect(drifted.valid).toBe(true);
+    if (!drifted.valid) throw new Error("Expected a valid plan.");
+
+    const strategy = { ...planDraft.strategy, maxDepth: 3 };
+    const normalized = normalizeResearchPlanDraft({
+      plan: drifted.data,
+      strategy,
+      allowedSourceTypes: ["web"],
+    });
+    expect(normalized.strategy).toEqual(strategy);
+    // The duplicated topic is dropped, but every step keeps at least one.
+    expect(normalized.steps[1].queryTopics).toEqual(
+      planDraft.steps[1].queryTopics,
     );
+    expect(
+      normalized.steps.flatMap((step) =>
+        step.sourcePriorities.map((source) => source.sourceType),
+      ),
+    ).toEqual(["web", "web", "web"]);
+    expect(normalized.scope.allowedSourceTypes).toEqual(["web"]);
   });
 
   it("pins the selected strategy and strict output contract in the plan prompt", () => {
@@ -198,8 +239,8 @@ describe("Deep Research prompts", () => {
     expect(prompt).toContain('"maxQueries":16');
     expect(prompt).toContain('"initialBreadth":4');
     expect(prompt).toContain("3-8 non-overlapping steps");
-    expect(prompt).toContain("request_user_input");
-    expect(prompt).toContain("no additional fields");
+    expect(prompt).not.toContain("request_user_input");
+    expect(prompt).toContain("Do not ask the user questions in this call");
   });
 
   it("accepts wave packets only when node and source references are committed", () => {
@@ -402,6 +443,31 @@ describe("Deep Research prompts", () => {
       },
     );
     expect(rejectedPriorCollision.valid).toBe(false);
+  });
+
+  it("builds a closed-book wave repair with exact committed ID bounds", () => {
+    const prompt = buildResearchWaveRepairPrompt({
+      invalidOutput: "The model returned prose instead of JSON.",
+      issues: ["root: Expected one JSON object."],
+      allowedNodeIds: ["node-1"],
+      allowedSourceIds: ["source-1"],
+      allowedEvidenceIds: ["evidence-1"],
+      allowedStepIds: ["step-1"],
+      expectedStepIdByNode: { "node-1": "step-1" },
+    });
+
+    expect(prompt).toContain("Do not use tools, add sources, or invent facts");
+    expect(prompt).toContain('Allowed node IDs:\n["node-1"]');
+    expect(prompt).toContain('Allowed source IDs:\n["source-1"]');
+    expect(prompt).toContain('Allowed evidence IDs:\n["evidence-1"]');
+    expect(prompt).toContain('Expected step by node:\n{"node-1":"step-1"}');
+    expect(prompt).toContain("root: Expected one JSON object.");
+    expect(
+      parseResearchWavePackets("not json", {
+        allowedNodeIds: ["node-1"],
+        allowedSourceIds: ["source-1"],
+      }).valid,
+    ).toBe(false);
   });
 
   it("turns out-of-scope follow-ups into a bounded plan-regeneration request", () => {

@@ -17,6 +17,7 @@ describe("update_task_plan built-in", () => {
         },
         {
           sessionId: "session-1",
+          model: "openai:test-model",
           emit: { taskPlan },
         },
       ),
@@ -39,6 +40,7 @@ describe("update_task_plan built-in", () => {
         { steps: [{ title: "", status: "pending" }] },
         {
           sessionId: "session-1",
+          model: "openai:test-model",
           emit: { taskPlan },
         },
       ),

@@ -21,7 +21,7 @@ import {
   RefreshCw,
   Save,
   Search,
-  Sparkles,
+  ScrollText,
   Trash2,
   X,
   Layers3,
@@ -285,7 +285,7 @@ const SkillEditorModal = ({
             id={titleId}
             className="flex min-w-0 items-center gap-2 truncate text-lg font-bold text-gray-800 dark:text-foreground"
           >
-            <Sparkles size={20} className="text-emerald-500" />
+            <ScrollText size={20} className="text-emerald-500" />
             {skill ? t("editSkill") : t("createSkill")}
           </h2>
           <Button
@@ -903,7 +903,7 @@ const SkillMarket: React.FC<SkillMarketProps> = ({ onClose }) => {
             className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-linear-to-tr from-emerald-500 to-cyan-500 text-white shadow-lg shadow-emerald-500/20"
             aria-hidden="true"
           >
-            <Sparkles size={20} />
+            <ScrollText size={20} />
           </div>
           <div className="min-w-0">
             <h1 className="truncate text-lg font-bold text-gray-800 dark:text-foreground">
@@ -1092,7 +1092,7 @@ const SkillMarket: React.FC<SkillMarketProps> = ({ onClose }) => {
           <section>
             <div className="mb-4 flex flex-wrap items-center justify-between gap-3 px-1">
               <h2 className="flex min-w-0 items-center gap-2 truncate text-sm font-bold uppercase tracking-wider text-gray-800 dark:text-foreground">
-                <Sparkles size={16} className="text-emerald-500" />
+                <ScrollText size={16} className="text-emerald-500" />
                 <span className="truncate">{t("installedSkills")}</span>
               </h2>
               <Button

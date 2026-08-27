@@ -1,6 +1,6 @@
 "use client";
 import React, { useEffect, useState } from "react";
-import { AlertTriangle, FileText, Library } from "lucide-react";
+import { AlertTriangle, FileText, LibraryBig } from "lucide-react";
 import { useTranslations } from "next-intl";
 import type { Attachment } from "@/types";
 import { isOPFSUrl, resolveOPFSUrl } from "@/utils/opfs";
@@ -107,7 +107,7 @@ const MessageAttachmentView: React.FC<MessageAttachmentViewProps> = ({
             {isFile ? (
               <FileText size={14} aria-hidden="true" />
             ) : (
-              <Library size={14} aria-hidden="true" />
+              <LibraryBig size={14} aria-hidden="true" />
             )}
           </div>
           <span className="text-[9px] font-bold uppercase tracking-wider text-purple-400 dark:text-purple-500">

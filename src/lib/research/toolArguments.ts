@@ -49,6 +49,10 @@ export interface AdjustResearchPlanArgs {
   instruction: string;
 }
 
+export interface ConfirmResearchPlanArgs {
+  taskId: string;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }
@@ -220,6 +224,20 @@ export function parseListResearchEvidenceArgs(
       ? { questionIndex: Number(input.questionIndex) }
       : {}),
     ...(stance ? { stance } : {}),
+  };
+}
+
+export function parseConfirmResearchPlanArgs(
+  value: unknown,
+): ConfirmResearchPlanArgs {
+  const input = parseObject(value, "Research plan confirmation");
+  assertSupportedFields(input, ["taskId"], "Research plan confirmation");
+  return {
+    taskId: parseRequiredText(
+      input.taskId,
+      "Research task ID",
+      RESEARCH_TASK_ID_MAX_CHARS,
+    ),
   };
 }
 

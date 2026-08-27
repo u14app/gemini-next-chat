@@ -144,6 +144,7 @@ describe("built-in tool registry", () => {
         {
           signal: new AbortController().signal,
           sessionId: "session-1",
+          model: "openai:test-model",
           emit: {},
         },
       ),
@@ -162,6 +163,7 @@ describe("built-in tool registry", () => {
       {
         signal: new AbortController().signal,
         sessionId: "session-1",
+        model: "openai:test-model",
         emit: {},
       },
     );
@@ -190,7 +192,12 @@ describe("built-in tool registry", () => {
     await expect(
       binding!.execute(
         { query: "document parser" },
-        { signal: controller.signal, sessionId: "session-1", emit: {} },
+        {
+          signal: controller.signal,
+          sessionId: "session-1",
+          model: "openai:test-model",
+          emit: {},
+        },
       ),
     ).rejects.toMatchObject({ name: "AbortError" });
     expect(mocks.memoryState.markMemoriesUsed).not.toHaveBeenCalled();
@@ -219,6 +226,7 @@ describe("built-in tool registry", () => {
         { title: "Architecture notes" },
         {
           sessionId: "session-1",
+          model: "openai:test-model",
           emit: { longText: emitLongText },
         },
       ),
@@ -231,7 +239,11 @@ describe("built-in tool registry", () => {
     await expect(
       binding!.execute(
         { title: "Second document" },
-        { sessionId: "session-1", emit: { longText: emitLongText } },
+        {
+          sessionId: "session-1",
+          model: "openai:test-model",
+          emit: { longText: emitLongText },
+        },
       ),
     ).resolves.toMatchObject({
       error: {
@@ -335,6 +347,7 @@ describe("built-in tool registry", () => {
         },
         {
           sessionId: "session-1",
+          model: "openai:test-model",
           toolCallId: "call-input",
           userInputController: { requestInput },
           emit: {},

@@ -3,7 +3,11 @@ import { TOOL_DISPLAY_LIMITS } from "../config/limits";
 import {
   formatToolDisplayName,
   formatToolDisplayValue,
+  getBuiltinToolLabelKey,
 } from "../lib/utils/toolDisplay";
+import enContent from "../i18n/locales/en/Content.json";
+import jaContent from "../i18n/locales/ja/Content.json";
+import zhContent from "../i18n/locales/zh/Content.json";
 
 describe("tool display serialization", () => {
   it("serializes circular values without throwing", () => {
@@ -57,6 +61,19 @@ describe("tool display serialization", () => {
     expect(name).toContain("Very Long Tool Name");
     expect(name.length).toBeLessThanOrEqual(
       TOOL_DISPLAY_LIMITS.maxToolNameChars,
+    );
+  });
+
+  it("resolves the Research workspace reader in every supported locale", () => {
+    const labelKey = getBuiltinToolLabelKey("read_workspace_file");
+    expect(labelKey).toBe("toolReadWorkspaceFile");
+    expect(labelKey && enContent[labelKey]).toBe("Read workspace file");
+    expect(labelKey && zhContent[labelKey]).toBe("读取工作区文件");
+    expect(labelKey && jaContent[labelKey]).toBe(
+      "ワークスペースファイルを読む",
+    );
+    expect(formatToolDisplayName("mcp_custom_lookup")).toBe(
+      "Mcp Custom Lookup",
     );
   });
 });

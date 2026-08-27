@@ -219,6 +219,30 @@ describe("search provider adapters", () => {
     });
   });
 
+  it("explains when Firecrawl rejects keyless public-service traffic", async () => {
+    const fetchJson = vi.fn().mockResolvedValue({
+      response: new Response(null, { status: 403 }),
+      data: {
+        success: false,
+        error:
+          "Your IP address looks suspicious, so Firecrawl cannot be used without an API key.",
+      },
+    });
+
+    await expect(
+      runSearchProvider({
+        provider: "firecrawl",
+        query: "neo chat",
+        maxResultNumber: 5,
+        fetchJson,
+      }),
+    ).rejects.toMatchObject({
+      name: "SearchProviderError",
+      status: 403,
+      message: expect.stringMatching(/add a Firecrawl API key/i),
+    });
+  });
+
   it("throws provider errors with the upstream status", async () => {
     const fetchJson = vi.fn().mockResolvedValue({
       response: new Response(null, { status: 503 }),

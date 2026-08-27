@@ -30,6 +30,7 @@ import {
   buildResearchScopeExpansionAdjustment,
   buildResearchSynthesisPrompt,
   buildResearchWavePrompt,
+  buildResearchWaveRepairPrompt,
   buildDeterministicSalvageReport,
   applyResearchSourceAssessments,
   applyResearchRunUserStop,
@@ -55,10 +56,12 @@ import {
   getResearchVerificationQueryAllowance,
   getReportVersion,
   isResearchReadOnlyPolicy,
+  isResearchWorkspaceSnapshotPath,
   isActiveResearchStatus,
   isTerminalResearchStatus,
   markMutableResearchEvidenceStale,
   normalizeResearchQuery,
+  normalizeResearchPlanDraft,
   parseResearchPlan,
   parseResearchWavePackets,
   resolveResearchStrategy,
@@ -117,6 +120,12 @@ import {
   isKnowledgeCollectionAttachment,
   parseKnowledgeFileAttachmentData,
 } from "@/lib/utils/knowledgeAttachments";
+
+/**
+ * Extra closed-book model rounds spent repairing a plan the host could not fix
+ * deterministically, before the task is reported as failed.
+ */
+const PLAN_REPAIR_ATTEMPTS = 2;
 
 interface ResearchRuntimeProviderProps {
   children: React.ReactNode;
@@ -223,13 +232,13 @@ function getSessionConfig(session: Session): ChatConfig {
   };
 }
 
-function resolveTaskContext(task: ResearchTask) {
+function resolveTaskContext(task: ResearchTask, requestModel?: string) {
   const chatState = useChatStore.getState();
   const settings = useSettingsStore.getState();
   const core = useCoreSettingsStore.getState();
   const session = chatState.sessions.find((item) => item.id === task.sessionId);
   if (!session) throw new Error("The research chat no longer exists.");
-  const model = task.sourceSnapshot?.model || session.model;
+  const model = task.sourceSnapshot?.model || requestModel || session.model;
   const workspace = session.workspaceId
     ? chatState.workspaces.find((item) => item.id === session.workspaceId)
     : undefined;
@@ -392,8 +401,12 @@ async function loadSessionMessages(sessionId: string): Promise<Message[]> {
 
 async function createSourceSnapshot(
   task: ResearchTask,
+  requestModel?: string,
 ): Promise<ResearchSourceSnapshot> {
-  const { model, chatConfig, effective, settings } = resolveTaskContext(task);
+  const { model, chatConfig, effective, settings } = resolveTaskContext(
+    task,
+    requestModel,
+  );
   const messages = await loadSessionMessages(task.sessionId);
   const originMessage = messages.find(
     (message) => message.id === task.userMessageId,
@@ -500,7 +513,7 @@ async function captureApprovedWorkspaceSources(
   const listed = await listWorkspace(sessionId).catch(() => null);
   if (!listed?.ok) return [];
   return listed.value.files
-    .filter((file) => !file.path.startsWith("research/"))
+    .filter((file) => isResearchWorkspaceSnapshotPath(file.path))
     .map((file) => ({
       path: file.path,
       contentHash: file.contentHash,
@@ -1832,19 +1845,23 @@ export function ResearchRuntimeProvider({
   );
 
   const preparePlan = useCallback(
-    async (taskId: string, adjustment?: string) =>
+    async (taskId: string, adjustment?: string, requestModel?: string) =>
       runOperation(taskId, "planning", async (controller) => {
         const store = useResearchStore.getState();
         const initial = store.tasksById[taskId];
         if (!initial) throw new Error("Research task was not found.");
         try {
-          const { model, chatConfig, effective, settings } =
-            resolveTaskContext(initial);
-          const provisionalSnapshot = await createSourceSnapshot(initial);
+          const { model, chatConfig, effective, settings } = resolveTaskContext(
+            initial,
+            requestModel,
+          );
+          const provisionalSnapshot = await createSourceSnapshot(
+            initial,
+            requestModel,
+          );
           const allowedSourceTypes =
             getAvailableResearchSourceTypes(provisionalSnapshot);
           const strategy = resolveResearchStrategy(initial.budgetPreset);
-          const clarificationRunId = uuidv7();
           const reconRunId = uuidv7();
           const criticRunId = uuidv7();
           await store.updateTask(taskId, (current) => {
@@ -1854,85 +1871,14 @@ export function ResearchRuntimeProvider({
                 : transitionResearchTask(current, "clarifying");
             return {
               ...nextStatus,
-              agentRunIds: [
-                ...nextStatus.agentRunIds,
-                clarificationRunId,
-                reconRunId,
-                criticRunId,
-              ],
+              sourceSnapshot: provisionalSnapshot,
+              agentRunIds: [...nextStatus.agentRunIds, reconRunId, criticRunId],
               error: undefined,
             };
           });
           if (!getResearchTaskRepository().getStatus().durable) {
             throw new Error(t("runtime.error.persistence"));
           }
-
-          let clarifiedBrief = "";
-          clarifiedBrief = await streamChatResponse(
-            initial.sessionId,
-            model,
-            [],
-            buildResearchPlanPrompt({
-              task: initial,
-              adjustment,
-              reconnaissanceAllowed: false,
-              allowedSourceTypes,
-              strategy,
-            }),
-            [],
-            {
-              ...chatConfig,
-              chatMode: "research",
-              useAgentMode: false,
-              useDeepResearch: true,
-              useSearch: false,
-              useReasoning: false,
-            },
-            (text) => {
-              clarifiedBrief = text;
-            },
-            [
-              effective.systemInstruction,
-              "This is the clarification boundary for Deep Research. Source access is forbidden. Ask at most three questions in one request_user_input call only when the answer materially changes scope, audience, time range, source permission, or deliverable.",
-            ]
-              .filter(Boolean)
-              .join("\n\n"),
-            undefined,
-            undefined,
-            undefined,
-            undefined,
-            controller.signal,
-            [],
-            undefined,
-            undefined,
-            toolConfirmationController,
-            {
-              executionWorkflow: { kind: "research", phase: "plan" },
-              allowedToolIds: ["request_user_input"],
-              enforceAllowedToolIds: true,
-              allowedToolEffects: ["local_read"],
-              approvalMode: effective.approvalMode,
-              agentBudget: {
-                maxToolRounds: Math.min(3, initial.budget.maxToolRounds),
-                maxToolCalls: Math.min(1, initial.budget.maxToolCalls),
-                maxDurationMs: Math.min(
-                  10 * 60 * 1_000,
-                  initial.budget.maxDurationMs,
-                ),
-                ...(initial.budget.maxTotalTokens
-                  ? { maxTotalTokens: initial.budget.maxTotalTokens }
-                  : {}),
-              },
-              agentRun: {
-                id: clarificationRunId,
-                userMessageId: initial.userMessageId,
-                modelMessageId: initial.cardMessageId,
-              },
-              abortAgentRunAsInterrupted: true,
-              userInputController,
-            },
-          );
-          controller.signal.throwIfAborted();
 
           const reconEnabled =
             provisionalSnapshot.searchEnabled &&
@@ -1948,14 +1894,7 @@ export function ResearchRuntimeProvider({
             deadlineAt: reconStartedAt + 30_000,
             onQueriesExecuted: (queries) => executedQueries.push(...queries),
           };
-          const reconAdjustment = [
-            adjustment?.trim(),
-            clarifiedBrief.trim()
-              ? `Clarified provisional plan (not evidence):\n${clarifiedBrief.slice(0, 30_000)}`
-              : "",
-          ]
-            .filter(Boolean)
-            .join("\n\n");
+          const reconAdjustment = adjustment?.trim() || undefined;
           let candidateContent = "";
           candidateContent = await streamChatResponse(
             initial.sessionId,
@@ -2030,78 +1969,84 @@ export function ResearchRuntimeProvider({
           controller.signal.throwIfAborted();
           const reconCompletedAt = Date.now();
 
-          const candidate = parseResearchPlan(candidateContent, initial.goal);
-          const candidateIssues = candidate.valid
-            ? validateResearchPlanHostContract({
-                plan: candidate.data,
-                strategy,
-                allowedSourceTypes,
-              })
-            : candidate.error.issues;
-          let criticContent = "";
-          criticContent = await streamChatResponse(
-            initial.sessionId,
-            model,
-            [],
-            buildResearchPlanRepairPrompt({
-              task: initial,
-              invalidOutput: candidateContent,
-              issues:
-                candidateIssues.length > 0
-                  ? candidateIssues
-                  : [
-                      "No structural errors were found. Critique scope, overlap, evidence thresholds, source strategy, and completion criteria; preserve every host budget and permission constraint.",
-                    ],
-              allowedSourceTypes,
+          // The host repairs what it owns (strategy, source permissions,
+          // duplicate query topics) before judging the draft, then spends at
+          // most PLAN_REPAIR_ATTEMPTS extra model rounds on what is left.
+          const evaluatePlanDraft = (content: string) => {
+            const result = parseResearchPlan(content, initial.goal);
+            if (!result.valid) {
+              return { plan: undefined, issues: result.error.issues };
+            }
+            const plan = normalizeResearchPlanDraft({
+              plan: result.data,
               strategy,
-            }),
-            [],
-            {
-              ...chatConfig,
-              chatMode: "research",
-              useAgentMode: false,
-              useDeepResearch: false,
-              useSearch: false,
-              useReasoning: false,
-            },
-            (text) => {
-              criticContent = text;
-            },
-            `${effective.systemInstruction}\n\nThis is a closed-book plan critique and repair. All tools and source access are disabled.`,
-            undefined,
-            undefined,
-            undefined,
-            undefined,
-            controller.signal,
-            [],
-            undefined,
-            undefined,
-            undefined,
-            {
-              disableTools: true,
-              agentRun: {
-                id: criticRunId,
-                userMessageId: initial.userMessageId,
-                modelMessageId: initial.cardMessageId,
-              },
-            },
-          );
-          controller.signal.throwIfAborted();
-          const criticized = parseResearchPlan(criticContent, initial.goal);
-          const criticizedIssues = criticized.valid
-            ? validateResearchPlanHostContract({
-                plan: criticized.data,
-                strategy,
+              allowedSourceTypes,
+            });
+            const issues = validateResearchPlanHostContract({
+              plan,
+              strategy,
+              allowedSourceTypes,
+            });
+            return issues.length > 0
+              ? { plan: undefined, issues }
+              : { plan, issues };
+          };
+
+          let attemptContent = candidateContent;
+          let evaluated = evaluatePlanDraft(attemptContent);
+          for (
+            let attempt = 0;
+            !evaluated.plan && attempt < PLAN_REPAIR_ATTEMPTS;
+            attempt += 1
+          ) {
+            let repairedContent = "";
+            repairedContent = await streamChatResponse(
+              initial.sessionId,
+              model,
+              [],
+              buildResearchPlanRepairPrompt({
+                task: initial,
+                invalidOutput: attemptContent,
+                issues: evaluated.issues,
                 allowedSourceTypes,
-              })
-            : criticized.error.issues;
-          const parsed =
-            criticized.valid && criticizedIssues.length === 0
-              ? criticized
-              : candidate.valid && candidateIssues.length === 0
-                ? candidate
-                : null;
-          if (!parsed) {
+                strategy,
+              }),
+              [],
+              {
+                ...chatConfig,
+                chatMode: "chat",
+                useAgentMode: false,
+                useDeepResearch: false,
+                useSearch: false,
+                useReasoning: false,
+              },
+              (text) => {
+                repairedContent = text;
+              },
+              `${effective.systemInstruction}\n\nThis is a closed-book plan repair. All tools and source access are disabled.`,
+              undefined,
+              undefined,
+              undefined,
+              undefined,
+              controller.signal,
+              [],
+              undefined,
+              undefined,
+              undefined,
+              {
+                disableTools: true,
+                agentRun: {
+                  id: attempt === 0 ? criticRunId : uuidv7(),
+                  userMessageId: initial.userMessageId,
+                  modelMessageId: initial.cardMessageId,
+                },
+              },
+            );
+            controller.signal.throwIfAborted();
+            attemptContent = repairedContent;
+            evaluated = evaluatePlanDraft(repairedContent);
+          }
+          if (!evaluated.plan) {
             await store.updateTask(taskId, (current) =>
               current.status === "cancelled"
                 ? current
@@ -2110,8 +2055,8 @@ export function ResearchRuntimeProvider({
                     error: {
                       code: "RESEARCH_PLAN_INVALID",
                       message: [
-                        "The research plan remained invalid after one repair.",
-                        ...criticizedIssues.slice(0, 8),
+                        `The research plan remained invalid after ${PLAN_REPAIR_ATTEMPTS} repairs.`,
+                        ...evaluated.issues.slice(0, 8),
                       ].join(" "),
                       recoverable: true,
                     },
@@ -2120,6 +2065,7 @@ export function ResearchRuntimeProvider({
             onError?.(t("runtime.error.plan"));
             return;
           }
+          const planDraft = evaluated.plan;
 
           const recon = buildResearchReconSnapshot({
             enabled: reconEnabled,
@@ -2138,7 +2084,7 @@ export function ResearchRuntimeProvider({
             const plan: ResearchPlanVersion = {
               id: uuidv7(),
               version,
-              ...parsed.data,
+              ...planDraft,
               strategy,
               recon,
               createdAt: Date.now(),
@@ -2211,7 +2157,6 @@ export function ResearchRuntimeProvider({
       runOperation,
       t,
       toolConfirmationController,
-      userInputController,
     ],
   );
 
@@ -2769,7 +2714,7 @@ export function ResearchRuntimeProvider({
                 toolCall.status === "denied" ||
                 toolCall.status === "skipped",
             ).length;
-            const parsedPackets = parseResearchWavePackets(latestContent, {
+            const waveParseOptions = {
               allowedNodeIds: nodeIds,
               allowedSourceIds: collected.evidence.map((item) => item.sourceId),
               allowedEvidenceIds: collected.evidence.map((item) => item.id),
@@ -2800,7 +2745,92 @@ export function ResearchRuntimeProvider({
                   ]),
                 ),
               ),
-            });
+            } satisfies Parameters<typeof parseResearchWavePackets>[1];
+            let parsedPackets = parseResearchWavePackets(
+              latestContent,
+              waveParseOptions,
+            );
+            if (!parsedPackets.valid) {
+              const initialIssues = [...parsedPackets.error.issues];
+              let repairedContent = "";
+              const repairAt = Date.now();
+              const committedToolCalls = latestToolCalls
+                .filter(isCommittedCheckpointToolCall)
+                .map(sanitizeCheckpointToolCall);
+              const repairHistory: Message[] = [
+                {
+                  id: uuidv7(),
+                  role: "user",
+                  content: wavePrompt,
+                  timestamp: Math.max(0, repairAt - 1),
+                },
+                {
+                  id: uuidv7(),
+                  role: "model",
+                  content: latestContent,
+                  ...(committedToolCalls.length
+                    ? { toolCalls: committedToolCalls }
+                    : {}),
+                  timestamp: repairAt,
+                },
+              ];
+              try {
+                repairedContent = await streamChatResponse(
+                  task.sessionId,
+                  snapshot.model!,
+                  repairHistory,
+                  buildResearchWaveRepairPrompt({
+                    invalidOutput: latestContent,
+                    issues: initialIssues,
+                    allowedNodeIds: waveParseOptions.allowedNodeIds,
+                    allowedSourceIds: waveParseOptions.allowedSourceIds,
+                    allowedEvidenceIds: waveParseOptions.allowedEvidenceIds,
+                    allowedStepIds: waveParseOptions.allowedStepIds,
+                    expectedStepIdByNode: waveParseOptions.expectedStepIdByNode,
+                  }),
+                  [],
+                  {
+                    ...chatConfig,
+                    chatMode: "chat",
+                    useAgentMode: false,
+                    useDeepResearch: false,
+                    useSearch: false,
+                    useReasoning: false,
+                  },
+                  (text) => {
+                    repairedContent = text;
+                  },
+                  `${effective.systemInstruction}\n\nThis is a single closed-book wave packet repair. Tools and source access are disabled. Use only the committed history and allowed IDs supplied by the host.`,
+                  undefined,
+                  undefined,
+                  undefined,
+                  undefined,
+                  controller.signal,
+                  [],
+                  undefined,
+                  undefined,
+                  undefined,
+                  { disableTools: true },
+                );
+                controller.signal.throwIfAborted();
+                parsedPackets = parseResearchWavePackets(
+                  repairedContent,
+                  waveParseOptions,
+                );
+              } catch (error) {
+                if (isAbortError(error)) throw error;
+                logDevError("Deep Research wave packet repair failed", error);
+              }
+              if (!parsedPackets.valid) {
+                logDevError(
+                  "Deep Research wave output remained invalid after repair",
+                  {
+                    initialIssues,
+                    repairedIssues: parsedPackets.error.issues.slice(0, 40),
+                  },
+                );
+              }
+            }
             const executionUsage = aggregateExecutionUsage(
               getCurrentResearchReportRunIds(store.tasksById[taskId]),
             );
@@ -2841,6 +2871,10 @@ export function ResearchRuntimeProvider({
                     ? {
                         ...node,
                         status: "failed" as const,
+                        stopReason: {
+                          code: "invalid_model_output" as const,
+                          at: completedAt,
+                        },
                         updatedAt: completedAt,
                       }
                     : node,
@@ -2849,9 +2883,8 @@ export function ResearchRuntimeProvider({
                   (nodeId) => !nodeIds.includes(nodeId),
                 ),
                 stopReason: {
-                  code: "no_new_sources",
+                  code: "invalid_model_output",
                   at: completedAt,
-                  detail: parsedPackets.error.issues.slice(0, 4).join(" "),
                 },
                 updatedAt: completedAt,
                 checkpoint: undefined,
@@ -3095,6 +3128,7 @@ export function ResearchRuntimeProvider({
                 researchRun.usage.queryCount,
               );
             if (
+              researchRun.stopReason?.code !== "invalid_model_output" &&
               verificationNodeIds.length > 0 &&
               verificationQueryAllowance > 0 &&
               remainingBudget(store.tasksById[taskId])
@@ -3247,7 +3281,7 @@ export function ResearchRuntimeProvider({
             [],
             {
               ...chatConfig,
-              chatMode: "research",
+              chatMode: "chat",
               useAgentMode: false,
               useDeepResearch: false,
               useSearch: false,
@@ -3306,7 +3340,7 @@ export function ResearchRuntimeProvider({
               [],
               {
                 ...chatConfig,
-                chatMode: "research",
+                chatMode: "chat",
                 useAgentMode: false,
                 useDeepResearch: false,
                 useSearch: false,
@@ -3814,14 +3848,17 @@ export function ResearchRuntimeProvider({
           .getState()
           .sessions.find((item) => item.id === context.sessionId);
         if (!session) throw new Error(t("runtime.error.chatMissing"));
-        const draftContext = resolveTaskContext({
-          ...createResearchTask({
-            sessionId: context.sessionId,
-            goal: args.query,
-            budgetPreset: args.budgetPreset,
-          }),
-          sourceSnapshot: undefined,
-        });
+        const draftContext = resolveTaskContext(
+          {
+            ...createResearchTask({
+              sessionId: context.sessionId,
+              goal: args.query,
+              budgetPreset: args.budgetPreset,
+            }),
+            sourceSnapshot: undefined,
+          },
+          context.model,
+        );
         const task = createResearchTask({
           sessionId: context.sessionId,
           userMessageId: context.userMessageId,
@@ -3846,7 +3883,7 @@ export function ResearchRuntimeProvider({
           await useResearchStore.getState().upsertTask(failed);
           return { taskId: failed.id, status: failed.status };
         }
-        void preparePlan(withRun.id);
+        void preparePlan(withRun.id, undefined, context.model);
         return { taskId: withRun.id, status: withRun.status };
       },
       adjustPlan: async (args, context) => {
@@ -3863,9 +3900,23 @@ export function ResearchRuntimeProvider({
         await adjustPlan(args.taskId, args.instruction);
         context.signal?.throwIfAborted();
       },
+      confirmPlan: async (args, context) => {
+        context.signal?.throwIfAborted();
+        let task: ResearchTask | null | undefined =
+          useResearchStore.getState().tasksById[args.taskId];
+        if (!task) {
+          task = await getResearchTaskRepository().get(args.taskId);
+          if (task) await useResearchStore.getState().upsertTask(task);
+        }
+        if (!task || task.sessionId !== context.sessionId) {
+          throw new Error(t("runtime.error.taskMissing"));
+        }
+        await confirmPlan(args.taskId);
+        context.signal?.throwIfAborted();
+      },
     });
     return dispose;
-  }, [adjustPlan, claimActiveSlot, preparePlan, t]);
+  }, [adjustPlan, claimActiveSlot, confirmPlan, preparePlan, t]);
 
   useEffect(() => {
     const pauseActiveResearch = () => {

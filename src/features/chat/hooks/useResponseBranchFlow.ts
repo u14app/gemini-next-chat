@@ -180,6 +180,7 @@ export function useResponseBranchFlow(deps: ChatFlowDeps) {
       const {
         finalText,
         researchLaunchText,
+        researchPendingPlanTaskId,
         finalAttachments,
         ragSources,
         ragError,
@@ -430,6 +431,15 @@ export function useResponseBranchFlow(deps: ChatFlowDeps) {
                 },
               }),
               researchLaunchMessage: researchLaunchText,
+              ...(researchPendingPlanTaskId
+                ? {
+                    executionWorkflow: {
+                      kind: "research" as const,
+                      phase: "clarify" as const,
+                    },
+                    researchPendingTaskId: researchPendingPlanTaskId,
+                  }
+                : {}),
               forcedPluginIds: lastUserMsg.forcedPluginIds,
             },
           ),

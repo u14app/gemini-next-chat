@@ -32,6 +32,7 @@ import { cn } from "@/lib/utils/cn";
 import type { Source } from "@/types";
 
 import {
+  ActivityList,
   ResearchSourceScope,
   PlanSteps,
   StatusLabel,
@@ -193,7 +194,7 @@ function ApprovalBanner({ task }: { task: ResearchTaskViewModel }) {
             >
               {t("status.plan_ready")}
             </h2>
-            <span className="text-xs font-medium text-research-accent">
+            <span className="text-xs font-medium text-research-accent-text">
               {t("plan.version", { version: task.plan.version })}
             </span>
           </div>
@@ -217,7 +218,7 @@ function ApprovalBanner({ task }: { task: ResearchTaskViewModel }) {
           <Button
             size="sm"
             variant="bare"
-            className="mt-1 -ml-2 h-9 text-research-accent hover:bg-research-accent/10 hover:text-research-accent-hover sm:h-8"
+            className="mt-1 -ml-2 h-9 text-research-accent-text hover:bg-research-accent/10 hover:text-research-accent-hover sm:h-8"
             onClick={() => setPlanOpen(true)}
             aria-haspopup="dialog"
           >
@@ -334,10 +335,18 @@ function PlanPanel({ task }: { task: ResearchTaskViewModel }) {
     }
     return result;
   }, [task.evidence, task.plan?.steps]);
+  const defaultExpandedStepId = useMemo(() => {
+    const steps = task.plan?.steps ?? [];
+    return (
+      steps.find((step) => step.status === "in_progress") ??
+      steps.find((step) => step.status === "pending") ??
+      [...steps].reverse().find((step) => step.status === "completed")
+    )?.id;
+  }, [task.plan?.steps]);
 
   if (!task.plan) {
     return (
-      <div className="flex min-h-72 flex-col items-center justify-center px-5 text-center">
+      <div className="mx-auto flex min-h-72 w-full max-w-5xl flex-col items-center justify-center px-5 text-center">
         <SearchCheck
           size={26}
           className="text-muted-foreground"
@@ -351,20 +360,18 @@ function PlanPanel({ task }: { task: ResearchTaskViewModel }) {
   }
 
   return (
-    <div className="mx-auto w-full max-w-7xl space-y-8 p-4 sm:p-6">
-      <section aria-labelledby={`research-plan-contract-${task.id}`}>
+    <div className="mx-auto w-full max-w-5xl space-y-10 p-4 sm:p-6">
+      <section
+        className="border-b border-border pb-6"
+        aria-labelledby={`research-plan-overview-${task.id}`}
+      >
         <div className="flex flex-wrap items-baseline justify-between gap-2">
-          <div>
-            <p className="text-[10px] font-semibold tracking-[0.16em] text-research-accent uppercase">
-              {t("plan.planContract")}
-            </p>
-            <h2
-              id={`research-plan-contract-${task.id}`}
-              className="mt-1 text-lg font-semibold tracking-tight"
-            >
-              {t("plan.title")}
-            </h2>
-          </div>
+          <h2
+            id={`research-plan-overview-${task.id}`}
+            className="text-lg font-semibold tracking-tight"
+          >
+            {t("plan.title")}
+          </h2>
           <span className="font-mono text-xs tabular-nums text-muted-foreground">
             {t("plan.version", { version: task.plan.version })}
           </span>
@@ -372,7 +379,16 @@ function PlanPanel({ task }: { task: ResearchTaskViewModel }) {
         <p className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">
           {task.plan.summary}
         </p>
-        <div className="mt-5 border-l-2 border-research-accent/50 pl-4">
+      </section>
+
+      <section aria-labelledby={`research-plan-contract-${task.id}`}>
+        <h2
+          id={`research-plan-contract-${task.id}`}
+          className="text-sm font-semibold text-foreground"
+        >
+          {t("plan.planContract")}
+        </h2>
+        <div className="mt-4 border-t border-border pt-4">
           <ResearchPlanContract plan={task.plan} />
         </div>
       </section>
@@ -397,7 +413,7 @@ function PlanPanel({ task }: { task: ResearchTaskViewModel }) {
             const evidence = evidenceByStepId.get(step.id) ?? [];
             return (
               <li key={step.id} className="border-b border-border">
-                <details open={step.status === "in_progress" || undefined}>
+                <details open={step.id === defaultExpandedStepId || undefined}>
                   <summary className="group flex cursor-pointer list-none items-start gap-3 px-1 py-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
                     <span className="w-7 shrink-0 pt-0.5 font-mono text-xs font-medium tabular-nums text-muted-foreground">
                       {String(index + 1).padStart(2, "0")}
@@ -485,6 +501,12 @@ function EvidenceListItem({
   const relatedQuestions = (evidence.questionIndexes ?? []).flatMap((index) =>
     questionTitles[index] ? [index] : [],
   );
+  const linkedClaims = evidence.linkedClaims ?? [];
+  const isInternalResult = Boolean(
+    evidence.locator?.startsWith("workspace:///tool-results/") ||
+    evidence.locator?.startsWith("tool-results/") ||
+    evidence.title.startsWith("tool-results/"),
+  );
 
   return (
     <article
@@ -494,7 +516,9 @@ function EvidenceListItem({
       <div className="min-w-0">
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
           <span>
-            {evidence.domain || t(`sourceType.${evidence.sourceType}`)}
+            {isInternalResult
+              ? t("evidence.internalResult")
+              : evidence.domain || t(`sourceType.${evidence.sourceType}`)}
           </span>
           <time dateTime={new Date(evidence.retrievedAt).toISOString()}>
             {new Date(evidence.retrievedAt).toLocaleString()}
@@ -502,7 +526,7 @@ function EvidenceListItem({
           {evidence.stance ? (
             <span>{t(`stance.${evidence.stance}`)}</span>
           ) : null}
-          {evidence.verificationStatus ? (
+          {linkedClaims.length === 0 && evidence.verificationStatus ? (
             <span>
               {t(`verificationStatus.${evidence.verificationStatus}`)}
             </span>
@@ -511,13 +535,37 @@ function EvidenceListItem({
             <span>{t(`authority.${evidence.authority}`)}</span>
           ) : null}
         </div>
-        <h3
-          id={`research-evidence-${evidence.id}`}
-          tabIndex={-1}
-          className="mt-1 wrap-break-word text-sm font-semibold leading-5 text-foreground"
-        >
-          {evidence.title}
-        </h3>
+        {linkedClaims.length > 0 ? (
+          <ul className="mt-3 space-y-3">
+            {linkedClaims.map((claim, index) => (
+              <li key={claim.id}>
+                <p
+                  id={
+                    index === 0 ? `research-evidence-${evidence.id}` : undefined
+                  }
+                  tabIndex={index === 0 ? -1 : undefined}
+                  className="wrap-break-word text-sm font-semibold leading-6 text-foreground"
+                >
+                  {claim.text}
+                </p>
+                <p className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                  <span>{t(`claimImportance.${claim.importance}`)}</span>
+                  <span>
+                    {t(`verificationStatus.${claim.verificationStatus}`)}
+                  </span>
+                </p>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p
+            id={`research-evidence-${evidence.id}`}
+            tabIndex={-1}
+            className="mt-3 text-sm font-medium leading-6 text-muted-foreground"
+          >
+            {t("evidence.unlinkedClaim")}
+          </p>
+        )}
         {relatedQuestions.length > 0 ? (
           <p className="mt-2 text-xs leading-5 text-muted-foreground">
             {t("metrics.questions")}:{" "}
@@ -533,11 +581,28 @@ function EvidenceListItem({
             {evidence.excerpt}
           </p>
         ) : null}
-        {evidence.locator && !safeHref ? (
-          <p className="mt-2 wrap-break-word text-xs text-muted-foreground">
-            {evidence.locator}
+        <div className="mt-3 border-t border-border/70 pt-3 text-xs leading-5 text-muted-foreground">
+          <p className="wrap-break-word">
+            <span className="font-medium text-foreground/75">
+              {t("evidence.sourceLabel")}:{" "}
+            </span>
+            {isInternalResult ? t("evidence.internalResult") : evidence.title}
           </p>
-        ) : null}
+          {evidence.locator && !safeHref ? (
+            isInternalResult ? (
+              <details className="mt-1">
+                <summary className="w-fit cursor-pointer rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                  {t("evidence.technicalDetails")}
+                </summary>
+                <p className="mt-1 wrap-break-word font-mono text-[11px]">
+                  {evidence.locator}
+                </p>
+              </details>
+            ) : (
+              <p className="mt-1 wrap-break-word">{evidence.locator}</p>
+            )
+          ) : null}
+        </div>
       </div>
       {safeHref ? (
         <a
@@ -588,7 +653,7 @@ function EvidencePanel({ task }: { task: ResearchTaskViewModel }) {
               className={cn(
                 "shrink-0",
                 questionFilter === "all" &&
-                  "bg-research-accent text-research-accent-foreground hover:bg-research-accent-hover",
+                  "bg-research-solid text-research-accent-foreground hover:bg-research-accent-hover",
               )}
             >
               {t("evidence.allQuestions")}
@@ -602,7 +667,7 @@ function EvidencePanel({ task }: { task: ResearchTaskViewModel }) {
                 className={cn(
                   "shrink-0",
                   questionFilter === index &&
-                    "bg-research-accent text-research-accent-foreground hover:bg-research-accent-hover",
+                    "bg-research-solid text-research-accent-foreground hover:bg-research-accent-hover",
                 )}
                 aria-label={`${t("evidence.questionShort", { number: index + 1 })}: ${question}`}
               >
@@ -623,7 +688,7 @@ function EvidencePanel({ task }: { task: ResearchTaskViewModel }) {
             className={cn(
               "shrink-0",
               stanceFilter === "all" &&
-                "bg-research-accent text-research-accent-foreground hover:bg-research-accent-hover",
+                "bg-research-solid text-research-accent-foreground hover:bg-research-accent-hover",
             )}
           >
             {t("evidence.allRelationships")}
@@ -637,7 +702,7 @@ function EvidencePanel({ task }: { task: ResearchTaskViewModel }) {
               className={cn(
                 "shrink-0",
                 stanceFilter === stance &&
-                  "bg-research-accent text-research-accent-foreground hover:bg-research-accent-hover",
+                  "bg-research-solid text-research-accent-foreground hover:bg-research-accent-hover",
               )}
             >
               {t(`stance.${stance}`)}
@@ -683,25 +748,9 @@ function ActivityPanel({ task }: { task: ResearchTaskViewModel }) {
     <div className="mx-auto w-full max-w-5xl p-4 sm:p-6">
       <h2 className="text-lg font-semibold">{t("activity.title")}</h2>
       {task.activities.length ? (
-        <ol className="mt-5 border-l border-border pl-4">
-          {task.activities.map((item) => (
-            <li key={item.id} className="relative pb-5 last:pb-0">
-              <div className="flex flex-wrap items-baseline justify-between gap-2">
-                <h3 className="min-w-0 wrap-break-word text-sm font-medium">
-                  {item.title}
-                </h3>
-                <time className="shrink-0 text-[11px] text-muted-foreground">
-                  {new Date(item.createdAt).toLocaleString()}
-                </time>
-              </div>
-              {item.detail ? (
-                <p className="mt-1 wrap-break-word text-xs leading-5 text-muted-foreground">
-                  {item.detail}
-                </p>
-              ) : null}
-            </li>
-          ))}
-        </ol>
+        <div className="mt-5">
+          <ActivityList activities={task.activities} />
+        </div>
       ) : (
         <p className="mt-3 text-sm text-muted-foreground">
           {t("activity.empty")}
@@ -737,7 +786,7 @@ function ReportPanel({
   const t = useTranslations("Research");
   if (!report) {
     return (
-      <div className="flex min-h-72 flex-col items-center justify-center p-5 text-center">
+      <div className="mx-auto flex min-h-72 w-full max-w-5xl flex-col items-center justify-center p-5 text-center">
         <FileText
           size={26}
           className="text-muted-foreground"
@@ -752,7 +801,7 @@ function ReportPanel({
   }
 
   return (
-    <div className="mx-auto w-full max-w-4xl p-4 sm:p-6">
+    <div className="mx-auto w-full max-w-5xl p-4 sm:p-6">
       <div className="border-b border-border pb-4 sm:flex sm:flex-wrap sm:items-start sm:gap-3">
         <div className="min-w-0 flex-1">
           <h2 className="wrap-break-word text-lg font-semibold">
@@ -937,7 +986,7 @@ function ResearchFollowupDialog({
               type="submit"
               variant="primary"
               disabled={!value.trim() || submitting}
-              className="bg-research-accent text-research-accent-foreground hover:bg-research-accent-hover"
+              className="bg-research-solid text-research-accent-foreground hover:bg-research-accent-hover"
             >
               {submitting
                 ? t("followup.submitting")

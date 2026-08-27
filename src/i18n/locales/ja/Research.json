@@ -138,6 +138,7 @@
       "max_sources": "本文取得上限に達しました",
       "budget_exhausted": "調査予算を使い切りました",
       "no_new_sources": "最新ウェーブで正式な情報源が増えませんでした",
+      "invalid_model_output": "モデルが無効な調査ウェーブ形式を返しました",
       "no_new_verified_claims": "連続するウェーブで検証済み主張が増えませんでした",
       "frontier_exhausted": "範囲内で実行可能な調査ノードが残っていません",
       "user_paused": "ユーザーが一時停止しました",
@@ -183,7 +184,19 @@
   },
   "card": {
     "knownGaps": "既知の不足",
-    "reportAvailable": "レポートのバージョン {version} をワークベンチで確認できます"
+    "reportAvailable": "レポートのバージョン {version} をワークベンチで確認できます",
+    "preparingSteps": {
+      "scope": "調査範囲を作成中",
+      "sources": "情報源の実現性を確認中",
+      "review": "調査計画を確認中"
+    },
+    "replyHint": "チャットで返信して計画を調整できます。問題なければ調査を開始してください。",
+    "budgetSummary": "{preset} · 検索 {queries} 回 · 深さ {depth}",
+    "fullContract": "調査契約の全文",
+    "liveActivity": "最新のアクティビティ",
+    "progress": "調査の進捗",
+    "progressSummary": "{total} 件中 {completed} 件のステップが完了",
+    "progressDepth": "ウェーブ {wave}/{waves} · 深さ {depth}/{maxDepth}"
   },
   "global": {
     "label": "実行中のディープリサーチ"
@@ -251,6 +264,10 @@
     "none": "根拠はまだありません",
     "emptyTitle": "根拠はまだありません",
     "emptyDescription": "調査ステップが進むと、対応する根拠がここに表示されます。",
+    "sourceLabel": "情報源",
+    "unlinkedClaim": "まだ正式な主張に関連付けられていません。",
+    "internalResult": "内部ツール結果",
+    "technicalDetails": "技術情報",
     "openSource": "情報源を開く：{title}",
     "retrieved": "取得日時",
     "location": "場所",
@@ -287,6 +304,10 @@
     "verified": "検証済み",
     "unsupported": "裏付けなし",
     "unresolved": "未解決"
+  },
+  "claimImportance": {
+    "major": "主要な主張",
+    "background": "背景となる主張"
   },
   "authority": {
     "primary": "一次情報",

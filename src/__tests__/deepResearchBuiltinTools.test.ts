@@ -3,7 +3,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { getAgentBuiltinToolNames } from "../lib/agent/capabilityCatalog";
 import { createResearchTask, type ResearchTask } from "../lib/research";
 import { collectBuiltinTools } from "../services/api/chat/builtinTools";
-import { createDeepResearchBindings } from "../services/api/chat/builtinTools/deepResearch";
+import {
+  createDeepResearchBindings,
+  createResearchPlanReviewBindings,
+} from "../services/api/chat/builtinTools/deepResearch";
 
 const mocks = vi.hoisted(() => ({
   repository: {
@@ -47,6 +50,7 @@ const RESEARCH_TOOL_NAMES = [
   "list_research_evidence",
   "adjust_research_plan",
 ] as const;
+const TEST_MODEL = "openai:test-model";
 
 function getBinding(name: (typeof RESEARCH_TOOL_NAMES)[number]) {
   const binding = createDeepResearchBindings().find(
@@ -408,6 +412,13 @@ describe("Deep Research built-in tools", () => {
       searchMode: "external",
       workspaceAvailable: false,
     }).definitions.map((definition) => definition.function.name);
+    const clarifyNames = collectBuiltinTools({
+      message: "Narrow this to 2024 onward",
+      researchPhase: "clarify",
+      useSearch: true,
+      searchMode: "external",
+      workspaceAvailable: false,
+    }).definitions.map((definition) => definition.function.name);
     const executeTools = collectBuiltinTools({
       message: "Research this",
       researchPhase: "execute",
@@ -439,8 +450,13 @@ describe("Deep Research built-in tools", () => {
 
     expect(agentNames).not.toContain("start_deep_research");
     expect(startNames).toEqual(["start_deep_research"]);
-    expect(planNames).toEqual(["request_user_input"]);
-    expect(planSearchNames).toEqual(["request_user_input", "web_search"]);
+    expect(planNames).toEqual([]);
+    expect(planSearchNames).toEqual(["web_search"]);
+    // Clarification is source-free: refine or approve the plan, nothing else.
+    expect(clarifyNames).toEqual([
+      "adjust_research_plan",
+      "confirm_research_plan",
+    ]);
     expect(executeNames).toEqual(
       expect.arrayContaining([
         "web_search",
@@ -491,6 +507,7 @@ describe("Deep Research built-in tools", () => {
         { attachment_id: "attachment-1" },
         {
           sessionId: "session-1",
+          model: TEST_MODEL,
           emit: {},
           knowledgeScope: {
             attachments: [
@@ -548,10 +565,13 @@ describe("Deep Research built-in tools", () => {
         {
           signal,
           sessionId: "session-1",
+          model: "openai:gpt-4.1",
           userMessageId: "user-1",
           modelMessageId: "model-1",
           agentRunId: "run-1",
-          emit: { research: { start, adjustPlan: vi.fn() } },
+          emit: {
+            research: { start, adjustPlan: vi.fn(), confirmPlan: vi.fn() },
+          },
         },
       ),
     ).resolves.toEqual({ taskId: "research-1", status: "draft" });
@@ -563,6 +583,7 @@ describe("Deep Research built-in tools", () => {
       {
         signal,
         sessionId: "session-1",
+        model: "openai:gpt-4.1",
         userMessageId: "user-1",
         modelMessageId: "model-1",
         agentRunId: "run-1",
@@ -573,7 +594,7 @@ describe("Deep Research built-in tools", () => {
   it("fails closed on invalid start and adjustment arguments", async () => {
     const start = vi.fn();
     const adjustPlan = vi.fn();
-    const emit = { research: { start, adjustPlan } };
+    const emit = { research: { start, adjustPlan, confirmPlan: vi.fn() } };
 
     await expect(
       getBinding("start_deep_research").execute(
@@ -582,7 +603,7 @@ describe("Deep Research built-in tools", () => {
           budgetPreset: "quick",
           sessionId: "injected",
         },
-        { sessionId: "session-1", emit },
+        { sessionId: "session-1", model: TEST_MODEL, emit },
       ),
     ).resolves.toMatchObject({
       ok: false,
@@ -591,7 +612,7 @@ describe("Deep Research built-in tools", () => {
     await expect(
       getBinding("adjust_research_plan").execute(
         { taskId: "research-1", instruction: "   " },
-        { sessionId: "session-1", emit },
+        { sessionId: "session-1", model: TEST_MODEL, emit },
       ),
     ).resolves.toMatchObject({
       ok: false,
@@ -612,6 +633,7 @@ describe("Deep Research built-in tools", () => {
     await expect(
       getBinding("get_research_status").execute(undefined, {
         sessionId: "session-1",
+        model: TEST_MODEL,
         emit: {},
       }),
     ).resolves.toMatchObject({
@@ -641,7 +663,7 @@ describe("Deep Research built-in tools", () => {
     await expect(
       getBinding("list_research_tasks").execute(
         { sessionId: "session-1", limit: 1 },
-        { sessionId: "session-1", emit: {} },
+        { sessionId: "session-1", model: TEST_MODEL, emit: {} },
       ),
     ).resolves.toMatchObject({
       tasks: [{ taskId: "research-1", status: "completed" }],
@@ -663,7 +685,7 @@ describe("Deep Research built-in tools", () => {
     await expect(
       getBinding("read_research_report").execute(
         { taskId: task.id, version: 1 },
-        { sessionId: task.sessionId, emit: {} },
+        { sessionId: task.sessionId, model: TEST_MODEL, emit: {} },
       ),
     ).resolves.toMatchObject({
       taskId: task.id,
@@ -698,7 +720,7 @@ describe("Deep Research built-in tools", () => {
     await expect(
       getBinding("list_research_evidence").execute(
         { taskId: task.id, questionIndex: 1, stance: "supports" },
-        { sessionId: task.sessionId, emit: {} },
+        { sessionId: task.sessionId, model: TEST_MODEL, emit: {} },
       ),
     ).resolves.toEqual({
       taskId: task.id,
@@ -766,10 +788,12 @@ describe("Deep Research built-in tools", () => {
         },
         {
           sessionId: before.sessionId,
+          model: TEST_MODEL,
           emit: {
             research: {
               start: vi.fn(),
               adjustPlan,
+              confirmPlan: vi.fn(),
             },
           },
         },
@@ -785,8 +809,52 @@ describe("Deep Research built-in tools", () => {
         taskId: before.id,
         instruction: "Add regional differences",
       },
-      { sessionId: before.sessionId },
+      { sessionId: before.sessionId, model: TEST_MODEL },
     );
+  });
+
+  it("starts the run only from a plan the user has approved", async () => {
+    const planReady = {
+      ...createTaskFixture(),
+      status: "plan_ready" as const,
+      endedAt: undefined,
+      reportVersions: [],
+      activeReportVersion: undefined,
+    };
+    setStoreTask(planReady);
+    const confirmPlan = vi.fn(async () => {
+      setStoreTask({ ...planReady, status: "researching", updatedAt: 20 });
+    });
+    const confirm = createResearchPlanReviewBindings().find(
+      (binding) => binding.definition.function.name === "confirm_research_plan",
+    );
+    if (!confirm) throw new Error("Missing confirm_research_plan binding.");
+    const emit = {
+      research: { start: vi.fn(), adjustPlan: vi.fn(), confirmPlan },
+    };
+
+    await expect(
+      confirm.execute(
+        { taskId: planReady.id },
+        { sessionId: planReady.sessionId, model: TEST_MODEL, emit },
+      ),
+    ).resolves.toEqual({
+      taskId: planReady.id,
+      status: "researching",
+      planVersion: planReady.activePlanVersion,
+    });
+
+    // A task that is no longer awaiting approval cannot be started twice.
+    await expect(
+      confirm.execute(
+        { taskId: planReady.id },
+        { sessionId: planReady.sessionId, model: TEST_MODEL, emit },
+      ),
+    ).resolves.toMatchObject({
+      ok: false,
+      error: { code: "RESEARCH_PLAN_NOT_READY" },
+    });
+    expect(confirmPlan).toHaveBeenCalledTimes(1);
   });
 
   it("aborts before invoking a write emitter", async () => {
@@ -800,7 +868,10 @@ describe("Deep Research built-in tools", () => {
         {
           signal: controller.signal,
           sessionId: "session-1",
-          emit: { research: { start, adjustPlan: vi.fn() } },
+          model: TEST_MODEL,
+          emit: {
+            research: { start, adjustPlan: vi.fn(), confirmPlan: vi.fn() },
+          },
         },
       ),
     ).rejects.toMatchObject({ name: "AbortError" });

@@ -21,6 +21,7 @@ import type { TaskPlanSnapshot } from "@/lib/agent/taskPlan";
 import type { LongTextOutputRequest } from "@/lib/chat/longText";
 import type {
   AdjustResearchPlanArgs,
+  ConfirmResearchPlanArgs,
   StartDeepResearchArgs,
 } from "@/lib/research/toolArguments";
 import type { ResearchTaskStatus } from "@/lib/research/types";
@@ -91,6 +92,7 @@ export interface ArchiveFileShare {
 
 export interface BuiltinResearchHostContext {
   sessionId: string;
+  model: string;
   userMessageId?: string;
   modelMessageId?: string;
   agentRunId?: string;
@@ -109,6 +111,10 @@ export interface BuiltinResearchEmitters {
   ) => Promise<BuiltinResearchStartResult> | BuiltinResearchStartResult;
   adjustPlan: (
     request: AdjustResearchPlanArgs,
+    context: BuiltinResearchHostContext,
+  ) => Promise<void> | void;
+  confirmPlan: (
+    request: ConfirmResearchPlanArgs,
     context: BuiltinResearchHostContext,
   ) => Promise<void> | void;
 }
@@ -134,6 +140,7 @@ export interface BuiltinToolEmitters {
 export interface BuiltinToolContext {
   signal?: AbortSignal;
   sessionId: string;
+  model: string;
   userMessageId?: string;
   modelMessageId?: string;
   agentRunId?: string;
@@ -142,6 +149,8 @@ export interface BuiltinToolContext {
   knowledgeScope?: BuiltinKnowledgeScope;
   /** Frozen workspace paths available to an approval-gated Research run. */
   workspaceReadScope?: readonly string[];
+  /** Exact large-result files created by this execution run. */
+  workspaceInternalReadScope?: ReadonlySet<string>;
   emit: BuiltinToolEmitters;
 }
 

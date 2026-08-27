@@ -4,7 +4,7 @@ import { useTranslations } from "next-intl";
 import {
   FileUp,
   ImageUp,
-  Library,
+  LibraryBig,
   Link,
   MessageSquarePlus,
   Shrink,
@@ -127,7 +127,7 @@ export function useComposerCommandMenu({
         kind: "action",
         label: t("commandKnowledgeBase"),
         hint: t("commandKnowledgeBaseHint"),
-        icon: Library,
+        icon: LibraryBig,
       });
     }
 

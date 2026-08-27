@@ -7,7 +7,7 @@ import {
   Download,
   Trash2,
   Loader2,
-  Blocks,
+  Cable,
   ExternalLink,
   X,
   ChevronLeft,
@@ -289,7 +289,7 @@ const CustomPluginModal = ({
             id={titleId}
             className="flex items-center gap-2 text-lg font-bold text-gray-800 dark:text-foreground"
           >
-            <Blocks size={20} className="text-blue-500" aria-hidden="true" />
+            <Cable size={20} className="text-blue-500" aria-hidden="true" />
             {t("addCustomPlugin")}
           </h2>
           <Button
@@ -772,7 +772,7 @@ const CustomMcpServerModal = ({
             id={titleId}
             className="flex items-center gap-2 text-lg font-bold text-gray-800 dark:text-foreground"
           >
-            <Blocks size={20} className="text-blue-500" aria-hidden="true" />
+            <Cable size={20} className="text-blue-500" aria-hidden="true" />
             {t("addCustomMcpServer")}
           </h2>
           <Button
@@ -1282,7 +1282,7 @@ const PluginDetailsModal = ({
                 alt=""
                 className="w-full h-full object-contain"
                 fallback={
-                  <Blocks
+                  <Cable
                     size={24}
                     className="text-gray-400"
                     aria-hidden="true"
@@ -2203,7 +2203,7 @@ const PluginMarket: React.FC<PluginMarketProps> = ({ onClose }) => {
             className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-linear-to-tr from-blue-500 to-purple-500 text-white shadow-lg shadow-blue-500/20"
             aria-hidden="true"
           >
-            <Blocks size={20} />
+            <Cable size={20} />
           </div>
           <div className="min-w-0">
             <h1 className="truncate text-lg font-bold text-gray-800 dark:text-foreground">
@@ -2395,7 +2395,7 @@ const PluginMarket: React.FC<PluginMarketProps> = ({ onClose }) => {
                               alt=""
                               className="w-full h-full object-contain"
                               fallback={
-                                <Blocks
+                                <Cable
                                   size={24}
                                   className="text-gray-400"
                                   aria-hidden="true"
@@ -2593,7 +2593,7 @@ const PluginMarket: React.FC<PluginMarketProps> = ({ onClose }) => {
                                 alt=""
                                 className="w-full h-full object-contain"
                                 fallback={
-                                  <Blocks
+                                  <Cable
                                     size={20}
                                     className="text-gray-400"
                                     aria-hidden="true"

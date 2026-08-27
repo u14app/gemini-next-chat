@@ -11,6 +11,10 @@ const RESEARCH_WORKSPACE_READ_TOOLS = [
   "read_workspace_file",
 ] as const;
 
+export function isResearchWorkspaceSnapshotPath(path: string): boolean {
+  return !path.startsWith("research/") && !path.startsWith("tool-results/");
+}
+
 export function getResearchSourceBuiltinToolNames({
   externalSearchEnabled,
   knowledgeEnabled,

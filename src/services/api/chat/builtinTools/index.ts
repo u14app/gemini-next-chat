@@ -25,7 +25,10 @@ import { createRequestUserInputBinding } from "./requestUserInput";
 import { createSkillDiscoveryBindings } from "./skillDiscovery";
 import { createDocumentExtractionBindings } from "./documentExtraction";
 import { createResearchAttachmentInspectionBinding } from "./researchAttachment";
-import { createDeepResearchBindings } from "./deepResearch";
+import {
+  createDeepResearchBindings,
+  createResearchPlanReviewBindings,
+} from "./deepResearch";
 import { createChatModeSwitchBinding } from "./chatMode";
 import {
   getResearchSourceBuiltinToolNames,
@@ -53,7 +56,7 @@ export function collectBuiltinTools({
   disabled?: boolean;
   agentModeEnabled?: boolean;
   automaticModeEnabled?: boolean;
-  researchPhase?: "start" | "plan" | "execute";
+  researchPhase?: "start" | "clarify" | "plan" | "execute";
   useSearch?: boolean;
   searchMode?: string;
   knowledgeScope?: BuiltinKnowledgeScope;
@@ -76,12 +79,15 @@ export function collectBuiltinTools({
       );
       if (start) researchCandidates.push(start);
     } else if (researchPhase === "plan") {
-      researchCandidates.push(createRequestUserInputBinding());
+      // Planning is non-interactive: the user reviews and refines the plan in
+      // chat once the plan card is shown, so no question tool is offered here.
       if (useSearch && searchMode === "external") {
         researchCandidates.push(
           createWebSearchBinding({ queryBudget: researchQueryBudget }),
         );
       }
+    } else if (researchPhase === "clarify") {
+      researchCandidates.push(...createResearchPlanReviewBindings());
     } else {
       const knowledgeEnabled = Boolean(
         knowledgeScope?.attachments.some(isKnowledgeAttachment) ||

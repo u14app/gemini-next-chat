@@ -143,6 +143,7 @@ import {
   type AgentRun,
   type ResolvedAgentRunBudget,
 } from "@/lib/agent";
+import { normalizeWorkspacePath } from "@/lib/agent/workspace";
 import {
   isToolResultFailure,
   normalizeToolResultEnvelope,
@@ -377,7 +378,8 @@ export interface ModelInfo {
 export type AgentExecutionPhase = "idle" | "model" | "tool_execution";
 
 export type ChatExecutionWorkflow =
-  { kind: "agent" } | { kind: "research"; phase: "start" | "plan" | "execute" };
+  | { kind: "agent" }
+  | { kind: "research"; phase: "start" | "clarify" | "plan" | "execute" };
 
 const RESEARCH_SINGLE_SOURCE_READ_TOOLS = new Set([
   "inspect_attachment",
@@ -400,6 +402,8 @@ export interface StreamChatResponseOptions {
   executionWorkflow?: ChatExecutionWorkflow;
   /** Unaugmented user request used when Auto restarts as isolated Research. */
   researchLaunchMessage?: string;
+  /** Task whose unapproved plan the clarify phase is refining. */
+  researchPendingTaskId?: string;
   disableTools?: boolean;
   initialOutputBlocks?: MessageOutputBlock[];
   resumeLongTextBlockId?: string;
@@ -559,6 +563,18 @@ export const streamChatResponse = async (
       });
     }
   }
+  const workspaceInternalReadScope = new Set(
+    researchModeEnabled
+      ? (agentRun?.toolExecutions ?? []).flatMap((execution) =>
+          (execution.resultRefs ?? []).flatMap((reference) =>
+            reference.kind === "workspace_file" &&
+            reference.id.startsWith("tool-results/")
+              ? [reference.id]
+              : [],
+          ),
+        )
+      : [],
+  );
   let agentRunLease: AgentRunLease | undefined;
   let agentRunUpdateQueue: Promise<void> = Promise.resolve();
   const updateAgentRun = async (
@@ -688,10 +704,13 @@ export const streamChatResponse = async (
   const allowedToolIds = new Set(
     researchPhase === "start"
       ? ["start_deep_research"]
-      : options?.allowedToolIds || [],
+      : researchPhase === "clarify"
+        ? ["adjust_research_plan", "confirm_research_plan"]
+        : options?.allowedToolIds || [],
   );
   const restrictTools =
     researchPhase === "start" ||
+    researchPhase === "clarify" ||
     allowedToolIds.size > 0 ||
     options?.enforceAllowedToolIds === true;
   const collectedBuiltinTools = collectBuiltinTools({
@@ -965,7 +984,24 @@ export const streamChatResponse = async (
         ]
           .filter(Boolean)
           .join("\n\n")
-      : agentSystemInstruction;
+      : researchPhase === "clarify"
+        ? [
+            userSystemInstruction,
+            [
+              "A Deep Research plan is already on screen next to this conversation and is waiting for the user's approval. Your job is to settle the remaining requirements with the user in plain prose.",
+              options?.researchPendingTaskId
+                ? `The plan under discussion belongs to research task ${options.researchPendingTaskId}; always pass that exact taskId to the research tools.`
+                : "",
+              "Ask at most two concise questions at a time, and only about things that would materially change the scope, audience, time range, source permissions, or deliverable. If nothing material is open, say so briefly and ask the user to approve the plan.",
+              "Call adjust_research_plan when the user asks for a change to the plan. Call confirm_research_plan only after the user has explicitly approved starting the research; never approve on their behalf.",
+              "Do not answer the research question yourself, do not invent findings, and do not claim that source access has begun.",
+            ]
+              .filter(Boolean)
+              .join(" "),
+          ]
+            .filter(Boolean)
+            .join("\n\n")
+        : agentSystemInstruction;
 
   // Providers receive the directive as guidance; the terminal checks below
   // provide the fail-closed guarantee when a model ignores it.
@@ -1125,6 +1161,7 @@ export const streamChatResponse = async (
           },
         };
       }
+      if (researchModeEnabled) workspaceInternalReadScope.add(path);
       return {
         value: {
           truncated: true,
@@ -2383,6 +2420,14 @@ export const streamChatResponse = async (
               );
             }
             let resultData: unknown;
+            const workspacePath =
+              toolCall.name === "read_workspace_file"
+                ? normalizeWorkspacePath(toolCall.args?.path)
+                : undefined;
+            const readsInternalWorkspaceResult = Boolean(
+              workspacePath?.ok &&
+              workspaceInternalReadScope.has(workspacePath.value),
+            );
             try {
               const resolvedPluginFunction = offeredPluginFunctionsByName.get(
                 toolCall.name,
@@ -2390,6 +2435,7 @@ export const streamChatResponse = async (
               const consumesResearchSource =
                 options?.executionWorkflow?.kind === "research" &&
                 options.executionWorkflow.phase === "execute" &&
+                !readsInternalWorkspaceResult &&
                 (Boolean(toolCall.pluginId) ||
                   RESEARCH_SINGLE_SOURCE_READ_TOOLS.has(toolCall.name));
               const sourceLocator = toolCall.pluginId
@@ -2418,6 +2464,7 @@ export const streamChatResponse = async (
                   ? await builtinBinding.execute(toolCall.args, {
                       signal,
                       sessionId,
+                      model,
                       userMessageId: options?.agentRun?.userMessageId,
                       modelMessageId: options?.agentRun?.modelMessageId,
                       agentRunId: agentRun?.id,
@@ -2425,6 +2472,7 @@ export const streamChatResponse = async (
                       userInputController: options?.userInputController,
                       knowledgeScope: options?.knowledgeScope,
                       workspaceReadScope: options?.workspaceReadScope,
+                      workspaceInternalReadScope,
                       emit: {
                         chatMode: (mode) => {
                           requestedChatMode = mode;
@@ -2599,6 +2647,8 @@ export const streamChatResponse = async (
               agentRun?.workflowKind === "research" &&
               options?.executionWorkflow?.kind === "research" &&
               options.executionWorkflow.phase === "execute" &&
+              !readsInternalWorkspaceResult &&
+              !builtinBinding &&
               Boolean(toolCall.pluginId) &&
               !isError &&
               existingEvidence.length === 0 &&

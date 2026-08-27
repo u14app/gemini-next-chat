@@ -8,6 +8,7 @@ import {
 export { ResponseTimeoutError } from "../errors";
 import {
   getSafeUrlPolicy,
+  isBenchmarkingIpAddress,
   isLocalhostName,
   isPrivateIpAddress,
   redactUrl,
@@ -259,7 +260,15 @@ async function assertResolvedAddressAllowed(
 
   if (
     policy.requirePublicAddress &&
-    addresses.some(({ address }) => isPrivateIpAddress(address))
+    addresses.some(
+      ({ address }) =>
+        isPrivateIpAddress(address) &&
+        !(
+          policy.profile?.mode === "local" &&
+          policy.profile.allowLocalNetworkProxy &&
+          isBenchmarkingIpAddress(address)
+        ),
+    )
   ) {
     throw new HostedProxyBlockedError(
       "Outbound requests must target public network addresses",

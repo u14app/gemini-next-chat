@@ -138,6 +138,7 @@
       "max_sources": "Source body limit reached",
       "budget_exhausted": "Research budget exhausted",
       "no_new_sources": "No new formal sources in the latest wave",
+      "invalid_model_output": "The model returned an invalid research packet",
       "no_new_verified_claims": "No new verified claims across consecutive waves",
       "frontier_exhausted": "No viable in-scope research nodes remain",
       "user_paused": "Paused by the user",
@@ -183,7 +184,19 @@
   },
   "card": {
     "knownGaps": "Known gaps",
-    "reportAvailable": "Report version {version} is available in the workbench"
+    "reportAvailable": "Report version {version} is available in the workbench",
+    "preparingSteps": {
+      "scope": "Drafting the research scope",
+      "sources": "Checking source feasibility",
+      "review": "Reviewing the plan"
+    },
+    "replyHint": "Reply in the chat to refine this plan, or start the research when it looks right.",
+    "budgetSummary": "{preset} · {queries} queries · depth {depth}",
+    "fullContract": "Full research contract",
+    "liveActivity": "Latest activity",
+    "progress": "Research progress",
+    "progressSummary": "{completed}/{total} steps done",
+    "progressDepth": "wave {wave}/{waves} · depth {depth}/{maxDepth}"
   },
   "global": {
     "label": "Active deep research"
@@ -251,6 +264,10 @@
     "none": "No evidence yet",
     "emptyTitle": "No evidence yet",
     "emptyDescription": "Evidence will appear here as each research step advances.",
+    "sourceLabel": "Source",
+    "unlinkedClaim": "Not yet linked to a formal claim.",
+    "internalResult": "Internal tool result",
+    "technicalDetails": "Technical details",
     "openSource": "Open source: {title}",
     "retrieved": "Retrieved",
     "location": "Location",
@@ -287,6 +304,10 @@
     "verified": "Verified",
     "unsupported": "Unsupported",
     "unresolved": "Unresolved"
+  },
+  "claimImportance": {
+    "major": "Major claim",
+    "background": "Background claim"
   },
   "authority": {
     "primary": "Primary source",

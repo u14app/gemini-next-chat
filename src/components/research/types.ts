@@ -127,6 +127,10 @@ export interface ResearchNodeView {
 export interface ResearchRunView {
   id: string;
   phase: ResearchRunPhaseView;
+  /** Wall-clock start of the live run, so the UI can tick elapsed time. */
+  startedAt: number;
+  /** Set once the run stops, freezing the elapsed clock. */
+  endedAt?: number;
   currentWave?: number;
   currentDepth: number;
   maxDepth: number;
@@ -158,6 +162,12 @@ export interface ResearchEvidenceView {
   freshness?: "current" | "stale" | "unknown";
   excerpt?: string;
   claimIds?: string[];
+  linkedClaims: Array<{
+    id: string;
+    text: string;
+    importance: "major" | "background";
+    verificationStatus: "pending" | "verified" | "unsupported" | "unresolved";
+  }>;
   stepId?: string;
   nodeId?: string;
   authority?: "primary" | "secondary" | "unknown";

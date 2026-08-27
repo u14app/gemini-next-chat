@@ -246,6 +246,7 @@ describe("url policy and provider runtime helpers", () => {
       "http://0177.0.0.1/admin",
       "http://127.1/admin",
       "http://169.254.169.254/latest/meta-data",
+      "http://198.18.0.1/page",
       "http://[::1]/admin",
       "http://[::ffff:127.0.0.1]/admin",
     ]) {

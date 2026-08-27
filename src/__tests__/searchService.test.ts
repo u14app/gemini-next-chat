@@ -47,7 +47,7 @@ describe("search service", () => {
       await import("../services/api/searchService");
 
     await expect(createSearchProvider({ query: "neo chat" })).rejects.toThrow(
-      /Search request failed/i,
+      /upstream unavailable/i,
     );
   });
 

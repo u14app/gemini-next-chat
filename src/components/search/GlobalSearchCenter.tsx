@@ -11,9 +11,9 @@ import {
   AlertTriangle,
   Brain,
   ChevronDown,
-  Database,
   FileText,
   LoaderCircle,
+  LibraryBig,
   MessageSquare,
   RefreshCw,
   Search,
@@ -78,7 +78,7 @@ function HighlightedText({ value, query }: { value: string; query: string }) {
 
 function SourceIcon({ source }: { source: GlobalSearchSource }) {
   const props = { size: 16, "aria-hidden": true as const };
-  if (source === "knowledge") return <Database {...props} />;
+  if (source === "knowledge") return <LibraryBig {...props} />;
   if (source === "workspace") return <FileText {...props} />;
   if (source === "memory") return <Brain {...props} />;
   return <MessageSquare {...props} />;

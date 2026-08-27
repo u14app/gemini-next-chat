@@ -12,6 +12,7 @@ vi.mock("node:dns/promises", () => ({
 describe("safe fetch DNS timeout", () => {
   afterEach(() => {
     vi.useRealTimers();
+    vi.unstubAllEnvs();
     vi.restoreAllMocks();
     lookupMock.mockReset();
   });
@@ -64,6 +65,58 @@ describe("safe fetch DNS timeout", () => {
       { address: "93.184.216.34", family: 4 },
       { address: "127.0.0.1", family: 4 },
     ]);
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+
+    await expect(
+      safeFetchText(
+        "https://example.com/page",
+        { method: "GET" },
+        { policy: getSafeUrlPolicy("webFetch"), timeoutMs: 1_000 },
+      ),
+    ).rejects.toMatchObject({ code: "HOSTED_PROXY_BLOCKED" });
+
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("allows local Fake-IP DNS proxy resolutions for public hostnames", async () => {
+    vi.stubEnv("DEPLOYMENT_MODE", "local");
+    lookupMock.mockResolvedValue([{ address: "198.18.0.10", family: 4 }]);
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response("proxied page", { status: 200 }));
+
+    await expect(
+      safeFetchText(
+        "https://example.com/page",
+        { method: "GET" },
+        { policy: getSafeUrlPolicy("webFetch"), timeoutMs: 1_000 },
+      ),
+    ).resolves.toMatchObject({ text: "proxied page" });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps Fake-IP DNS proxy resolutions blocked in hosted mode", async () => {
+    vi.stubEnv("DEPLOYMENT_MODE", "hosted");
+    vi.stubEnv("ALLOW_LOCAL_NETWORK_PROXY", "false");
+    lookupMock.mockResolvedValue([{ address: "198.18.0.10", family: 4 }]);
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+
+    await expect(
+      safeFetchText(
+        "https://example.com/page",
+        { method: "GET" },
+        { policy: getSafeUrlPolicy("webFetch"), timeoutMs: 1_000 },
+      ),
+    ).rejects.toMatchObject({ code: "HOSTED_PROXY_BLOCKED" });
+
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("allows local deployments to opt out of Fake-IP DNS proxying", async () => {
+    vi.stubEnv("DEPLOYMENT_MODE", "local");
+    vi.stubEnv("ALLOW_LOCAL_NETWORK_PROXY", "false");
+    lookupMock.mockResolvedValue([{ address: "198.18.0.10", family: 4 }]);
     const fetchMock = vi.spyOn(globalThis, "fetch");
 
     await expect(

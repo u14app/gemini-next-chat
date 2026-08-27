@@ -1,6 +1,13 @@
 "use client";
 import React, { useEffect, useState } from "react";
-import { FileAudio, FileText, FileVideo, Library, Link, X } from "lucide-react";
+import {
+  FileAudio,
+  FileText,
+  FileVideo,
+  LibraryBig,
+  Link,
+  X,
+} from "lucide-react";
 import { useTranslations } from "next-intl";
 import type { Attachment } from "@/types";
 import { isOPFSUrl, resolveOPFSUrl } from "@/utils/opfs";
@@ -70,7 +77,7 @@ const AttachmentPreviewCard: React.FC<{
   const renderIcon = () => {
     if (isKnowledgeCollection) {
       return (
-        <Library size={20} className="text-purple-500" aria-hidden="true" />
+        <LibraryBig size={20} className="text-purple-500" aria-hidden="true" />
       );
     }
 

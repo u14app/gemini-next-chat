@@ -2,8 +2,9 @@
 
 import React from "react";
 import {
-  Blocks,
+  Cable,
   MessageSquareQuote,
+  ScrollText,
   Sparkles,
   type LucideIcon,
 } from "lucide-react";
@@ -29,8 +30,8 @@ export interface ComposerCommandSection {
 
 const KIND_ICONS: Record<ComposerCommandKind, LucideIcon> = {
   action: Sparkles,
-  skill: Sparkles,
-  plugin: Blocks,
+  skill: ScrollText,
+  plugin: Cable,
   conversation: MessageSquareQuote,
 };
 

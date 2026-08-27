@@ -10,6 +10,7 @@ import {
   getResearchEvidenceQuestionIndexes,
   getResearchVerificationQueryReserve,
   parseAdjustResearchPlanArgs,
+  parseConfirmResearchPlanArgs,
   parseGetResearchStatusArgs,
   parseListResearchEvidenceArgs,
   parseListResearchTasksArgs,
@@ -74,6 +75,7 @@ function toHostContext(
 ): BuiltinResearchHostContext {
   return {
     sessionId: context.sessionId,
+    model: context.model,
     ...(context.userMessageId ? { userMessageId: context.userMessageId } : {}),
     ...(context.modelMessageId
       ? { modelMessageId: context.modelMessageId }
@@ -732,4 +734,87 @@ export function createDeepResearchBindings(): BuiltinToolBinding[] {
       },
     },
   ];
+}
+
+function createConfirmResearchPlanBinding(): BuiltinToolBinding {
+  return {
+    definition: {
+      type: "function",
+      function: {
+        name: "confirm_research_plan",
+        description:
+          "Start the approved Deep Research run for a task whose plan the user has just explicitly approved in the conversation. Never call this to approve the plan on the user's behalf, and never call it while any requirement is still open.",
+        parameters: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            taskId: {
+              type: "string",
+              minLength: 1,
+              maxLength: RESEARCH_TASK_ID_MAX_CHARS,
+            },
+          },
+          required: ["taskId"],
+        },
+      },
+    },
+    risk: "read",
+    descriptor: WRITE_DESCRIPTOR,
+    displayKey: "confirmResearchPlan",
+    executionGroup: "interaction",
+    async execute(args, context) {
+      context.signal?.throwIfAborted();
+      let input;
+      try {
+        input = parseConfirmResearchPlanArgs(args);
+      } catch (error) {
+        return argumentError(error);
+      }
+      const before = await getResearchTask(input.taskId);
+      if (!before) {
+        return errorResult(
+          "RESEARCH_TASK_NOT_FOUND",
+          "The Deep Research task was not found.",
+        );
+      }
+      if (before.status !== "plan_ready") {
+        return errorResult(
+          "RESEARCH_PLAN_NOT_READY",
+          "The Deep Research plan is not awaiting approval.",
+        );
+      }
+      if (!context.emit.research?.confirmPlan) {
+        return errorResult(
+          "DEEP_RESEARCH_UNAVAILABLE",
+          "Deep Research approval is unavailable for this request.",
+        );
+      }
+
+      await context.emit.research.confirmPlan(input, toHostContext(context));
+      context.signal?.throwIfAborted();
+      const task = await getResearchTask(input.taskId);
+      if (!task || task.status === "plan_ready") {
+        return errorResult(
+          "RESEARCH_START_FAILED",
+          "Deep Research did not start the approved plan.",
+        );
+      }
+      return {
+        taskId: task.id,
+        status: task.status,
+        planVersion: getActivePlan(task)?.version,
+      };
+    },
+  };
+}
+
+/**
+ * The tools offered while an unapproved plan card is on screen: the user
+ * refines the plan in chat, and research only starts on explicit approval.
+ */
+export function createResearchPlanReviewBindings(): BuiltinToolBinding[] {
+  const adjust = createDeepResearchBindings().find(
+    (binding) => binding.definition.function.name === "adjust_research_plan",
+  );
+  return [...(adjust ? [adjust] : []), createConfirmResearchPlanBinding()];
 }

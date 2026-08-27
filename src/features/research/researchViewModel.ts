@@ -34,6 +34,7 @@ export interface ResearchViewModelText {
   toolCommittedTitle: (tool: string) => string;
   toolFailedTitle: (tool: string) => string;
   toolSourceDetail: (source: string) => string;
+  internalToolResultSource: string;
   toolSafeDetail: string;
   reportKind: Record<"initial" | "continue" | "update", string>;
   statusTitle: (status: ResearchTask["status"]) => string;
@@ -57,6 +58,7 @@ const DEFAULT_TEXT: ResearchViewModelText = {
   toolCommittedTitle: (tool) => `Completed ${tool}`,
   toolFailedTitle: (tool) => `${tool} did not complete`,
   toolSourceDetail: (source) => `Read-only source: ${source}`,
+  internalToolResultSource: "Internal tool result",
   toolSafeDetail: "Read-only operation; raw arguments and results are hidden.",
   reportKind: {
     initial: "Initial report",
@@ -119,6 +121,26 @@ function getEvidenceVerificationStatus(
   return;
 }
 
+function getLinkedEvidenceClaims(
+  claimIds: readonly string[],
+  claimsById: ReadonlyMap<string, ClaimRecord>,
+): ResearchEvidenceView["linkedClaims"] {
+  const seen = new Set<string>();
+  return claimIds.flatMap((claimId) => {
+    const claim = claimsById.get(claimId);
+    if (!claim || seen.has(claim.id)) return [];
+    seen.add(claim.id);
+    return [
+      {
+        id: claim.id,
+        text: claim.text,
+        importance: claim.importance,
+        verificationStatus: claim.verificationStatus,
+      },
+    ];
+  });
+}
+
 function buildEvidenceViews(
   task: ResearchTask,
   journalRuns: AgentRun[],
@@ -147,8 +169,18 @@ function buildEvidenceViews(
         ...(evidence.questionIndexes ?? []),
       ]),
     ).sort((left, right) => left - right);
+    const linkedClaims = new Map(
+      [...current.linkedClaims, ...evidence.linkedClaims].map((claim) => [
+        claim.id,
+        claim,
+      ]),
+    );
     viewsByIdentity.set(identity, {
       ...current,
+      claimIds: Array.from(
+        new Set([...(current.claimIds ?? []), ...(evidence.claimIds ?? [])]),
+      ),
+      linkedClaims: [...linkedClaims.values()],
       ...(questionIndexes.length ? { questionIndexes } : {}),
     });
   };
@@ -192,6 +224,7 @@ function buildEvidenceViews(
         stance,
         freshness: item.freshness,
         claimIds: [...claimIds],
+        linkedClaims: getLinkedEvidenceClaims(claimIds, claimsById),
         stepId,
         nodeId,
         authority: item.authority,
@@ -221,6 +254,7 @@ function buildEvidenceViews(
           stance: "context",
           freshness: record.url.startsWith("http") ? "current" : "unknown",
           claimIds: [],
+          linkedClaims: [],
           ...(domain ? { domain } : {}),
         },
       );
@@ -302,7 +336,11 @@ function buildActivities(
             ? text.toolCommittedTitle(execution.toolName)
             : text.toolRunningTitle(execution.toolName),
         detail: source
-          ? text.toolSourceDetail(source.title || source.sourceId)
+          ? text.toolSourceDetail(
+              source.url.startsWith("workspace:///tool-results/")
+                ? text.internalToolResultSource
+                : source.title || source.sourceId,
+            )
           : text.toolSafeDetail,
       };
     });
@@ -490,6 +528,8 @@ function createRunView(
   return {
     id: run.id,
     phase: run.phase,
+    startedAt: run.startedAt,
+    ...(run.endedAt ? { endedAt: run.endedAt } : {}),
     ...(waves.length
       ? {
           currentWave:

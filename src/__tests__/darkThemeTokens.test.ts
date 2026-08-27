@@ -114,21 +114,29 @@ describe("dark theme token contract", () => {
       '.dark .glass-shell[data-chat-mode="agent"]:focus-within',
     );
     for (const token of [
-      "--research-accent: #1769aa;",
-      "--research-accent-hover: #14568f;",
-      "--research-accent-foreground: #f8fbff;",
-      "--research-accent-soft: #edf5ff;",
-      "--research-accent-border: #bfd8f4;",
-      "--research-accent: #76b8f4;",
-      "--research-accent-hover: #94c9f8;",
-      "--research-accent-foreground: #0b2942;",
-      "--research-accent-soft: #152d43;",
-      "--research-accent-border: #315a7d;",
+      "--research-accent: #3b82f6;",
+      "--research-accent-text: #2563eb;",
+      "--research-accent-solid: #2563eb;",
+      "--research-accent-hover: #1d4ed8;",
+      "--research-accent-foreground: #f8fafc;",
+      "--research-accent-soft: #eff6ff;",
+      "--research-accent-border: rgb(59 130 246 / 0.34);",
+      "--research-accent: #60a5fa;",
+      "--research-accent-text: #60a5fa;",
+      "--research-accent-solid: #60a5fa;",
+      "--research-accent-hover: #93c5fd;",
+      "--research-accent-foreground: #0f172a;",
+      "--research-accent-soft: rgb(96 165 250 / 0.12);",
+      "--research-accent-border: rgb(96 165 250 / 0.34);",
+      "--color-research-accent-text: var(--research-accent-text);",
+      "--color-research-solid: var(--research-accent-solid);",
     ]) {
       expect(globals).toContain(token);
     }
-    expect(contrastRatio("#f8fbff", "#1769aa")).toBeGreaterThanOrEqual(4.5);
-    expect(contrastRatio("#0b2942", "#76b8f4")).toBeGreaterThanOrEqual(4.5);
+    expect(contrastRatio("#2563eb", "#ffffff")).toBeGreaterThanOrEqual(4.5);
+    expect(contrastRatio("#f8fafc", "#2563eb")).toBeGreaterThanOrEqual(4.5);
+    expect(contrastRatio("#60a5fa", "#18181b")).toBeGreaterThanOrEqual(4.5);
+    expect(contrastRatio("#0f172a", "#60a5fa")).toBeGreaterThanOrEqual(4.5);
     expect(globals).toContain("rgb(192 132 252 / 0.68)");
   });
 

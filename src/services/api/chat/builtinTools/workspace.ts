@@ -78,7 +78,19 @@ function isWorkspacePathInScope(
 ): boolean {
   if (!context.workspaceReadScope) return true;
   const path = normalizeScopedWorkspacePath(value);
-  return Boolean(path && context.workspaceReadScope.includes(path));
+  return Boolean(
+    path &&
+    (context.workspaceReadScope.includes(path) ||
+      context.workspaceInternalReadScope?.has(path)),
+  );
+}
+
+function isInternalWorkspaceResult(
+  context: BuiltinToolContext,
+  value: unknown,
+): boolean {
+  const path = normalizeScopedWorkspacePath(value);
+  return Boolean(path && context.workspaceInternalReadScope?.has(path));
 }
 
 function workspaceScopeError() {
@@ -403,6 +415,7 @@ export function createWorkspaceBindings(): BuiltinToolBinding[] {
       async execute(args, context) {
         context.signal?.throwIfAborted();
         const input = asRecord(args);
+        const internalResult = isInternalWorkspaceResult(context, input.path);
         if (!isWorkspacePathInScope(context, input.path)) {
           return workspaceScopeError();
         }
@@ -412,6 +425,9 @@ export function createWorkspaceBindings(): BuiltinToolBinding[] {
         });
         context.signal?.throwIfAborted();
         if (!result.ok) return toToolResult(result);
+        if (internalResult) {
+          return { ok: true, ...result.value };
+        }
         const evidence = await createEvidenceSource(
           {
             title: result.value.path,

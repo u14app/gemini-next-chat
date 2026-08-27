@@ -9,13 +9,14 @@ import {
   FileText,
   Link,
   UploadCloud,
-  Library,
+  LibraryBig,
   Globe,
   Lightbulb,
-  Blocks,
+  Cable,
   Check,
   Loader2,
   Sparkles,
+  ScrollText,
   AlertTriangle,
 } from "lucide-react";
 import { useTranslations } from "next-intl";
@@ -702,7 +703,7 @@ const WorkspaceSettingsModal: React.FC<WorkspaceSettingsModalProps> = ({
                   id={pluginGroupId}
                   className="text-xs font-semibold text-gray-500 dark:text-muted-foreground flex items-center gap-2"
                 >
-                  <Blocks size={14} aria-hidden="true" /> {t("activePlugins")}
+                  <Cable size={14} aria-hidden="true" /> {t("activePlugins")}
                 </div>
                 <div
                   role="group"
@@ -734,7 +735,7 @@ const WorkspaceSettingsModal: React.FC<WorkspaceSettingsModalProps> = ({
                             src={plugin.logoUrl}
                             className="w-3 h-3 object-contain"
                             alt=""
-                            fallback={<Blocks size={12} aria-hidden="true" />}
+                            fallback={<Cable size={12} aria-hidden="true" />}
                           />
                           <span
                             className="min-w-0 truncate max-w-36"
@@ -761,7 +762,8 @@ const WorkspaceSettingsModal: React.FC<WorkspaceSettingsModalProps> = ({
                   id={skillGroupId}
                   className="flex items-center gap-2 text-xs font-semibold text-gray-500 dark:text-muted-foreground"
                 >
-                  <Sparkles size={14} aria-hidden="true" /> {t("activeSkills")}
+                  <ScrollText size={14} aria-hidden="true" />{" "}
+                  {t("activeSkills")}
                 </div>
                 <div
                   role="group"
@@ -787,7 +789,7 @@ const WorkspaceSettingsModal: React.FC<WorkspaceSettingsModalProps> = ({
                             : "border-gray-200 bg-gray-50 text-gray-600 hover:border-gray-300 dark:border-border dark:bg-muted dark:text-muted-foreground dark:hover:border-border"
                         }`}
                       >
-                        <Sparkles size={12} aria-hidden="true" />
+                        <ScrollText size={12} aria-hidden="true" />
                         <span className="max-w-36 truncate">{skill.title}</span>
                         {activeSkills.includes(skill.id) && (
                           <Check size={12} aria-hidden="true" />
@@ -809,7 +811,7 @@ const WorkspaceSettingsModal: React.FC<WorkspaceSettingsModalProps> = ({
                 id={knowledgeGroupId}
                 className="text-xs font-semibold text-gray-500 dark:text-muted-foreground mb-2 flex items-center gap-1"
               >
-                <Library size={12} aria-hidden="true" />{" "}
+                <LibraryBig size={12} aria-hidden="true" />{" "}
                 {t("linkedKnowledgeBases")}
               </div>
               <div

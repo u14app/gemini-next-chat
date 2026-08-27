@@ -1,7 +1,7 @@
 "use client";
 import React, { useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Check, FileText, Library, Loader2, X } from "lucide-react";
+import { Check, FileText, LibraryBig, Loader2, X } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useKnowledgeStore } from "@/store/core/knowledgeStore";
 import { Button } from "@/components/ui/primitives";
@@ -114,7 +114,11 @@ const AddToKnowledgeModal: React.FC<AddToKnowledgeModalProps> = ({
             id={titleId}
             className="flex items-center gap-2 text-lg font-bold text-gray-800 dark:text-foreground"
           >
-            <Library size={20} className="text-purple-500" aria-hidden="true" />
+            <LibraryBig
+              size={20}
+              className="text-purple-500"
+              aria-hidden="true"
+            />
             {t("addToKnowledge")}
           </h3>
           <Button
@@ -134,7 +138,7 @@ const AddToKnowledgeModal: React.FC<AddToKnowledgeModalProps> = ({
               htmlFor={collectionInputId}
               className="flex items-center gap-1.5 text-xs font-semibold text-gray-500 dark:text-muted-foreground"
             >
-              <Library size={12} aria-hidden="true" />
+              <LibraryBig size={12} aria-hidden="true" />
               {t("selectKnowledgeBase")}
             </label>
             <select

@@ -32,7 +32,11 @@ import {
 const SESSION = "0192f0a1-1111-7000-8000-abcdefabcdef";
 const ROOT = `chat/workspace/${SESSION}`;
 
-const context = () => ({ sessionId: SESSION, emit: {} });
+const context = () => ({
+  sessionId: SESSION,
+  model: "openai:test-model",
+  emit: {},
+});
 
 const respondWith = (content: string, truncated = false) => {
   mocks.signedApiFetch.mockResolvedValue({
@@ -169,7 +173,11 @@ describe("fetch_urls evidence batch", () => {
           "https://example.com/two",
         ],
       },
-      { sessionId: SESSION, emit: { search: emitSearch } },
+      {
+        sessionId: SESSION,
+        model: "openai:test-model",
+        emit: { search: emitSearch },
+      },
     )) as {
       sourceCount: number;
       failedCount: number;

@@ -149,6 +149,7 @@ export function useMessageEditFlow(deps: ChatFlowDeps) {
       const {
         finalText,
         researchLaunchText,
+        researchPendingPlanTaskId,
         finalAttachments,
         ragSources,
         ragError,
@@ -427,6 +428,15 @@ export function useMessageEditFlow(deps: ChatFlowDeps) {
                 },
               }),
               researchLaunchMessage: researchLaunchText,
+              ...(researchPendingPlanTaskId
+                ? {
+                    executionWorkflow: {
+                      kind: "research" as const,
+                      phase: "clarify" as const,
+                    },
+                    researchPendingTaskId: researchPendingPlanTaskId,
+                  }
+                : {}),
               forcedPluginIds: sourceMessage.forcedPluginIds,
             },
           ),

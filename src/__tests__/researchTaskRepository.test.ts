@@ -341,6 +341,15 @@ describe("ResearchTask repository", () => {
     });
     expect(parseResearchTaskValue(task)).toEqual(task);
     expect(
+      parseResearchTaskValue({
+        ...task,
+        reportRuns: task.reportRuns.map((run) => ({
+          ...run,
+          stopReason: { code: "invalid_model_output" as const, at: 106 },
+        })),
+      })?.reportRuns[0].stopReason?.code,
+    ).toBe("invalid_model_output");
+    expect(
       parseResearchTaskValue({ ...task, unsupportedLegacyField: true }),
     ).toBeNull();
     const evidenceWithoutStep: Record<string, unknown> = {

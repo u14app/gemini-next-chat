@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { Blocks, Sparkles, X } from "lucide-react";
+import { Cable, ScrollText, X, type LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/primitives";
 
 export interface ComposerReference {
@@ -27,7 +27,7 @@ const Chip: React.FC<{
   title: string;
   removeLabel: string;
   onRemove: () => void;
-  icon: typeof Sparkles;
+  icon: LucideIcon;
   className: string;
   removeClassName: string;
 }> = ({
@@ -89,7 +89,7 @@ const ComposerReferenceChips: React.FC<ComposerReferenceChipsProps> = ({
           title={skill.title}
           removeLabel={removeSkillLabel(skill.title)}
           onRemove={() => onRemoveSkill(skill.id)}
-          icon={Sparkles}
+          icon={ScrollText}
           className="border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
           removeClassName="hover:bg-emerald-500/20 focus-visible:ring-emerald-500/50"
         />
@@ -100,7 +100,7 @@ const ComposerReferenceChips: React.FC<ComposerReferenceChipsProps> = ({
           title={plugin.title}
           removeLabel={removePluginLabel(plugin.title)}
           onRemove={() => onRemovePlugin(plugin.id)}
-          icon={Blocks}
+          icon={Cable}
           className="border-cyan-500/30 bg-cyan-500/10 text-cyan-700 dark:text-cyan-300"
           removeClassName="hover:bg-cyan-500/20 focus-visible:ring-cyan-500/50"
         />

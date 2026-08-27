@@ -32,7 +32,7 @@ const listTool = () =>
 const createContext = (
   emit: Record<string, unknown> = {},
   signal?: AbortSignal,
-) => ({ sessionId: SESSION, emit, signal });
+) => ({ sessionId: SESSION, model: "openai:test-model", emit, signal });
 
 /** Seeds workspace files; archive paths are tracked separately. */
 const seedFiles = (files: Record<string, string>) => {

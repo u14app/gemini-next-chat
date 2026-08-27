@@ -34,6 +34,7 @@ import { createDocumentExtractionBindings } from "../services/api/chat/builtinTo
 
 const context = {
   sessionId: "session-1",
+  model: "openai:test-model",
   signal: new AbortController().signal,
   emit: {},
 };

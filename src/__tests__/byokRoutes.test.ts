@@ -195,6 +195,35 @@ describe("BYOK route integration", () => {
     expect(JSON.stringify(await response.json())).not.toContain("tvly-secret");
   });
 
+  it("preserves an actionable Firecrawl public-service rejection", async () => {
+    mocks.decryptOptionalSecret.mockResolvedValue(undefined);
+    mocks.safeFetchJson.mockResolvedValue({
+      response: new Response(null, { status: 403 }),
+      data: {
+        success: false,
+        error:
+          "This IP looks suspicious, so Firecrawl cannot be used without an API key.",
+      },
+    });
+
+    const { POST } = await import("../app/api/search/route");
+    const response = await POST(
+      new Request("https://neo.test/api/search", {
+        method: "POST",
+        body: JSON.stringify({
+          provider: "firecrawl",
+          query: "neo",
+          config: {},
+        }),
+      }) as any,
+    );
+
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toMatchObject({
+      error: expect.stringMatching(/add a Firecrawl API key/i),
+    });
+  });
+
   it("rejects provider model requests that only have legacy environment keys", async () => {
     const originalGeminiKey = process.env.GEMINI_API_KEY;
     const originalApiKey = process.env.API_KEY;

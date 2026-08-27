@@ -20,7 +20,7 @@ import {
   RefreshCw,
   AlertCircle,
   X,
-  Library,
+  LibraryBig,
   Archive,
   Settings,
   Save,
@@ -2137,7 +2137,7 @@ const KnowledgeBase: React.FC<KnowledgeBaseProps> = ({
             className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-linear-to-tr from-purple-600 to-indigo-600 text-white shadow-lg shadow-purple-500/20"
             aria-hidden="true"
           >
-            <Library size={20} />
+            <LibraryBig size={20} />
           </div>
           <div className="min-w-0">
             <h1 className="flex min-w-0 items-center gap-2 text-lg font-bold text-gray-800 dark:text-foreground">

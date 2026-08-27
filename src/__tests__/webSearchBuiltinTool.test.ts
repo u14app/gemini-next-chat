@@ -26,6 +26,7 @@ function createContext(
   return {
     signal,
     sessionId: "session-1",
+    model: "openai:test-model",
     emit: { search },
   };
 }

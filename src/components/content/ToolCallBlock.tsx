@@ -13,7 +13,6 @@ import {
   LoaderCircle,
   ListChecks,
   Search,
-  Sparkles,
   SquareCode,
   Wrench,
   CheckCircle2,
@@ -28,8 +27,9 @@ import {
   ShieldAlert,
   MessageCircleQuestionMark,
   PackageOpen,
+  Cable,
+  ScrollText,
 } from "lucide-react";
-import { Blocks } from "lucide-react";
 import {
   formatToolDisplayName,
   formatToolDisplayValue,
@@ -66,7 +66,7 @@ const BUILTIN_TOOL_ICONS = {
   memory_update: FilePen,
   forget: FileX2,
   memory_restore: FolderInput,
-  load_skill: Sparkles,
+  load_skill: ScrollText,
   search_skills: Search,
   inspect_skill: BookOpen,
   run_javascript: SquareCode,
@@ -129,8 +129,10 @@ function getToolTargetSummary(args: unknown): string | null {
   return null;
 }
 
-const ToolNameIcon: React.FC<{ name: string }> = ({ name }) => {
-  const Icon = BUILTIN_TOOL_ICONS[name as BuiltinToolIconName] ?? Wrench;
+const ToolNameIcon: React.FC<{ toolCall: ToolCall }> = ({ toolCall }) => {
+  const Icon = toolCall.pluginId
+    ? Cable
+    : (BUILTIN_TOOL_ICONS[toolCall.name as BuiltinToolIconName] ?? Wrench);
   return <Icon size={12} className="text-gray-400" aria-hidden="true" />;
 };
 
@@ -422,7 +424,7 @@ const ToolCallBlock: React.FC<ToolCallBlockProps> = ({
               aria-hidden="true"
             />
           ) : (
-            <Blocks size={12} aria-hidden="true" />
+            <Cable size={12} aria-hidden="true" />
           )}
         </div>
 
@@ -455,7 +457,7 @@ const ToolCallBlock: React.FC<ToolCallBlockProps> = ({
               <div key={tc.id} className="text-xs">
                 <div className="flex items-center justify-between mb-1.5 font-medium text-gray-700 dark:text-foreground/85">
                   <div className="flex min-w-0 items-center gap-1.5">
-                    <ToolNameIcon name={tc.name} />
+                    <ToolNameIcon toolCall={tc} />
                     <span className="truncate">{tc.displayName}</span>
                     {tc.invocationPolicy?.effects.map((effect) => (
                       <span

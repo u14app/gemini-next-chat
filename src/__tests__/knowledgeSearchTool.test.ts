@@ -21,6 +21,7 @@ function createContext(
 ): BuiltinToolContext {
   return {
     sessionId: "session-1",
+    model: "openai:test-model",
     emit: {},
     knowledgeScope: {
       attachments: [

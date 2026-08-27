@@ -1,6 +1,10 @@
 import { Source, ImageSource } from "@/types";
 import { useSettingsStore } from "@/store/core/settingsStore";
-import { readJsonResponseOrThrow, signedApiFetch } from "@/lib/api/client";
+import {
+  getResponseErrorMessage,
+  readJsonResponseOrThrow,
+  signedApiFetch,
+} from "@/lib/api/client";
 import {
   normalizeImageSources,
   normalizeSearchSources,
@@ -60,7 +64,9 @@ export async function createSearchProvider(
     );
 
     if (!response.ok) {
-      throw new Error("Search request failed");
+      throw new Error(
+        await getResponseErrorMessage(response, "Search request failed"),
+      );
     }
 
     const data = await readJsonResponseOrThrow<{

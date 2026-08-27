@@ -3,7 +3,7 @@
 import React, { useId, useMemo, useState } from "react";
 import { useTranslations } from "next-intl";
 import type { Source } from "@/types";
-import { Library, ChevronDown, BookText } from "lucide-react";
+import { LibraryBig, ChevronDown, BookText } from "lucide-react";
 import { requestKnowledgeSourceNavigation } from "@/lib/knowledge/navigation";
 import { Button } from "@/components/ui/primitives";
 
@@ -53,7 +53,7 @@ const RAGBlock: React.FC<RAGBlockProps> = ({ sources, error }) => {
         onClick={() => setIsExpanded(!isExpanded)}
         className="flex w-full select-none items-center gap-2 px-3 py-2 text-xs font-medium text-purple-700 transition-colors hover:bg-purple-100/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-500/60 dark:text-purple-300 dark:hover:bg-purple-900/20"
       >
-        <Library
+        <LibraryBig
           size={14}
           className="text-purple-600 dark:text-purple-400"
           aria-hidden="true"

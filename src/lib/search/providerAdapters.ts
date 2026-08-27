@@ -93,6 +93,42 @@ const FIRECRAWL_TIME_FILTERS: Partial<Record<SearchTimeRange, string>> = {
   year: "qdr:y",
 };
 
+const FIRECRAWL_PUBLIC_SERVICE_URL = "https://api.firecrawl.dev";
+
+function getFirecrawlFailureMessage({
+  response,
+  data,
+  apiKey,
+  baseUrl,
+}: {
+  response: Response;
+  data: any;
+  apiKey?: string;
+  baseUrl?: string;
+}): string {
+  const normalizedBaseUrl = baseUrl?.trim().replace(/\/+$/, "").toLowerCase();
+  const usesPublicService =
+    !normalizedBaseUrl ||
+    normalizedBaseUrl === FIRECRAWL_PUBLIC_SERVICE_URL.toLowerCase();
+  const upstreamMessage =
+    typeof data?.error === "string"
+      ? data.error
+      : typeof data?.message === "string"
+        ? data.message
+        : "";
+
+  if (
+    response.status === 403 &&
+    !apiKey &&
+    usesPublicService &&
+    /(?:suspicious|without an api key)/i.test(upstreamMessage)
+  ) {
+    return "Firecrawl public search is unavailable from this network. Add a Firecrawl API key in Search settings or configure a self-hosted Firecrawl Base URL.";
+  }
+
+  return "Firecrawl search failed";
+}
+
 export async function runSearchProvider({
   provider,
   query,
@@ -149,7 +185,7 @@ export async function runSearchProvider({
   if (provider === "firecrawl") {
     const endpoint = new URL(
       "/v2/search",
-      baseUrl || "https://api.firecrawl.dev",
+      baseUrl || FIRECRAWL_PUBLIC_SERVICE_URL,
     ).toString();
     const { response, data } = await fetchJson<any>(
       endpoint,
@@ -173,7 +209,10 @@ export async function runSearchProvider({
       fetchOptions,
     );
 
-    assertSearchResponseOk(response, "Firecrawl search failed");
+    assertSearchResponseOk(
+      response,
+      getFirecrawlFailureMessage({ response, data, apiKey, baseUrl }),
+    );
     const resultData = data?.data;
     const results = Array.isArray(resultData?.web)
       ? resultData.web

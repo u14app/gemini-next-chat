@@ -23,6 +23,8 @@ const mocks = vi.hoisted(() => ({
   supportsTextOutput: vi.fn<(metadata?: ModelMetadata) => boolean>(() => true),
   supportsToolCalls: vi.fn<(metadata?: ModelMetadata) => boolean>(() => true),
   retrieveKnowledgeSources: vi.fn(),
+  writeWorkspaceText: vi.fn(),
+  readWorkspaceText: vi.fn(),
 }));
 
 vi.mock("@/utils/pluginUtils", () => ({
@@ -164,6 +166,14 @@ vi.mock("../services/api/searchService", () => ({
 
 vi.mock("@/lib/knowledge/retrieveKnowledgeSources", () => ({
   retrieveKnowledgeSources: mocks.retrieveKnowledgeSources,
+}));
+
+vi.mock("@/services/workspace/sessionWorkspace", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@/services/workspace/sessionWorkspace")
+  >()),
+  writeWorkspaceText: mocks.writeWorkspaceText,
+  readWorkspaceText: mocks.readWorkspaceText,
 }));
 
 import { createSearchProvider } from "../services/api/searchService";
@@ -373,6 +383,8 @@ describe("chat service tool execution", () => {
     mocks.supportsToolCalls.mockReset();
     mocks.supportsToolCalls.mockReturnValue(true);
     mocks.retrieveKnowledgeSources.mockReset();
+    mocks.writeWorkspaceText.mockReset();
+    mocks.readWorkspaceText.mockReset();
     mocks.searchCompatibility = { enabled: true, mode: "native" };
     vi.mocked(createSearchProvider).mockReset();
   });
@@ -384,6 +396,7 @@ describe("chat service tool execution", () => {
       .spyOn(globalThis, "fetch")
       .mockImplementationOnce(async (_url, init) => {
         const body = JSON.parse(String(init?.body));
+        expect(body.modelName).toBe("gpt-4");
         expect(body.config.useAgentMode).toBe(false);
         expect(body.config).not.toHaveProperty("chatMode");
         expect(body.tools.map((tool: any) => tool.function.name)).toContain(
@@ -404,6 +417,7 @@ describe("chat service tool execution", () => {
       })
       .mockImplementationOnce(async (_url, init) => {
         const body = JSON.parse(String(init?.body));
+        expect(body.modelName).toBe("gpt-4");
         expect(body.config).toMatchObject({
           useAgentMode: false,
           useDeepResearch: true,
@@ -454,6 +468,7 @@ describe("chat service tool execution", () => {
     const unregister = registerResearchToolEmitters({
       start,
       adjustPlan: vi.fn(),
+      confirmPlan: vi.fn(),
     });
     let result = "unreached";
     try {
@@ -514,6 +529,7 @@ describe("chat service tool execution", () => {
     });
     expect(startContext).toMatchObject({
       sessionId: "session-auto",
+      model: "openai:gpt-4",
       userMessageId: "user-1",
       modelMessageId: "model-1",
     });
@@ -526,6 +542,7 @@ describe("chat service tool execution", () => {
       .spyOn(globalThis, "fetch")
       .mockImplementationOnce(async (_url, init) => {
         const body = JSON.parse(String(init?.body));
+        expect(body.modelName).toBe("gpt-4");
         expect(body.config).toMatchObject({
           useAgentMode: false,
           useDeepResearch: true,
@@ -561,6 +578,7 @@ describe("chat service tool execution", () => {
     const unregister = registerResearchToolEmitters({
       start,
       adjustPlan: vi.fn(),
+      confirmPlan: vi.fn(),
     });
     let result = "unreached";
     try {
@@ -612,7 +630,10 @@ describe("chat service tool execution", () => {
       query: "Research this topic.",
       budgetPreset: "standard",
     });
-    expect(startContext).toMatchObject({ sessionId: "session-research" });
+    expect(startContext).toMatchObject({
+      sessionId: "session-research",
+      model: "openai:gpt-4",
+    });
     expect(fetchMock).toHaveBeenCalledOnce();
     expect(onChunk).not.toHaveBeenCalled();
   });
@@ -647,6 +668,7 @@ describe("chat service tool execution", () => {
       .spyOn(globalThis, "fetch")
       .mockImplementationOnce(async (_url, init) => {
         const body = JSON.parse(String(init?.body));
+        expect(body.modelName).toBe("gpt-4");
         expect(body.tools.map((tool: any) => tool.function.name)).not.toContain(
           "memory_search",
         );
@@ -824,6 +846,139 @@ describe("chat service tool execution", () => {
           contentHash: expect.any(String),
         },
       ],
+    });
+  });
+
+  it("pages a newly compacted Research result without spending another source body", async () => {
+    const runId = "run-research-internal-result";
+    const resultPath = "tool-results/call_large_source.json";
+    const onSourceBodiesRead = vi.fn();
+    const researchSourceBudget = {
+      remainingSourceBodies: 1,
+      onSourceBodiesRead,
+    };
+    mocks.settingsState = {
+      ...mocks.settingsState,
+      installedPlugins: [memoryNamedPlugin],
+    };
+    mocks.executePluginFunction.mockResolvedValueOnce({
+      result: "x".repeat(50_000),
+    });
+    mocks.writeWorkspaceText.mockResolvedValueOnce({
+      ok: true,
+      value: {
+        path: resultPath,
+        revision: "revision-large",
+        contentHash: "sha256:large",
+      },
+    });
+    mocks.readWorkspaceText.mockResolvedValueOnce({
+      ok: true,
+      value: {
+        path: resultPath,
+        content: '{"result":"paged content"}',
+        offset: 0,
+        limit: 200,
+        totalLines: 1,
+        truncated: false,
+        revision: "revision-large",
+        contentHash: "sha256:large",
+      },
+    });
+    vi.spyOn(globalThis, "fetch")
+      .mockImplementationOnce(async () =>
+        sseResponse([
+          {
+            type: "tool_call",
+            toolCall: {
+              id: "call_large_source",
+              name: "memory_search",
+              args: {},
+              status: "pending",
+            },
+          },
+          { type: "done" },
+        ]),
+      )
+      .mockImplementationOnce(async (_url, init) => {
+        const body = JSON.parse(String(init?.body));
+        expect(JSON.stringify(body.history)).toContain(resultPath);
+        return sseResponse([
+          {
+            type: "tool_call",
+            toolCall: {
+              id: "call_read_large_source",
+              name: "read_workspace_file",
+              args: { path: resultPath, offset: 0, limit: 200 },
+              status: "pending",
+            },
+          },
+          { type: "done" },
+        ]);
+      })
+      .mockImplementationOnce(async (_url, init) => {
+        const body = JSON.parse(String(init?.body));
+        expect(JSON.stringify(body.history)).toContain("paged content");
+        return sseResponse([
+          { type: "content", content: "Internal result read." },
+          { type: "done" },
+        ]);
+      });
+
+    const { streamChatResponse } = await import("../services/api/chatService");
+    await expect(
+      streamChatResponse(
+        "session-1",
+        "openai:gpt-4",
+        [],
+        "Read and page the approved source",
+        [],
+        { useAgentMode: true, useDeepResearch: true },
+        () => undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        ["memory-plugin"],
+        undefined,
+        undefined,
+        createAllowOnceController(),
+        {
+          executionWorkflow: { kind: "research", phase: "execute" },
+          allowedToolIds: ["memory_search", "read_workspace_file"],
+          enforceAllowedToolIds: true,
+          allowedToolEffects: ["local_read", "network_read"],
+          workspaceReadScope: [],
+          researchSourceBudget,
+          agentRun: { id: runId },
+        },
+      ),
+    ).resolves.toBe("Internal result read.");
+
+    expect(mocks.writeWorkspaceText).toHaveBeenCalledWith(
+      "session-1",
+      resultPath,
+      expect.any(String),
+      "create",
+    );
+    expect(mocks.readWorkspaceText).toHaveBeenCalledWith(
+      "session-1",
+      resultPath,
+      { offset: 0, limit: 200 },
+    );
+    expect(researchSourceBudget.remainingSourceBodies).toBe(0);
+    expect(onSourceBodiesRead).toHaveBeenCalledTimes(1);
+    expect(onSourceBodiesRead).toHaveBeenCalledWith([
+      "plugin://memory-plugin/memory_search",
+    ]);
+    const { useAgentRunStore } = await import("../store/core/agentRunStore");
+    const evidence = useAgentRunStore.getState().runsById[runId]?.evidence;
+    expect(evidence).toHaveLength(1);
+    expect(evidence?.[0]).toMatchObject({
+      url: "plugin://memory-plugin/memory_search",
+      toolCallId: "call_large_source",
     });
   });
 
@@ -2647,6 +2802,7 @@ describe("chat service tool execution", () => {
       .spyOn(globalThis, "fetch")
       .mockImplementationOnce(async (_url, init) => {
         const body = JSON.parse(String(init?.body));
+        expect(body.modelName).toBe("gpt-4");
         expect(body.config.useAgentMode).toBe(true);
         expect(body.enableGoogleSearch).toBe(false);
         expect(body.enableOpenAIWebSearch).toBe(false);
@@ -3936,6 +4092,135 @@ describe("chat service tool execution", () => {
       usage: { toolCalls: 1 },
       toolExecutions: [{ id: "execution-old", status: "committed" }],
     });
+  });
+
+  it("restores run-owned workspace result paths when Research resumes", async () => {
+    const runId = "run-resume-research-result";
+    const resultPath = "tool-results/call_previous_large_source.json";
+    const {
+      commitToolExecution,
+      createAgentRun,
+      hashToolArguments,
+      markToolExecutionRunning,
+      prepareToolExecution,
+      transitionAgentRunStatus,
+    } = await import("../lib/agent");
+    let run = prepareToolExecution(
+      createAgentRun({
+        id: runId,
+        sessionId: "session-1",
+        workflowKind: "research",
+        now: 100,
+      }),
+      {
+        id: "execution-previous-source",
+        callId: "call_previous_large_source",
+        toolName: "memory_search",
+        pluginId: "memory-plugin",
+        definitionFingerprint: "fingerprint-previous-source",
+        argumentsHash: await hashToolArguments({}),
+        policy: {
+          effects: ["network_read"],
+          idempotency: "idempotent",
+          sensitivity: "none",
+          origin: "plugin",
+        },
+        at: 110,
+      },
+    );
+    run = markToolExecutionRunning(run, "execution-previous-source", 120);
+    run = commitToolExecution(run, "execution-previous-source", {
+      at: 130,
+      resultRefs: [
+        {
+          kind: "workspace_file",
+          id: resultPath,
+          contentHash: "sha256:previous-large-source",
+        },
+      ],
+    });
+    run = transitionAgentRunStatus(run, "interrupted", {
+      at: 140,
+      stop: { reason: "page_interrupted" },
+    });
+    const { useAgentRunStore } = await import("../store/core/agentRunStore");
+    await useAgentRunStore.getState().upsertRun(run);
+    mocks.readWorkspaceText.mockResolvedValueOnce({
+      ok: true,
+      value: {
+        path: resultPath,
+        content: '{"result":"resumed page"}',
+        offset: 0,
+        limit: 100,
+        totalLines: 1,
+        truncated: false,
+        revision: "revision-resumed",
+        contentHash: "sha256:previous-large-source",
+      },
+    });
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        sseResponse([
+          {
+            type: "tool_call",
+            toolCall: {
+              id: "call_read_resumed_source",
+              name: "read_workspace_file",
+              args: { path: resultPath, offset: 0, limit: 100 },
+              status: "pending",
+            },
+          },
+          { type: "done" },
+        ]),
+      )
+      .mockResolvedValueOnce(
+        sseResponse([
+          { type: "content", content: "Resumed result read." },
+          { type: "done" },
+        ]),
+      );
+    const researchSourceBudget = { remainingSourceBodies: 0 };
+    const { streamChatResponse } = await import("../services/api/chatService");
+
+    await expect(
+      streamChatResponse(
+        "session-1",
+        "openai:gpt-4",
+        [],
+        "Resume from the committed source result.",
+        [],
+        { useDeepResearch: true },
+        () => undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        {
+          executionWorkflow: { kind: "research", phase: "execute" },
+          allowedToolIds: ["read_workspace_file"],
+          enforceAllowedToolIds: true,
+          allowedToolEffects: ["local_read"],
+          workspaceReadScope: [],
+          researchSourceBudget,
+          agentRun: { id: runId },
+          resumeAgentRun: true,
+        },
+      ),
+    ).resolves.toBe("Resumed result read.");
+
+    expect(mocks.readWorkspaceText).toHaveBeenCalledWith(
+      "session-1",
+      resultPath,
+      { offset: 0, limit: 100 },
+    );
+    expect(researchSourceBudget.remainingSourceBodies).toBe(0);
+    expect(useAgentRunStore.getState().runsById[runId]?.evidence).toEqual([]);
   });
 
   describe("stream termination contract", () => {

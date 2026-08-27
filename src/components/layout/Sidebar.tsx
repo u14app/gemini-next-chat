@@ -39,10 +39,10 @@ import {
   X,
   FolderOpen,
   Settings,
-  Blocks,
+  Cable,
   BotMessageSquare,
   ChevronDown,
-  Library,
+  LibraryBig,
   FolderPlus,
   EllipsisVertical,
   FolderCog,
@@ -54,6 +54,7 @@ import {
   Moon,
   Laptop,
   Languages,
+  ScrollText,
 } from "lucide-react";
 import { CHAT_ENTITY_LIMITS } from "@/config/limits";
 import { sanitizeDownloadFilename } from "@/lib/utils/filename";
@@ -938,7 +939,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                   : "text-gray-600 dark:text-muted-foreground hover:bg-gray-100/80 dark:hover:bg-muted/60"
               } ${isOpen ? "w-full" : "w-10 justify-center px-0"}`}
             >
-              <Sparkles
+              <ScrollText
                 size={18}
                 className={`shrink-0 ${isSkillMarketOpen ? "text-emerald-500" : "text-gray-500"}`}
                 aria-hidden="true"
@@ -965,7 +966,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                   : "text-gray-600 dark:text-muted-foreground hover:bg-gray-100/80 dark:hover:bg-muted/60"
               } ${isOpen ? "w-full" : "w-10 justify-center px-0"}`}
             >
-              <Blocks
+              <Cable
                 size={18}
                 className={`shrink-0 ${isPluginMarketOpen ? "text-blue-500" : "text-gray-500"}`}
                 aria-hidden="true"
@@ -992,7 +993,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                   : "text-gray-600 dark:text-muted-foreground hover:bg-gray-100/80 dark:hover:bg-muted/60"
               } ${isOpen ? "w-full" : "w-10 justify-center px-0"}`}
             >
-              <Library
+              <LibraryBig
                 size={18}
                 className={`shrink-0 ${isKnowledgeBaseOpen ? "text-purple-500" : "text-gray-500"}`}
                 aria-hidden="true"

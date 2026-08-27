@@ -31,7 +31,7 @@ const bindings = () =>
 const createContext = (
   emit: Record<string, unknown> = {},
   signal?: AbortSignal,
-) => ({ sessionId: SESSION, emit, signal });
+) => ({ sessionId: SESSION, model: "openai:test-model", emit, signal });
 
 /** Seeds the mocked OPFS layer with a fixed set of workspace files. */
 const seedFiles = (files: Record<string, string>) => {
@@ -158,6 +158,47 @@ describe("workspace built-in tools", () => {
       ok: true,
       matches: [],
       filesSearched: 1,
+    });
+  });
+
+  it("reads exact run-owned tool results without listing or evidencing them", async () => {
+    const internalPath = "tool-results/call-large.json";
+    seedFiles({
+      "notes.md": "approved",
+      [internalPath]: '{"result":"paged content"}',
+      "tool-results/other-run.json": "secret",
+    });
+    const context = {
+      ...createContext(),
+      workspaceReadScope: ["notes.md"],
+      workspaceInternalReadScope: new Set([internalPath]),
+    };
+
+    await expect(
+      bindings().list_workspace_files.execute({}, context),
+    ).resolves.toMatchObject({ files: [{ path: "notes.md" }] });
+    await expect(
+      bindings().stat_workspace_file.execute({ path: internalPath }, context),
+    ).resolves.toMatchObject({ ok: true, path: internalPath });
+    const result = await bindings().read_workspace_file.execute(
+      { path: internalPath },
+      context,
+    );
+    expect(result).toMatchObject({
+      ok: true,
+      path: internalPath,
+      content: '{"result":"paged content"}',
+    });
+    expect(result).not.toHaveProperty("sourceId");
+    expect(result).not.toHaveProperty("evidence");
+    await expect(
+      bindings().read_workspace_file.execute(
+        { path: "tool-results/other-run.json" },
+        context,
+      ),
+    ).resolves.toMatchObject({
+      ok: false,
+      error: { code: "WORKSPACE_SCOPE_DENIED" },
     });
   });
 

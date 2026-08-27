@@ -51,7 +51,11 @@ describe("chat mode", () => {
     await expect(
       binding.execute(
         { mode: "research" },
-        { sessionId: "session-1", emit: { chatMode: emitMode } },
+        {
+          sessionId: "session-1",
+          model: "openai:test-model",
+          emit: { chatMode: emitMode },
+        },
       ),
     ).resolves.toEqual({ ok: true, mode: "research" });
     expect(emitMode).toHaveBeenCalledWith("research");
@@ -60,7 +64,11 @@ describe("chat mode", () => {
     await expect(
       binding.execute(
         { mode: "chat" },
-        { sessionId: "session-1", emit: { chatMode: emitMode } },
+        {
+          sessionId: "session-1",
+          model: "openai:test-model",
+          emit: { chatMode: emitMode },
+        },
       ),
     ).resolves.toMatchObject({
       ok: false,

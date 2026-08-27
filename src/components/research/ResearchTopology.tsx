@@ -362,7 +362,7 @@ export function ResearchRunRail({ run }: { run: ResearchRunView }) {
       aria-label={t("run.statusRail")}
     >
       <div className="mx-auto flex max-w-7xl flex-wrap items-center gap-x-6 gap-y-2">
-        <div className="inline-flex items-center gap-2 text-xs font-semibold text-research-accent">
+        <div className="inline-flex items-center gap-2 text-xs font-semibold text-research-accent-text">
           <GitBranch size={14} aria-hidden="true" />
           <span>{t(`run.phase.${run.phase}`)}</span>
         </div>
@@ -691,7 +691,7 @@ export function ResearchTopology({ task }: { task: ResearchTaskViewModel }) {
     <section aria-labelledby={`research-topology-${task.id}`}>
       <div className="mb-3 flex items-center justify-between gap-3">
         <div>
-          <p className="text-[10px] font-semibold tracking-[0.16em] text-research-accent uppercase">
+          <p className="text-[10px] font-semibold tracking-[0.16em] text-research-accent-text uppercase">
             {t(`run.phase.${run.phase}`)}
           </p>
           <h2

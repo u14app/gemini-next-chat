@@ -270,6 +270,13 @@ export function isLocalNetworkIpAddress(address: string): boolean {
   );
 }
 
+/** RFC 2544 benchmarking range commonly used by local Fake-IP DNS proxies. */
+export function isBenchmarkingIpAddress(address: string): boolean {
+  const value = normalizeIpAddress(address);
+  const ipv4 = parseIpv4MappedIpv6(value) || parseIpv4Parts(value);
+  return Boolean(ipv4 && isIpv4InCidr(ipv4, 0xc6120000, 15));
+}
+
 export function isPrivateIpAddress(address: string): boolean {
   const value = normalizeIpAddress(address);
 
