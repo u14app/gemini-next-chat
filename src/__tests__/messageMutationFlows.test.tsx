@@ -15,8 +15,8 @@ vi.mock("@/store/core/chatStore", () => ({
   useChatStore: { getState: () => chatStoreState },
 }));
 
-import { useMessageEditFlow } from "@/features/chat/hooks/useMessageEditFlow";
-import { useResponseBranchFlow } from "@/features/chat/hooks/useResponseBranchFlow";
+import { useMessageEditFlow } from "@/hooks/useMessageEditFlow";
+import { useResponseBranchFlow } from "@/hooks/useResponseBranchFlow";
 import { createChatFlowDeps } from "./support/chatFlowDeps";
 import type { Message } from "@/types";
 

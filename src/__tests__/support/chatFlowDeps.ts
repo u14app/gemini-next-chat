@@ -1,5 +1,5 @@
 import { vi } from "vitest";
-import type { ChatFlowDeps } from "@/features/chat/hooks/chatFlowTypes";
+import type { ChatFlowDeps } from "@/hooks/chatFlowTypes";
 
 /**
  * A fully stubbed `ChatFlowDeps`. Every function is a spy, so a test can

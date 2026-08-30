@@ -41,9 +41,9 @@ vi.mock("@/services/api/skillService", () => ({
   }),
 }));
 
-import { useResponseBranchFlow } from "@/features/chat/hooks/useResponseBranchFlow";
-import { useSendMessageFlow } from "@/features/chat/hooks/useSendMessageFlow";
-import { useMessageEditFlow } from "@/features/chat/hooks/useMessageEditFlow";
+import { useResponseBranchFlow } from "@/hooks/useResponseBranchFlow";
+import { useSendMessageFlow } from "@/hooks/useSendMessageFlow";
+import { useMessageEditFlow } from "@/hooks/useMessageEditFlow";
 import { createChatFlowDeps } from "./support/chatFlowDeps";
 import type { Message } from "@/types";
 

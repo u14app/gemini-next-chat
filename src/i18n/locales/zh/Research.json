@@ -152,7 +152,7 @@
       "max_queries": "已达到查询上限",
       "max_sources": "已达到来源正文上限",
       "budget_exhausted": "研究预算已耗尽",
-      "no_new_sources": "连续两个波次都没有新增正式证据或已验证结论",
+      "no_new_sources": "连续两个波次都没有新增正式证据",
       "invalid_model_output": "模型返回的研究波次格式无效",
       "no_new_verified_claims": "连续波次没有新增已验证主张",
       "frontier_exhausted": "已无可行且在范围内的研究节点",
@@ -279,19 +279,13 @@
     "status": "研究状态：{status}"
   },
   "report": {
+    "singleSourceNote": "以上 {total} 条发现中有 {count} 条仅依据单一来源。",
     "selectVersion": "报告版本",
     "versionDate": "版本 {version}，生成于 {date}",
     "emptyTitle": "尚无报告",
     "emptyDescription": "收集、核验并综合证据后，完整报告会显示在这里。",
     "artifactUnavailable": "本地报告 Artifact 不可用。",
-    "fallbackTitle": "研究报告 v{version}",
-    "continueChangeSummary": "此版本基于已确认的补充计划继续上一轮研究。",
-    "updateChangeSummary": "此版本重新检查可变来源，并记录当前可获得的最新状态。",
-    "diff": {
-      "added": "新增证据",
-      "changed": "已变化来源",
-      "unchanged": "保留来源"
-    }
+    "fallbackTitle": "研究报告 v{version}"
   },
   "evidence": {
     "title": "证据检查器",
@@ -335,7 +329,7 @@
     "unknown": "未知"
   },
   "verificationStatus": {
-    "pending": "等待验证",
+    "pending": "单一来源",
     "verified": "已验证",
     "unsupported": "缺少支持",
     "unresolved": "尚未解决"
@@ -399,8 +393,6 @@
       "noKeyFindings": "报告未包含可审计的“主要发现”章节。",
       "sourceOperations": "有 {count} 次来源操作未能完成。",
       "searchOnly": "有 {count} 条搜索结果仅用于发现，未提交对应的来源正文。",
-      "unsupportedClaims": "有 {count} 条主要发现无法映射到已提交证据。",
-      "unresolvedConflicts": "仍有 {count} 条结论同时存在支持与反驳证据，尚未消解。",
       "incompleteQuestions": "仍有 {count} 个已批准的研究步骤仅部分完成或尚未完成。",
       "scopeExpansionUnavailable": "有 {count} 个扩展研究方向需要当前会话不可用的来源。",
       "executionInterrupted": "研究运行在完成全部计划操作前结束；本报告仅保留已经形成且可辩护的内容。",
@@ -420,14 +412,5 @@
   "legacy": {
     "cleared": "旧版深度研究记录已在 v2 升级时清理。",
     "remove": "移除此引用"
-  },
-  "export": {
-    "metadata": "报告元数据",
-    "taskId": "研究任务",
-    "reportVersion": "报告版本",
-    "planVersion": "计划版本",
-    "generatedAt": "生成时间",
-    "status": "状态",
-    "evidenceCount": "证据条目"
   }
 }

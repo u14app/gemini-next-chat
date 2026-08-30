@@ -115,7 +115,7 @@ import {
   useComposerCommandMenu,
   useComposerMenuState,
   useComposerRecording,
-} from "@/features/chat";
+} from "@/hooks";
 import type { ComposerSkillParameterValues } from "@/components/skill/SkillParameterDialog";
 import {
   ShortcutTooltipContent,
@@ -2318,7 +2318,7 @@ const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
                     type="button"
                     aria-label={t("sendMessageAria")}
                     disabled={offline || !selectedModel || isParsingAttachments}
-                    className={`${iconButtonBaseClass} bg-gray-100 text-gray-500 shadow-sm transition-colors hover:bg-gray-200 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-accent dark:text-muted-foreground dark:hover:bg-accent/80 ${iconButtonFocusClass}`}
+                    className={`${iconButtonBaseClass} bg-gray-100 text-gray-500 transition-colors hover:bg-gray-200 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-accent dark:text-muted-foreground dark:hover:bg-accent/80 ${iconButtonFocusClass}`}
                     onClick={() => void handleSend()}
                   >
                     <SendHorizontal size={16} aria-hidden="true" />

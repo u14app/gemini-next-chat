@@ -1,0 +1,159 @@
+import { canonicalizeResearchLocator } from "../evidence";
+import { getCitableResearchClaims } from "../orchestration";
+import { summarizeResearchReport } from "../prompts";
+import type {
+  ResearchEvidence,
+  ResearchPlanVersion,
+  ResearchReportRun,
+} from "../types";
+import {
+  containsExactToken,
+  extractAuditSection,
+  normalizeAuditLabel,
+  REQUIRED_REPORT_SECTIONS,
+} from "./normalize";
+import { getDegradedResearchStepIds } from "./stepCoverage";
+
+export interface ResearchReportAudit {
+  /** Defects worth one model repair pass before publication. */
+  blocking: string[];
+  /** Recorded for diagnostics; never blocks or rewrites the report. */
+  advisory: string[];
+  unknownCitationCount: number;
+  unsupportedFindingCount: number;
+  missingSectionCount: number;
+}
+
+function extractCitedUrls(markdown: string): string[] {
+  return Array.from(markdown.matchAll(/https?:\/\/[^\s)\]>]+/gi), (match) =>
+    canonicalizeResearchLocator(match[0].replace(/[.,;:!?]+$/, "")),
+  );
+}
+
+export function auditResearchReport({
+  markdown,
+  plan,
+  run,
+  evidence,
+  requiredEvidenceGapStepIds,
+}: {
+  markdown: string;
+  plan: ResearchPlanVersion;
+  run: ResearchReportRun;
+  evidence: readonly ResearchEvidence[];
+  requiredEvidenceGapStepIds?: readonly string[];
+}): ResearchReportAudit {
+  const blocking: string[] = [];
+  const advisory: string[] = [];
+  const headings = new Set(
+    Array.from(markdown.matchAll(/^#{1,6}\s+(.+)$/gm)).map((match) =>
+      normalizeAuditLabel(match[1].replace(/[*_`]/g, "")),
+    ),
+  );
+  const hasHeading = (section: string) =>
+    headings.has(normalizeAuditLabel(section));
+  const missingCoreSections = REQUIRED_REPORT_SECTIONS.filter(
+    (section) => !hasHeading(section),
+  );
+  const missingContractSections = Array.from(
+    new Set(plan.deliverable.requiredSections),
+  ).filter(
+    (section) =>
+      !hasHeading(section) &&
+      !REQUIRED_REPORT_SECTIONS.some(
+        (required) =>
+          normalizeAuditLabel(required) === normalizeAuditLabel(section),
+      ),
+  );
+  if (missingCoreSections.length > 0) {
+    blocking.push(
+      `Missing required sections: ${missingCoreSections.join(", ")}.`,
+    );
+  }
+  if (missingContractSections.length > 0) {
+    advisory.push(
+      `Missing deliverable sections: ${missingContractSections.join(", ")}.`,
+    );
+  }
+
+  const requiredGapStepIds = new Set([
+    ...getDegradedResearchStepIds(run, evidence),
+    ...(requiredEvidenceGapStepIds || []),
+  ]);
+  const orderedRequiredGapStepIds = plan.steps
+    .map((step) => step.id)
+    .filter((stepId) => requiredGapStepIds.has(stepId));
+  const evidenceGaps = extractAuditSection(markdown, "Evidence gaps");
+  const missingEvidenceGapStepIds = orderedRequiredGapStepIds.filter(
+    (stepId) => !containsExactToken(evidenceGaps, stepId),
+  );
+  if (missingEvidenceGapStepIds.length > 0) {
+    advisory.push(
+      `Evidence gaps must identify these degraded research steps: ${missingEvidenceGapStepIds.join(", ")}.`,
+    );
+  }
+
+  const knownLocators = new Set(
+    evidence.flatMap((item) =>
+      [item.locator, ...(item.aliasLocators || [])].map(
+        canonicalizeResearchLocator,
+      ),
+    ),
+  );
+  const citedUrls = extractCitedUrls(markdown);
+  const knownSourceIds = new Set(
+    evidence.flatMap((item) => [item.sourceId, ...(item.aliasSourceIds || [])]),
+  );
+  const citedSourceIds = Array.from(
+    markdown.matchAll(/\[(source-[A-Za-z0-9:_-]+)\]/g),
+    (match) => match[1],
+  );
+  const unknownCitationCount =
+    citedUrls.filter((url) => !knownLocators.has(url)).length +
+    citedSourceIds.filter((sourceId) => !knownSourceIds.has(sourceId)).length;
+  if (unknownCitationCount > 0) {
+    blocking.push(
+      `${unknownCitationCount} report citations do not match committed evidence.`,
+    );
+  }
+
+  const metadata = summarizeResearchReport(markdown);
+  const citableClaims = getCitableResearchClaims(run, evidence);
+  let unsupportedFindingCount = 0;
+  for (const finding of metadata.keyFindings) {
+    const citable = citableClaims.find((candidate) =>
+      finding.toLowerCase().includes(`[${candidate.claim.id}]`.toLowerCase()),
+    );
+    if (!citable) {
+      unsupportedFindingCount += 1;
+      continue;
+    }
+    const findingUrls = new Set(extractCitedUrls(finding));
+    const hasCitation = citable.supportingEvidence.some(
+      (item) =>
+        [item.locator, ...(item.aliasLocators || [])].some((locator) =>
+          findingUrls.has(canonicalizeResearchLocator(locator)),
+        ) ||
+        [item.sourceId, ...(item.aliasSourceIds || [])].some((sourceId) =>
+          finding.toLowerCase().includes(`[${sourceId}]`.toLowerCase()),
+        ),
+    );
+    if (!hasCitation) unsupportedFindingCount += 1;
+  }
+  if (unsupportedFindingCount > 0) {
+    advisory.push(
+      `${unsupportedFindingCount} key findings lack a cited claim and committed citation on the same item.`,
+    );
+  }
+  if (metadata.keyFindings.length === 0) {
+    blocking.push("The report has no auditable key findings.");
+  }
+  return {
+    blocking,
+    advisory,
+    unknownCitationCount,
+    unsupportedFindingCount,
+    missingSectionCount:
+      missingCoreSections.length + missingContractSections.length,
+  };
+}

@@ -11,7 +11,7 @@ import {
   StatusLabel,
   formatDuration,
   useElapsedMs,
-} from "./researchUi";
+} from "./ui";
 import type { ResearchTaskViewModel } from "./types";
 
 export interface ResearchGlobalBarProps {
@@ -29,7 +29,8 @@ export default function ResearchGlobalBar({
   const isRunning = ACTIVE_RESEARCH_STATUSES.has(task.status);
   const elapsedMs = useElapsedMs(
     task.run?.startedAt,
-    isRunning && !task.run?.endedAt,
+    task.run?.endedAt,
+    isRunning,
   );
   // The bar is the only research affordance once the card scrolls away, so it
   // carries the same proof-of-life the progress card does.

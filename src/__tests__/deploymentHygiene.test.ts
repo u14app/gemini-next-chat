@@ -16,7 +16,7 @@ describe("deployment hygiene", () => {
       "utf8",
     ).trim();
 
-    expect(nodeVersion).toBe("22");
+    expect(nodeVersion).toBe("24");
     expect(packageJson.scripts["worker:size"]).toBe(
       "node scripts/check-worker-size.mjs",
     );

@@ -13,7 +13,7 @@ import {
   type ResearchPlanVersion,
   type ResearchReportRun,
 } from "@/lib/research";
-import { createResearchTaskViewModel } from "@/features/research/researchViewModel";
+import { createResearchTaskViewModel } from "@/components/research/viewModel";
 
 function createPlan(
   id: string,
@@ -202,6 +202,35 @@ function createRun(
 }
 
 describe("research task view model", () => {
+  it("uses the terminal task end when an older report run has no end time", async () => {
+    const task = createResearchTask({
+      id: "task-ended",
+      sessionId: "session-ended",
+      goal: "Preserve a terminal duration",
+      now: 100,
+    });
+    const plan = createPlan("plan-ended", [
+      "Verify duration",
+      "Confirm persistence",
+    ]);
+    const run = createRun(plan, task.id);
+    const researching = {
+      ...task,
+      status: "researching" as const,
+      updatedAt: 120,
+      planVersions: [plan],
+      activePlanVersion: plan.version,
+      reportRuns: [run],
+      activeReportRunId: run.id,
+    };
+    const failed = transitionResearchTask(researching, "failed", { now: 500 });
+
+    const viewModel = await createResearchTaskViewModel(failed);
+
+    expect(viewModel.run?.startedAt).toBe(run.startedAt);
+    expect(viewModel.run?.endedAt).toBe(500);
+  });
+
   it("builds a safe Tool and source activity without raw arguments or results", async () => {
     let run = createAgentRun({
       id: "run-1",

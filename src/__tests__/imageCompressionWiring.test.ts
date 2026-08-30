@@ -10,7 +10,7 @@ describe("image compression wiring", () => {
   it("prepares selected, dropped, and pasted images as OPFS-backed files", () => {
     const source = readProjectFile("src/components/chat/MessageInput.tsx");
     const attachmentsHook = readProjectFile(
-      "src/features/chat/hooks/useComposerAttachments.ts",
+      "src/hooks/useComposerAttachments.ts",
     );
     const pipeline = attachmentsHook.slice(
       attachmentsHook.indexOf("const processSelectedFiles"),
@@ -58,9 +58,7 @@ describe("image compression wiring", () => {
   });
 
   it("uses the same prepared attachments for message persistence and model processing", () => {
-    const source = readProjectFile(
-      "src/features/chat/hooks/useChatRequestPreparation.ts",
-    );
+    const source = readProjectFile("src/hooks/useChatRequestPreparation.ts");
     const pipeline = source.slice(
       source.indexOf("const processPromptForModel"),
       source.indexOf("const createAgentToolStreamOptions"),

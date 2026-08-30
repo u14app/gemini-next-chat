@@ -2,12 +2,13 @@ import { describe, expect, it } from "vitest";
 
 import {
   auditResearchReport,
-  buildDeterministicRepairReport,
   buildDeterministicSalvageReport,
   createResearchReportRun,
   createResearchTask,
+  getCitableResearchClaims,
   getDegradedResearchStepIds,
   normalizeResearchReportMarkdown,
+  prepareResearchReportForPublication,
   type ClaimRecord,
   type ResearchEvidence,
   type ResearchPlanVersion,
@@ -145,7 +146,8 @@ describe("Deep Research report audit", () => {
         evidence: [evidence],
       }),
     ).toEqual({
-      issues: [],
+      blocking: [],
+      advisory: [],
       unknownCitationCount: 0,
       unsupportedFindingCount: 0,
       missingSectionCount: 0,
@@ -199,14 +201,16 @@ describe("Deep Research report audit", () => {
       ],
     };
 
-    expect(getDegradedResearchStepIds(degradedRun)).toEqual(["step-1"]);
+    expect(getDegradedResearchStepIds(degradedRun, [evidence])).toEqual([
+      "step-1",
+    ]);
     expect(
       auditResearchReport({
         markdown: completeReport,
         plan,
         run: degradedRun,
         evidence: [evidence],
-      }).issues,
+      }).advisory,
     ).toContain(
       "Evidence gaps must identify these degraded research steps: step-1.",
     );
@@ -221,7 +225,7 @@ describe("Deep Research report audit", () => {
         plan,
         run: degradedRun,
         evidence: [evidence],
-      }).issues,
+      }).advisory,
     ).not.toContain(
       "Evidence gaps must identify these degraded research steps: step-1.",
     );
@@ -247,15 +251,15 @@ describe("Deep Research report audit", () => {
       ],
     };
 
-    expect(getDegradedResearchStepIds(degradedRun)).toEqual([]);
+    expect(getDegradedResearchStepIds(degradedRun, [evidence])).toEqual([]);
     expect(
       auditResearchReport({
         markdown: completeReport,
         plan,
         run: degradedRun,
         evidence: [evidence],
-      }).issues,
-    ).toEqual([]);
+      }),
+    ).toMatchObject({ blocking: [], advisory: [] });
   });
 
   it("accepts explicit required evidence-gap step IDs", () => {
@@ -268,7 +272,7 @@ describe("Deep Research report audit", () => {
       requiredEvidenceGapStepIds: ["step-1"],
     });
 
-    expect(audit.issues).toContain(
+    expect(audit.advisory).toContain(
       "Evidence gaps must identify these degraded research steps: step-1.",
     );
     expect(
@@ -281,7 +285,7 @@ describe("Deep Research report audit", () => {
         run,
         evidence: [evidence],
         requiredEvidenceGapStepIds: ["step-1"],
-      }).issues,
+      }).advisory,
     ).toContain(
       "Evidence gaps must identify these degraded research steps: step-1.",
     );
@@ -302,12 +306,14 @@ describe("Deep Research report audit", () => {
       evidence: [evidence],
       reason: "The synthesis dependency became unavailable.",
     });
-    expect(markdown).toContain("automatically salvaged partial report");
+    expect(markdown).toContain(
+      "This partial report includes only findings supported by the available cited evidence.",
+    );
     expect(markdown).toContain("## Decision");
     expect(markdown).toContain("- step-1: answered");
     expect(
-      auditResearchReport({ markdown, plan, run, evidence: [evidence] }).issues,
-    ).toEqual([]);
+      auditResearchReport({ markdown, plan, run, evidence: [evidence] }),
+    ).toMatchObject({ blocking: [], advisory: [] });
   });
 
   it("includes degraded steps in deterministic salvage evidence gaps", () => {
@@ -356,8 +362,8 @@ describe("Deep Research report audit", () => {
         plan,
         run: degradedRun,
         evidence: [evidence],
-      }).issues,
-    ).toEqual([]);
+      }),
+    ).toMatchObject({ blocking: [], advisory: [] });
   });
 
   it("normalizes wrapped reports, localized headings, and orphan fences", () => {
@@ -403,7 +409,7 @@ No material evidence gaps.
     ).toBe("# Report\n\n```\nconst value = 1;\n```");
   });
 
-  it("rebuilds a publishable report from verified committed evidence", () => {
+  it("rebuilds a publishable report from citable committed evidence", () => {
     const { plan, run, evidence } = createFixture();
     const task = createResearchTask({
       id: "task-1",
@@ -411,45 +417,127 @@ No material evidence gaps.
       goal: "Reach a cited decision.",
       now: 1,
     });
-    const markdown = buildDeterministicRepairReport({
+    const markdown = buildDeterministicSalvageReport({
       task,
+      plan,
+      run,
+      evidence: [evidence],
+      reason: "No material evidence gaps.",
+    });
+
+    expect(markdown).not.toContain("reconstructed deterministically");
+    expect(markdown).toContain("- [C1] The premise is supported.");
+    expect(markdown).toContain("No material evidence gaps.");
+    expect(
+      auditResearchReport({ markdown, plan, run, evidence: [evidence] }),
+    ).toMatchObject({ blocking: [], advisory: [] });
+  });
+
+  it("publishes a clean article while retaining descriptive citations", () => {
+    const { plan, run, evidence } = createFixture();
+    const task = createResearchTask({
+      id: "task-1",
+      sessionId: "session-1",
+      goal: "Reach a cited decision.",
+      now: 1,
+    });
+    const audited = buildDeterministicSalvageReport({
+      task,
+      plan,
+      run,
+      evidence: [evidence],
+      reason: "No material evidence gaps.",
+    });
+    const published = prepareResearchReportForPublication({
+      markdown: audited,
       plan,
       run,
       evidence: [evidence],
     });
 
-    expect(markdown).toContain("reconstructed deterministically");
-    expect(markdown).toContain("- [C1] The premise is supported.");
-    expect(markdown).toContain("No material evidence gaps.");
-    expect(
-      auditResearchReport({ markdown, plan, run, evidence: [evidence] }).issues,
-    ).toEqual([]);
+    expect(published).toContain("The premise is supported.");
+    expect(published).toContain(
+      "[Official source](https://example.com/source?b=2&a=1)",
+    );
+    expect(published).toContain("## Sources");
+    expect(published).not.toContain("C1");
+    expect(published).not.toContain("source-known");
+    expect(published).not.toContain("step-1");
+    expect(published).not.toContain("## Research plan coverage");
+    expect(published).not.toContain("## Evidence gaps");
+    expect(published).not.toContain("publication audit");
+    expect(published).not.toContain("claim ledger");
   });
 
-  it("keeps deterministic repair partial when nothing is verifiable", () => {
+  it("publishes a single-source claim and audits it clean", () => {
     const { plan, run, evidence } = createFixture();
-    const task = createResearchTask({
-      id: "task-1",
-      sessionId: "session-1",
-      goal: "Reach a cited decision.",
-      now: 1,
-    });
-    const emptyRun = { ...run, claims: [] };
-    const markdown = buildDeterministicRepairReport({
-      task,
-      plan,
-      run: emptyRun,
-      evidence: [evidence],
-    });
+    const singleSourceRun = {
+      ...run,
+      claims: run.claims.map((claim) => ({
+        ...claim,
+        verificationStatus: "pending" as const,
+      })),
+    };
 
-    expect(markdown).toContain("No auditable verified finding");
+    expect(getCitableResearchClaims(singleSourceRun, [evidence])).toMatchObject(
+      [{ claim: { id: "C1" }, confidence: "single_source" }],
+    );
     expect(
       auditResearchReport({
-        markdown,
+        markdown: completeReport,
+        plan,
+        run: singleSourceRun,
+        evidence: [evidence],
+      }),
+    ).toMatchObject({ blocking: [], advisory: [] });
+  });
+
+  it("appends the single-source note to published key findings", () => {
+    const { plan, run, evidence } = createFixture();
+    const singleSourceRun = {
+      ...run,
+      claims: run.claims.map((claim) => ({
+        ...claim,
+        verificationStatus: "pending" as const,
+      })),
+    };
+    const published = prepareResearchReportForPublication({
+      markdown: completeReport,
+      plan,
+      run: singleSourceRun,
+      evidence: [evidence],
+      singleSourceNote: (count, total) =>
+        `${count} of ${total} findings above rest on a single source.`,
+    });
+
+    expect(published).toContain(
+      "_1 of 1 findings above rest on a single source._",
+    );
+    expect(published.indexOf("single source.")).toBeLessThan(
+      published.indexOf("## Decision"),
+    );
+    expect(
+      prepareResearchReportForPublication({
+        markdown: completeReport,
+        plan,
+        run,
+        evidence: [evidence],
+        singleSourceNote: () => "note",
+      }),
+    ).not.toContain("note");
+  });
+
+  it("reports a report without key findings as blocking", () => {
+    const { plan, run, evidence } = createFixture();
+    const emptyRun = { ...run, claims: [] };
+
+    expect(
+      auditResearchReport({
+        markdown: "# Report\n\n## Executive summary\n\nNothing to report.",
         plan,
         run: emptyRun,
         evidence: [evidence],
-      }).issues,
+      }).blocking,
     ).toContain("The report has no auditable key findings.");
   });
 });

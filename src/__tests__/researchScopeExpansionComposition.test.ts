@@ -1,31 +1,62 @@
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { readFileSync, readdirSync } from "node:fs";
+import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
-const runtimeSource = readFileSync(
-  resolve(process.cwd(), "src/features/research/ResearchRuntimeProvider.tsx"),
+const hooksRoot = resolve(process.cwd(), "src/hooks/research");
+const runtimeRoot = resolve(process.cwd(), "src/lib/research/runtime");
+
+function readDirectorySource(directory: string): string {
+  return readdirSync(directory)
+    .filter((entry) => entry.endsWith(".ts"))
+    .map((entry) => readFileSync(join(directory, entry), "utf8"))
+    .join("\n");
+}
+
+const waveSource = readDirectorySource(join(runtimeRoot, "wave"));
+const featureSource = [
+  readFileSync(
+    resolve(
+      process.cwd(),
+      "src/components/research/ResearchRuntimeProvider.tsx",
+    ),
+    "utf8",
+  ),
+  readDirectorySource(hooksRoot),
+  readDirectorySource(runtimeRoot),
+  waveSource,
+  readDirectorySource(join(runtimeRoot, "stages")),
+].join("\n");
+
+const taskActionsSource = readFileSync(
+  join(hooksRoot, "useResearchTaskActions.ts"),
   "utf8",
 );
 
 describe("Deep Research scope expansion composition", () => {
   it("refreshes authorized conversation sources and continues the same run", () => {
-    expect(runtimeSource).toContain("refreshExpansionSources(wavePackets)");
-    expect(runtimeSource).toContain(
+    expect(waveSource).toContain("refreshExpansionSources(ctx, wavePackets)");
+    expect(waveSource).toContain(
       "allowedSourceTypes: expansionSources.allowedSourceTypes",
     );
-    expect(runtimeSource).toContain("scopeExpansionEvents");
-    expect(runtimeSource).not.toContain(
+    expect(waveSource).toContain("scopeExpansionEvents");
+    expect(featureSource).not.toContain(
       "buildResearchScopeExpansionAdjustment",
     );
-    expect(runtimeSource).not.toContain("pendingScopeAdjustment");
+    expect(featureSource).not.toContain("pendingScopeAdjustment");
   });
 
   it("resumes legacy scope pauses from stored packets without replanning", () => {
-    const legacyBranch = runtimeSource
+    const dispatch = taskActionsSource
       .split('if (task.error?.code === "RESEARCH_SCOPE_APPROVAL_REQUIRED")')[1]
       ?.split("const resumeStatus")[0];
+    const legacyBranch = readFileSync(
+      join(runtimeRoot, "resumeLegacyScope.ts"),
+      "utf8",
+    );
 
-    expect(legacyBranch).toBeTruthy();
+    expect(dispatch).toBeTruthy();
+    expect(dispatch).toContain("resumeLegacyScopeApproval({");
+    expect(dispatch).not.toContain("preparePlan");
     expect(legacyBranch).toContain("activeRun.learningPackets");
     expect(legacyBranch).toContain("recordPacket: false");
     expect(legacyBranch).toContain(

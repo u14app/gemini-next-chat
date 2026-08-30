@@ -6,13 +6,8 @@ import { useTranslations } from "next-intl";
 
 import { Button, InlineStatus } from "@/components/ui/primitives";
 
-import { ResearchPlanContract } from "./ResearchTopology";
-import {
-  PlanSteps,
-  ResearchSourceScope,
-  StatusLabel,
-  TaskActions,
-} from "./researchUi";
+import { ResearchPlanContract } from "./topology";
+import { PlanSteps, ResearchSourceScope, StatusLabel, TaskActions } from "./ui";
 import type { ResearchTaskActions, ResearchTaskViewModel } from "./types";
 
 export interface ResearchPlanCardProps extends ResearchTaskActions {

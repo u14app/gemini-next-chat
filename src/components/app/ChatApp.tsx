@@ -44,7 +44,7 @@ import {
   useAgentUserInputController,
   useWelcomeChatState,
   useWorkspaceAttachmentHydration,
-} from "@/features/chat";
+} from "@/hooks";
 import {
   getActiveMessagePath,
   normalizeSessionMessageTree,
@@ -69,14 +69,11 @@ import {
   persistLongTextOutputBlocks,
 } from "@/lib/chat/longTextFiles";
 import { getLongTextBlocks } from "@/lib/chat/longText";
-import type {
-  ChatFlowDeps,
-  StreamRenderSnapshot,
-} from "@/features/chat/hooks/chatFlowTypes";
+import type { ChatFlowDeps, StreamRenderSnapshot } from "@/hooks/chatFlowTypes";
 import {
   ResearchRuntimeProvider,
   cancelResearchTasksForSession,
-} from "@/features/research";
+} from "@/components/research/ResearchRuntimeProvider";
 
 const logChatAppError = logDevError;
 const EMPTY_MESSAGES: Message[] = [];

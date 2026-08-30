@@ -152,7 +152,7 @@
       "max_queries": "クエリ上限に達しました",
       "max_sources": "本文取得上限に達しました",
       "budget_exhausted": "調査予算を使い切りました",
-      "no_new_sources": "2回連続のウェーブで正式な証拠も検証済みの結論も増えませんでした",
+      "no_new_sources": "2回連続のウェーブで正式な証拠が増えませんでした",
       "invalid_model_output": "モデルが無効な調査ウェーブ形式を返しました",
       "no_new_verified_claims": "連続するウェーブで検証済み主張が増えませんでした",
       "frontier_exhausted": "範囲内で実行可能な調査ノードが残っていません",
@@ -279,19 +279,13 @@
     "status": "調査ステータス：{status}"
   },
   "report": {
+    "singleSourceNote": "上記 {total} 件の発見のうち {count} 件は単一の情報源に基づいています。",
     "selectVersion": "レポートのバージョン",
     "versionDate": "バージョン {version}、作成日時 {date}",
     "emptyTitle": "レポートはまだありません",
     "emptyDescription": "根拠の収集、検証、統合が完了すると、完全なレポートがここに表示されます。",
     "artifactUnavailable": "ローカルのレポート Artifact を利用できません。",
-    "fallbackTitle": "調査レポート v{version}",
-    "continueChangeSummary": "この版では、承認済みの追加計画に基づいて前回の調査を継続しています。",
-    "updateChangeSummary": "この版では、変更可能な情報源を再確認し、取得できる最新状態を記録しています。",
-    "diff": {
-      "added": "追加した根拠",
-      "changed": "変更された情報源",
-      "unchanged": "維持した情報源"
-    }
+    "fallbackTitle": "調査レポート v{version}"
   },
   "evidence": {
     "title": "根拠インスペクター",
@@ -335,7 +329,7 @@
     "unknown": "不明"
   },
   "verificationStatus": {
-    "pending": "検証待ち",
+    "pending": "単一の情報源",
     "verified": "検証済み",
     "unsupported": "裏付けなし",
     "unresolved": "未解決"
@@ -399,8 +393,6 @@
       "noKeyFindings": "レポートに監査可能な主要な発見セクションがありません。",
       "sourceOperations": "{count} 件の情報源操作を完了できませんでした。",
       "searchOnly": "{count} 件の検索結果は発見用途のみで、対応する本文が保存されていません。",
-      "unsupportedClaims": "{count} 件の主要な発見を保存済みの根拠に対応付けられませんでした。",
-      "unresolvedConflicts": "{count} 件の主張に支持と反証の根拠が併存し、未解決です。",
       "incompleteQuestions": "承認済みの調査ステップのうち {count} 件が一部完了または未完了です。",
       "scopeExpansionUnavailable": "{count} 件の拡張調査方向には、この会話で利用できない情報源が必要でした。",
       "executionInterrupted": "予定したすべての操作が完了する前に調査が終了しました。このレポートには、すでに作成された妥当な内容のみを残しています。",
@@ -420,14 +412,5 @@
   "legacy": {
     "cleared": "旧版のディープリサーチ記録は v2 への更新時に消去されました。",
     "remove": "参照を削除"
-  },
-  "export": {
-    "metadata": "レポートのメタデータ",
-    "taskId": "調査タスク",
-    "reportVersion": "レポートのバージョン",
-    "planVersion": "計画のバージョン",
-    "generatedAt": "作成日時",
-    "status": "ステータス",
-    "evidenceCount": "根拠の件数"
   }
 }

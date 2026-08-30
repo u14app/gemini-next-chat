@@ -13,9 +13,7 @@ function collectTsxFiles(directory: string): string[] {
 describe("shared select usage", () => {
   it("does not render native select elements from production components", () => {
     const projectRoot = resolve(process.cwd());
-    const files = ["src/components", "src/features"].flatMap((directory) =>
-      collectTsxFiles(resolve(projectRoot, directory)),
-    );
+    const files = collectTsxFiles(resolve(projectRoot, "src/components"));
     const nativeSelects = files.flatMap((file) => {
       const source = readFileSync(file, "utf8");
       return /<(?:select|option)(?:\s|>)/.test(source)

@@ -3,7 +3,7 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { useChatPanelNavigation } from "@/features/chat/hooks/useChatPanelNavigation";
+import { useChatPanelNavigation } from "@/hooks/useChatPanelNavigation";
 
 describe("chat panel navigation", () => {
   beforeEach(() => {

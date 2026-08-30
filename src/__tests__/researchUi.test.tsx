@@ -2,6 +2,7 @@
 
 import React from "react";
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -30,7 +31,10 @@ vi.mock("@/components/content/MarkdownRenderer", () => ({
   ),
 }));
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.useRealTimers();
+});
 
 const baseTask: ResearchTaskViewModel = {
   id: "research-1",
@@ -113,15 +117,14 @@ const partialTask: ResearchTaskViewModel = {
       version: 1,
       createdAt: Date.UTC(2026, 7, 23),
       title: "Research systems report",
-      markdown: "# Older full report body",
+      markdown: "# Research systems report\n\nOlder full report body",
     },
     {
       id: "report-2",
       version: 2,
       createdAt: Date.UTC(2026, 7, 24),
       title: "Updated research systems report",
-      markdown: "# Full report body",
-      changeSummary: "Rechecked mutable web sources.",
+      markdown: "# Updated research systems report\n\nFull report body",
     },
   ],
 };
@@ -382,8 +385,10 @@ describe("ResearchTaskCard", () => {
     expect(screen.queryByText("A concise card summary.")).toBeNull();
     expect(screen.queryByText("Finding one")).toBeNull();
     expect(screen.queryByText("Finding four")).toBeNull();
-    expect(screen.getByText("# Full report body")).toBeTruthy();
-    expect(screen.queryByText("# Older full report body")).toBeNull();
+    expect(
+      screen.getByText(/# Updated research systems report\s+Full report body/),
+    ).toBeTruthy();
+    expect(screen.queryByText(/# Research systems report\s+Older/)).toBeNull();
     expect(
       screen.getByLabelText(
         "Long text document: Updated research systems report",
@@ -551,6 +556,62 @@ describe("ResearchTaskCard", () => {
 });
 
 describe("ResearchGlobalBar", () => {
+  it("freezes elapsed time at the recorded end even when reopened days later", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(10 * 24 * 60 * 60 * 1_000);
+    renderWithResearchMessages(
+      <ResearchGlobalBar
+        task={{
+          ...orchestratedTask,
+          status: "completed",
+          run: {
+            ...orchestratedTask.run!,
+            startedAt: 1_000,
+            endedAt: 61_000,
+          },
+        }}
+        onOpenWorkbench={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("1m 0s")).toBeTruthy();
+  });
+
+  it("falls back to persisted usage for a stopped run without an end time", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(10 * 24 * 60 * 60 * 1_000);
+    renderWithResearchMessages(
+      <ResearchGlobalBar
+        task={{
+          ...orchestratedTask,
+          status: "paused",
+          run: { ...orchestratedTask.run!, startedAt: 1_000 },
+        }}
+        onOpenWorkbench={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("1m 30s")).toBeTruthy();
+  });
+
+  it("ticks elapsed time only while the run is active", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(11_000);
+    renderWithResearchMessages(
+      <ResearchGlobalBar
+        task={{
+          ...orchestratedTask,
+          run: { ...orchestratedTask.run!, startedAt: 1_000 },
+        }}
+        onOpenWorkbench={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("10s")).toBeTruthy();
+    act(() => vi.advanceTimersByTime(2_000));
+    expect(screen.getByText("12s")).toBeTruthy();
+  });
+
   it("announces the active task and exposes return and pause actions", async () => {
     const onOpenWorkbench = vi.fn();
     const onPause = vi.fn();
@@ -611,6 +672,11 @@ describe("ResearchWorkbench", () => {
     expect(
       screen.getByTestId("research-report-markdown").textContent,
     ).toContain("Full report body");
+    expect(
+      screen.getByTestId("research-report-markdown").textContent,
+    ).not.toContain("# Updated research systems report");
+    expect(screen.queryByText(/Known gaps/)).toBeNull();
+    expect(screen.queryByText("Evidence added")).toBeNull();
     await user.click(screen.getByRole("combobox", { name: "Report version" }));
     await user.click(
       screen.getByRole("option", {

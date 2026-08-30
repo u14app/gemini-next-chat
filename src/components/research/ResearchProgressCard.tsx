@@ -14,7 +14,7 @@ import {
   TaskActions,
   formatDuration,
   useElapsedMs,
-} from "./researchUi";
+} from "./ui";
 import type { ResearchTaskActions, ResearchTaskViewModel } from "./types";
 
 export interface ResearchProgressCardProps extends ResearchTaskActions {
@@ -47,7 +47,7 @@ export default function ResearchProgressCard({
   const isRunning = ACTIVE_RESEARCH_STATUSES.has(task.status);
   const isFinished =
     task.status === "completed" || task.status === "partial_completed";
-  const elapsedMs = useElapsedMs(run?.startedAt, isRunning && !run?.endedAt);
+  const elapsedMs = useElapsedMs(run?.startedAt, run?.endedAt, isRunning);
   const coveredStepCount = run?.coverage.coveredStepCount ?? 0;
   const requiredStepCount =
     run?.coverage.requiredStepCount ?? task.totalQuestions;

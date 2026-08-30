@@ -42,6 +42,15 @@ export function filterResearchEvidence(
   );
 }
 
+/** Evidence that can still back a published citation. */
+export function isUsableResearchEvidence(
+  evidence: Pick<ResearchEvidence, "availability" | "freshness">,
+): boolean {
+  return (
+    evidence.availability !== "unavailable" && evidence.freshness !== "stale"
+  );
+}
+
 export function getResearchEvidenceIdentity(
   evidence: Pick<ResearchEvidence, "contentHash" | "locator">,
 ): string {
@@ -130,4 +139,21 @@ export function countUnresolvedResearchEvidenceConflicts(
   return [...stancesByClaim.values()].filter(
     (stances) => stances.has("supports") && stances.has("contradicts"),
   ).length;
+}
+
+export async function hashText(value: string): Promise<string> {
+  if (globalThis.crypto?.subtle) {
+    const digest = await globalThis.crypto.subtle.digest(
+      "SHA-256",
+      new TextEncoder().encode(value),
+    );
+    return `sha256:${Array.from(new Uint8Array(digest), (byte) =>
+      byte.toString(16).padStart(2, "0"),
+    ).join("")}`;
+  }
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < value.length; index += 1) {
+    hash = Math.imul(hash ^ value.charCodeAt(index), 0x01000193);
+  }
+  return `fnv1a:${(hash >>> 0).toString(16).padStart(8, "0")}`;
 }

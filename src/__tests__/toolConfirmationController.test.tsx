@@ -3,7 +3,7 @@
 import { act, renderHook } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import { useToolConfirmationController } from "@/features/chat/hooks/useToolConfirmationController";
+import { useToolConfirmationController } from "@/hooks/useToolConfirmationController";
 import type { ToolConfirmationRequest, ToolSessionApproval } from "@/types";
 
 const request: ToolConfirmationRequest = {

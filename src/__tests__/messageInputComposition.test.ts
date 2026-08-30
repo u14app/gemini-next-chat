@@ -3,6 +3,21 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 describe("MessageInput composition", () => {
+  it("keeps the send action flat without changing its other states", () => {
+    const messageInput = readFileSync(
+      resolve(process.cwd(), "src/components/chat/MessageInput.tsx"),
+      "utf8",
+    );
+    const sendStart = messageInput.indexOf('aria-label={t("sendMessageAria")}');
+    const sendEnd = messageInput.indexOf("</Button>", sendStart);
+    const sendButton = messageInput.slice(sendStart, sendEnd);
+
+    expect(sendStart).toBeGreaterThan(-1);
+    expect(sendButton).not.toContain("shadow-sm");
+    expect(sendButton).toContain("disabled:opacity-60");
+    expect(sendButton).toContain("iconButtonFocusClass");
+  });
+
   it("routes the mode shortcut through the existing capability-aware switch", () => {
     const messageInput = readFileSync(
       resolve(process.cwd(), "src/components/chat/MessageInput.tsx"),
@@ -63,7 +78,7 @@ describe("MessageInput composition", () => {
     // halves so this stays an assertion about the surface, not about layout.
     const messageInput = [
       "src/components/chat/MessageInput.tsx",
-      "src/features/chat/hooks/useComposerAttachments.ts",
+      "src/hooks/useComposerAttachments.ts",
     ]
       .map((path) => readFileSync(resolve(process.cwd(), path), "utf8"))
       .join("\n");
@@ -237,7 +252,7 @@ describe("MessageInput composition", () => {
     // first so the keydown-ordering assertions below still hold.
     const messageInput = [
       "src/components/chat/MessageInput.tsx",
-      "src/features/chat/hooks/useComposerCommandMenu.ts",
+      "src/hooks/useComposerCommandMenu.ts",
     ]
       .map((path) => readFileSync(resolve(process.cwd(), path), "utf8"))
       .join("\n");

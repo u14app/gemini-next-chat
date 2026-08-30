@@ -12,9 +12,9 @@ describe("skill invocation wiring", () => {
     // together so the per-path counts below still cover every path.
     const chatApp = [
       "src/components/app/ChatApp.tsx",
-      "src/features/chat/hooks/useSendMessageFlow.ts",
-      "src/features/chat/hooks/useResponseBranchFlow.ts",
-      "src/features/chat/hooks/useMessageEditFlow.ts",
+      "src/hooks/useSendMessageFlow.ts",
+      "src/hooks/useResponseBranchFlow.ts",
+      "src/hooks/useMessageEditFlow.ts",
     ]
       .map((path) => readFileSync(resolve(process.cwd(), path), "utf8"))
       .join("\n");
@@ -49,10 +49,7 @@ describe("skill invocation wiring", () => {
     );
     // The stream-option callbacks moved into the shared preparation hook.
     const requestPreparation = readFileSync(
-      resolve(
-        process.cwd(),
-        "src/features/chat/hooks/useChatRequestPreparation.ts",
-      ),
+      resolve(process.cwd(), "src/hooks/useChatRequestPreparation.ts"),
       "utf8",
     );
     expect(requestPreparation).toContain("onKnowledgeSources:");

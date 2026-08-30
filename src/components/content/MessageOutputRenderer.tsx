@@ -34,7 +34,7 @@ import AgentRunBar from "./AgentRunBar";
 import SafeImage from "../ui/SafeImage";
 import { Button } from "@/components/ui/primitives";
 import { useAgentRunStore } from "@/store/core/agentRunStore";
-import { ConnectedResearchTaskCard } from "@/features/research";
+import { ConnectedResearchTaskCard } from "@/components/research/ConnectedResearchViews";
 
 interface MessageOutputRendererProps {
   message: Message;

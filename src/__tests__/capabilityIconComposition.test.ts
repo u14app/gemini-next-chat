@@ -63,7 +63,7 @@ describe("Capability icon composition", () => {
     for (const path of [
       "src/components/layout/Sidebar.tsx",
       "src/components/chat/MessageInput.tsx",
-      "src/features/chat/hooks/useComposerCommandMenu.ts",
+      "src/hooks/useComposerCommandMenu.ts",
       "src/components/knowledge/KnowledgeSelectionModal.tsx",
       "src/components/knowledge/KnowledgeBase.tsx",
       "src/components/knowledge/RAGBlock.tsx",

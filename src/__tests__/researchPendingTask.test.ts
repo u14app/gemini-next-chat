@@ -24,7 +24,7 @@ import {
   getPendingResearchPlanTaskId,
   selectGlobalActiveResearchTaskId,
   selectVisibleResearchTaskId,
-} from "@/features/research/pendingTask";
+} from "@/lib/research/pendingTask";
 
 function makeTask(
   id: string,

@@ -191,12 +191,6 @@ export interface ResearchReportVersionView {
   createdAt: number;
   title: string;
   markdown: string;
-  changeSummary?: string;
-  diff?: {
-    added: number;
-    changed: number;
-    unchanged: number;
-  };
 }
 
 export interface ResearchActivityView {

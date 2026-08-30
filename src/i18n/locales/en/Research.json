@@ -152,7 +152,7 @@
       "max_queries": "Query limit reached",
       "max_sources": "Source body limit reached",
       "budget_exhausted": "Research budget exhausted",
-      "no_new_sources": "No new formal evidence or verified findings across two consecutive waves",
+      "no_new_sources": "No new formal evidence across two consecutive waves",
       "invalid_model_output": "The model returned an invalid research packet",
       "no_new_verified_claims": "No new verified claims across consecutive waves",
       "frontier_exhausted": "No viable in-scope research nodes remain",
@@ -279,19 +279,13 @@
     "status": "Research status: {status}"
   },
   "report": {
+    "singleSourceNote": "{count} of {total} findings above rest on a single source.",
     "selectVersion": "Report version",
     "versionDate": "Version {version}, created {date}",
     "emptyTitle": "No report yet",
     "emptyDescription": "The full report will appear here after evidence has been collected, verified, and synthesized.",
     "artifactUnavailable": "The local report artifact is unavailable.",
-    "fallbackTitle": "Research report v{version}",
-    "continueChangeSummary": "This version continues the previous investigation with an approved follow-up plan.",
-    "updateChangeSummary": "This version refreshes mutable sources and records the latest available state.",
-    "diff": {
-      "added": "Evidence added",
-      "changed": "Sources changed",
-      "unchanged": "Sources retained"
-    }
+    "fallbackTitle": "Research report v{version}"
   },
   "evidence": {
     "title": "Evidence inspector",
@@ -335,7 +329,7 @@
     "unknown": "Unknown"
   },
   "verificationStatus": {
-    "pending": "Pending verification",
+    "pending": "Single source",
     "verified": "Verified",
     "unsupported": "Unsupported",
     "unresolved": "Unresolved"
@@ -399,8 +393,6 @@
       "noKeyFindings": "The report did not contain an auditable Key findings section.",
       "sourceOperations": "{count} source operations could not be completed.",
       "searchOnly": "{count} search results remained discovery-only because no full source body was committed.",
-      "unsupportedClaims": "{count} key findings could not be mapped to committed evidence.",
-      "unresolvedConflicts": "{count} claims still have unresolved supporting and contradicting evidence.",
       "incompleteQuestions": "{count} approved research steps remain partial or unanswered.",
       "scopeExpansionUnavailable": "{count} expanded research directions required sources that were unavailable in this conversation.",
       "executionInterrupted": "The research run ended before every planned operation completed; this report preserves the defensible material already produced.",
@@ -420,14 +412,5 @@
   "legacy": {
     "cleared": "This legacy Deep Research record was cleared during the v2 upgrade.",
     "remove": "Remove reference"
-  },
-  "export": {
-    "metadata": "Report metadata",
-    "taskId": "Research task",
-    "reportVersion": "Report version",
-    "planVersion": "Plan version",
-    "generatedAt": "Generated at",
-    "status": "Status",
-    "evidenceCount": "Evidence entries"
   }
 }

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   applyResearchRunUserStop,
@@ -11,6 +11,8 @@ import {
   evaluateResearchClaimVerification,
   expandResearchFrontier,
   findInvalidResearchWorkspaceSource,
+  finalizeResearchReportRun,
+  getCitableResearchClaims,
   getNextResearchBreadth,
   getResearchEvidenceDedupKeys,
   getResearchExplorationQueryLimit,
@@ -95,6 +97,24 @@ const evidence = (
   claimIds: ["C1"],
   stance: "supports",
   availability: "available",
+  ...overrides,
+});
+
+const claim = (
+  id: string,
+  overrides: Partial<ClaimRecord> = {},
+): ClaimRecord => ({
+  id,
+  text: `Claim ${id}`,
+  importance: "major",
+  stepId: "step-1",
+  nodeIds: ["node-1"],
+  supportingEvidenceIds: ["evidence-1"],
+  contradictingEvidenceIds: [],
+  verificationStatus: "pending",
+  independentPublisherCount: 1,
+  createdAt: 1,
+  updatedAt: 1,
   ...overrides,
 });
 
@@ -496,6 +516,35 @@ describe("Deep Research orchestration", () => {
     ).toMatchObject({ status: "pending", independentPublisherCount: 1 });
   });
 
+  it("treats every supported claim as citable with derived confidence", () => {
+    const run = {
+      claims: [
+        claim("verified-claim", { verificationStatus: "verified" }),
+        claim("pending-claim", { verificationStatus: "pending" }),
+        claim("unresolved-claim", {
+          verificationStatus: "unresolved",
+          contradictingEvidenceIds: ["evidence-2"],
+        }),
+        claim("unsupported-claim", { verificationStatus: "unsupported" }),
+        claim("stale-claim", { supportingEvidenceIds: ["evidence-stale"] }),
+        claim("gone-claim", { supportingEvidenceIds: ["evidence-gone"] }),
+      ],
+    };
+
+    expect(
+      getCitableResearchClaims(run, [
+        evidence("evidence-1"),
+        evidence("evidence-2"),
+        evidence("evidence-stale", { freshness: "stale" }),
+        evidence("evidence-gone", { availability: "unavailable" }),
+      ]).map((citable) => [citable.claim.id, citable.confidence]),
+    ).toEqual([
+      ["verified-claim", "corroborated"],
+      ["pending-claim", "single_source"],
+      ["unresolved-claim", "contested"],
+    ]);
+  });
+
   it("keeps changed source versions distinct while deduplicating mirrored content", () => {
     const original = evidence("evidence-1", {
       locator: "https://example.com/source/",
@@ -680,8 +729,8 @@ describe("Deep Research orchestration", () => {
       getResearchStopReason(plan.strategy, {
         ...baseEvaluation,
         wavesWithoutNewVerifiedClaims: 2,
-      })?.code,
-    ).toBe("no_new_verified_claims");
+      }),
+    ).toBeUndefined();
     expect(
       getResearchStopReason(plan.strategy, {
         ...baseEvaluation,
@@ -748,6 +797,32 @@ describe("Deep Research orchestration", () => {
       stopReason: { code: "user_cancelled", at: 40 },
       waves: [{ status: "failed" }],
     });
+  });
+
+  it("uses one terminal timestamp for a finalized report run", () => {
+    const plan = createPlan();
+    const running = createResearchReportRun({
+      taskId: "task-1",
+      plan,
+      now: 10,
+    });
+    const now = vi
+      .spyOn(Date, "now")
+      .mockReturnValueOnce(25)
+      .mockReturnValueOnce(26);
+
+    try {
+      expect(finalizeResearchReportRun(running, "completed")).toMatchObject({
+        phase: "completed",
+        startedAt: 10,
+        updatedAt: 25,
+        endedAt: 25,
+        checkpoint: undefined,
+      });
+      expect(now).toHaveBeenCalledOnce();
+    } finally {
+      now.mockRestore();
+    }
   });
 
   it("fails closed when a frozen workspace source changes or disappears", () => {

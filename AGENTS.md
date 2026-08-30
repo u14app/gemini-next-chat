@@ -4,8 +4,9 @@
 
 This is a Next.js/React chat application using TypeScript, Zustand, Vitest, and
 pnpm. Core routes and API handlers live in `src/app/`. UI components are grouped
-under `src/components/`, with feature-specific chat hooks in
-`src/features/chat/`. Shared domain logic, provider adapters, security gates,
+under `src/components/`, with shared React hooks in `src/hooks/`. Shared domain
+logic, provider adapters,
+security gates,
 and API helpers live in `src/lib/`; client service wrappers are in
 `src/services/`; persisted Zustand stores and migrations are in `src/store/`.
 Tests are centralized in `src/__tests__/`. Static images and skill metadata live

@@ -24,10 +24,7 @@ describe("chat shell accessibility", () => {
       "utf8",
     );
     const panelNavigation = readFileSync(
-      resolve(
-        process.cwd(),
-        "src/features/chat/hooks/useChatPanelNavigation.ts",
-      ),
+      resolve(process.cwd(), "src/hooks/useChatPanelNavigation.ts"),
       "utf8",
     );
     const sidebar = readFileSync(
@@ -155,7 +152,7 @@ describe("chat shell accessibility", () => {
       "utf8",
     );
     const themeEffects = readFileSync(
-      resolve(process.cwd(), "src/features/chat/hooks/useChatThemeEffects.ts"),
+      resolve(process.cwd(), "src/hooks/useChatThemeEffects.ts"),
       "utf8",
     );
 

@@ -10,9 +10,9 @@ describe("plugin confirmation UI wiring", () => {
     // The streaming calls moved into ChatApp's extracted flow hooks.
     const chatApp = [
       "src/components/app/ChatApp.tsx",
-      "src/features/chat/hooks/useSendMessageFlow.ts",
-      "src/features/chat/hooks/useResponseBranchFlow.ts",
-      "src/features/chat/hooks/useMessageEditFlow.ts",
+      "src/hooks/useSendMessageFlow.ts",
+      "src/hooks/useResponseBranchFlow.ts",
+      "src/hooks/useMessageEditFlow.ts",
     ]
       .map((path) => readFileSync(resolve(process.cwd(), path), "utf8"))
       .join("\n");

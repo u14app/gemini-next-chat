@@ -719,7 +719,7 @@ describe("Deep Research prompts", () => {
     expect(execution).toContain("adaptive waves");
     expect(execution).toContain("step-id");
     expect(synthesis).toContain("Tools and network access are disabled");
-    expect(synthesis).toContain("verified claim ledger");
+    expect(synthesis).toContain("cited findings ledger");
     expect(synthesis).toContain("comparison contract");
     expect(synthesis).toContain("explicit criteria");
     expect(wave).toContain("existing primary-source query");
