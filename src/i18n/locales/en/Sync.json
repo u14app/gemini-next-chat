@@ -3,8 +3,8 @@
   "description": "Merge your local-first data across devices through your own WebDAV or S3 storage. Everything is encrypted before it leaves this browser.",
   "offlineBoundary": "You are offline. Sync, provider changes, vault setup, imports, key rotation, and conflict decisions are unavailable until this device reconnects.",
   "statusTitle": "Sync status",
-  "lastSync": "Last synced {time} · {bytes} transferred",
-  "neverSynced": "This device has not synced yet.",
+  "lastSync": "Last successful sync {time} · {bytes} transferred",
+  "neverSynced": "No successful sync yet.",
   "status": {
     "disabled": "Disabled",
     "idle": "Ready",
@@ -15,6 +15,9 @@
     "error": "Error"
   },
   "syncNow": "Sync now",
+  "connectionTesting": "Testing connection…",
+  "connectionTestSuccess": "Connection successful.",
+  "connectionTestError": "Connection test failed: {error}",
   "operationFailed": "The sync operation failed. Please try again.",
   "storageHealthTitle": "Sync and local storage health",
   "storageHealthDescription": "Read-only diagnostics compare persisted chat and knowledge file references with the files currently present in browser storage. Nothing is deleted.",

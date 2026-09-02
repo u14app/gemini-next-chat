@@ -33,10 +33,14 @@ import {
   LOCAL_SECRET_CONTEXTS,
 } from "@/lib/security/localSecrets";
 
+export type ConnectionTestStatus = "idle" | "testing" | "success" | "error";
+
 export interface SyncStoreState extends PersistedSyncConfiguration {
   hydrated: boolean;
   status: SyncStatus;
   error?: string;
+  connectionTestStatus: ConnectionTestStatus;
+  connectionTestError?: string;
   devices: SyncDevice[];
   conflicts: SyncConflict[];
   requiresReload: boolean;
@@ -66,6 +70,21 @@ export interface SyncStoreState extends PersistedSyncConfiguration {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "Encrypted sync failed.";
+}
+
+function syncRemoteIdentity(provider?: SyncProviderConfig): string | undefined {
+  if (!provider) return undefined;
+  if (provider.kind === "webdav") {
+    return JSON.stringify([provider.kind, provider.baseUrl, provider.rootPath]);
+  }
+  return JSON.stringify([
+    provider.kind,
+    provider.endpoint,
+    provider.region,
+    provider.bucket,
+    provider.prefix,
+    provider.forcePathStyle,
+  ]);
 }
 
 function getConfiguredState(
@@ -98,6 +117,7 @@ export const useSyncStore = create<SyncStoreState>()(
       hydrated: false,
       enabled: false,
       status: "disabled",
+      connectionTestStatus: "idle",
       deviceName: getDefaultSyncDeviceName(),
       devices: [],
       conflicts: [],
@@ -119,19 +139,44 @@ export const useSyncStore = create<SyncStoreState>()(
         );
         if (!credentialSecret)
           throw new Error("Sync credentials are required.");
-        set({ provider, credentialSecret, error: undefined, status: "idle" });
+        const current = get();
+        const remoteChanged =
+          syncRemoteIdentity(current.provider) !== syncRemoteIdentity(provider);
+        current.activeController?.abort();
+        current.connectionController?.abort();
+        set((state) => ({
+          provider,
+          credentialSecret,
+          error: undefined,
+          status: "idle",
+          connectionTestStatus: "idle",
+          connectionTestError: undefined,
+          activeController: undefined,
+          connectionController: undefined,
+          syncOperationGeneration: state.syncOperationGeneration + 1,
+          connectionOperationGeneration:
+            state.connectionOperationGeneration + 1,
+          ...(remoteChanged
+            ? { lastSyncAt: undefined, lastSyncBytes: undefined }
+            : {}),
+        }));
       },
       testConnection: async () => {
         const { provider, credentialSecret } = get();
         if (!provider || !credentialSecret) {
-          throw new Error("Configure a sync provider first.");
+          const message = "Configure a sync provider first.";
+          set({
+            connectionTestStatus: "error",
+            connectionTestError: message,
+          });
+          throw new Error(message);
         }
         get().connectionController?.abort();
         const controller = new AbortController();
         const operationGeneration = get().connectionOperationGeneration + 1;
         set({
-          status: "syncing",
-          error: undefined,
+          connectionTestStatus: "testing",
+          connectionTestError: undefined,
           connectionController: controller,
           connectionOperationGeneration: operationGeneration,
         });
@@ -147,7 +192,11 @@ export const useSyncStore = create<SyncStoreState>()(
           ) {
             return;
           }
-          set({ status: "idle", connectionController: undefined });
+          set({
+            connectionTestStatus: "success",
+            connectionTestError: undefined,
+            connectionController: undefined,
+          });
         } catch (error) {
           const latest = get();
           if (
@@ -158,8 +207,8 @@ export const useSyncStore = create<SyncStoreState>()(
             return;
           }
           set({
-            status: "error",
-            error: errorMessage(error),
+            connectionTestStatus: "error",
+            connectionTestError: errorMessage(error),
             connectionController: undefined,
           });
           throw error;
@@ -176,18 +225,40 @@ export const useSyncStore = create<SyncStoreState>()(
         );
         if (!rootKeySecret)
           throw new Error("Could not store the sync recovery key.");
+        const { activeController, connectionController } = get();
+        activeController?.abort();
+        connectionController?.abort();
+        set((state) => ({
+          status: state.enabled ? "idle" : "disabled",
+          activeController: undefined,
+          connectionController: undefined,
+          connectionTestStatus: "idle",
+          connectionTestError: undefined,
+          syncOperationGeneration: state.syncOperationGeneration + 1,
+          connectionOperationGeneration:
+            state.connectionOperationGeneration + 1,
+        }));
         await resetLocalSyncVault();
         getSyncDeviceId();
-        set({
+        set((state) => ({
           rootKeySecret,
           vaultId,
           enabled: true,
           status: "idle",
           error: undefined,
+          connectionTestStatus: "idle",
+          connectionTestError: undefined,
+          lastSyncAt: undefined,
+          lastSyncBytes: undefined,
           devices: [],
           conflicts: [],
           requiresReload: false,
-        });
+          activeController: undefined,
+          connectionController: undefined,
+          syncOperationGeneration: state.syncOperationGeneration + 1,
+          connectionOperationGeneration:
+            state.connectionOperationGeneration + 1,
+        }));
       },
       disableSync: () => {
         const { activeController, connectionController } = get();
@@ -196,6 +267,8 @@ export const useSyncStore = create<SyncStoreState>()(
         set((state) => ({
           enabled: false,
           status: "disabled",
+          connectionTestStatus: "idle",
+          connectionTestError: undefined,
           activeController: undefined,
           connectionController: undefined,
           syncOperationGeneration: state.syncOperationGeneration + 1,
@@ -256,8 +329,12 @@ export const useSyncStore = create<SyncStoreState>()(
           const completedAt = new Date().toISOString();
           set({
             status: result.conflicts.length ? "conflict" : "up-to-date",
-            lastSyncAt: completedAt,
-            lastSyncBytes: result.uploadedBytes + result.downloadedBytes,
+            ...(result.conflicts.length
+              ? {}
+              : {
+                  lastSyncAt: completedAt,
+                  lastSyncBytes: result.uploadedBytes + result.downloadedBytes,
+                }),
             devices: result.devices,
             conflicts: result.conflicts,
             requiresReload: latest.requiresReload || result.changed,
@@ -320,9 +397,20 @@ export const useSyncStore = create<SyncStoreState>()(
           useSyncStore.setState({
             status: "error",
             error: errorMessage(error),
+            connectionTestStatus: "idle",
+            connectionTestError: undefined,
           });
         } else if (state?.enabled) {
-          useSyncStore.setState({ status: "idle" });
+          useSyncStore.setState({
+            status: "idle",
+            connectionTestStatus: "idle",
+            connectionTestError: undefined,
+          });
+        } else {
+          useSyncStore.setState({
+            connectionTestStatus: "idle",
+            connectionTestError: undefined,
+          });
         }
       },
     },

@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import {
   Server,
   Trash2,
@@ -15,6 +15,8 @@ import {
   Lightbulb,
   Wrench,
   ExternalLink,
+  Search,
+  X,
 } from "lucide-react";
 import { useTranslations } from "next-intl";
 import type { ProviderType } from "@/types";
@@ -114,6 +116,10 @@ function getProviderBaseUrlPreview(
   }
 }
 
+function normalizeModelSearchQuery(value: string): string {
+  return value.normalize("NFKC").trim().toLowerCase();
+}
+
 const ProviderSettings = () => {
   const t = useTranslations("Providers");
   const { modelMetadata, customModelMetadata } = useSettingsStore();
@@ -136,6 +142,7 @@ const ProviderSettings = () => {
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [baseUrlDraft, setBaseUrlDraft] = useState("");
   const [baseUrlError, setBaseUrlError] = useState<string | null>(null);
+  const [modelSearchQuery, setModelSearchQuery] = useState("");
   const [deleteConfirmProviderId, setDeleteConfirmProviderId] = useState<
     string | null
   >(null);
@@ -225,6 +232,7 @@ const ProviderSettings = () => {
   useEffect(() => {
     selectedProviderIdRef.current = selectedProviderId;
     setFetchError(null);
+    setModelSearchQuery("");
     fetchAbortRef.current?.abort();
     fetchAbortRef.current = null;
     setFetchingProviderId(null);
@@ -393,10 +401,35 @@ const ProviderSettings = () => {
     updateProvider(currentProvider.id, { models: newModels });
   };
 
-  const displayModels =
-    currentProvider?.modelsList && currentProvider.modelsList.length > 0
-      ? currentProvider.modelsList
-      : currentProvider?.models || [];
+  const displayModels = useMemo(() => {
+    const provider = providers.find((item) => item.id === selectedProviderId);
+    return provider?.modelsList && provider.modelsList.length > 0
+      ? provider.modelsList
+      : provider?.models || [];
+  }, [providers, selectedProviderId]);
+  const filteredModels = useMemo(() => {
+    const query = normalizeModelSearchQuery(modelSearchQuery);
+    if (!query) return displayModels;
+
+    return displayModels.filter((model) => {
+      const displayName = formatModelName(
+        model,
+        modelMetadata,
+        customModelMetadata,
+        selectedProviderId ?? undefined,
+      );
+      return (
+        normalizeModelSearchQuery(model).includes(query) ||
+        normalizeModelSearchQuery(displayName).includes(query)
+      );
+    });
+  }, [
+    customModelMetadata,
+    displayModels,
+    modelMetadata,
+    modelSearchQuery,
+    selectedProviderId,
+  ]);
 
   const renderModelCapabilities = (id: string) => {
     if (!currentProvider) return null;
@@ -837,9 +870,54 @@ const ProviderSettings = () => {
                     <span>{fetchError}</span>
                   </div>
                 ) : null}
-                {displayModels.length > 0 ? (
+                {displayModels.length > 0 && (
+                  <div className="relative mb-3">
+                    <label
+                      htmlFor={`${currentProviderDomId}-model-search`}
+                      className="sr-only"
+                    >
+                      {t("modelSearchLabel")}
+                    </label>
+                    <Search
+                      size={15}
+                      aria-hidden="true"
+                      className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
+                    />
+                    <input
+                      id={`${currentProviderDomId}-model-search`}
+                      type="search"
+                      name="provider-model-search"
+                      autoComplete="off"
+                      spellCheck={false}
+                      value={modelSearchQuery}
+                      onChange={(event) =>
+                        setModelSearchQuery(event.target.value)
+                      }
+                      onKeyDown={(event) => {
+                        if (event.key === "Escape") {
+                          setModelSearchQuery("");
+                        }
+                      }}
+                      placeholder={t("modelSearchPlaceholder")}
+                      aria-label={t("modelSearchLabel")}
+                      className="h-9 w-full rounded-lg border border-gray-200 bg-gray-50 pl-9 pr-9 text-sm text-gray-800 outline-none transition-[border-color,box-shadow] placeholder:text-gray-400 focus:border-blue-400 focus:ring-2 focus:ring-blue-500/20 dark:border-border dark:bg-muted dark:text-foreground"
+                    />
+                    {modelSearchQuery ? (
+                      <Button
+                        variant="bare"
+                        type="button"
+                        aria-label={t("clearModelSearch")}
+                        onClick={() => setModelSearchQuery("")}
+                        className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded-md p-1 text-gray-400 transition-colors hover:bg-gray-200 hover:text-gray-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 dark:hover:bg-accent dark:hover:text-foreground"
+                      >
+                        <X size={14} aria-hidden="true" />
+                      </Button>
+                    ) : null}
+                  </div>
+                )}
+                {filteredModels.length > 0 ? (
                   <div className="space-y-2">
-                    {displayModels.map((model) => (
+                    {filteredModels.map((model) => (
                       <div
                         key={model}
                         className="flex items-center gap-3 p-2 hover:bg-gray-50 dark:hover:bg-muted rounded-lg transition-colors group [content-visibility:auto] [contain-intrinsic-size:44px]"
@@ -896,6 +974,15 @@ const ProviderSettings = () => {
                         </Button>
                       </div>
                     ))}
+                  </div>
+                ) : displayModels.length > 0 ? (
+                  <div className="flex flex-col items-center justify-center py-8 text-gray-400">
+                    <AlertCircle
+                      size={24}
+                      className="mb-2 opacity-50"
+                      aria-hidden="true"
+                    />
+                    <span className="text-xs">{t("noMatchingModels")}</span>
                   </div>
                 ) : (
                   <div className="flex flex-col items-center justify-center py-8 text-gray-400">

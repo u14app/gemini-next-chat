@@ -148,6 +148,93 @@ describe("app export helpers", () => {
     expect(JSON.stringify(scrubbed)).not.toContain("plain-token");
   });
 
+  it("exports user providers in order without deployment-owned providers", () => {
+    const payload = createAppExportPayload({
+      coreSettings: {
+        state: {
+          providers: [
+            {
+              id: "FIRST",
+              name: "First provider",
+              type: "OpenAI Compatible",
+              baseUrl: "https://first.example/v1",
+              apiKey: "first-secret",
+              enabled: true,
+              directCall: true,
+              models: ["first-model"],
+              modelsList: ["first-model", "first-preview"],
+            },
+            {
+              id: "SERVER_DEFAULT",
+              name: "Deployment provider",
+              type: "OpenAI",
+              baseUrl: "default",
+              apiKey: "",
+              enabled: true,
+              models: ["server-model"],
+              modelsList: ["server-model"],
+              isServerDefault: true,
+            },
+            {
+              id: "SECOND",
+              name: "Second provider",
+              type: "Anthropic",
+              baseUrl: "https://second.example/v1",
+              apiKeySecret: {
+                v: 1,
+                alg: "A256GCM",
+                keyId: "key-id",
+                iv: "iv",
+                ciphertext: "ciphertext",
+                context: "provider",
+              },
+              enabled: false,
+              models: ["second-model"],
+              modelsList: ["second-model"],
+            },
+          ],
+          defaultModels: {
+            titleGeneration: "FIRST:first-model",
+            relatedQuestions: "SERVER_DEFAULT:server-model",
+          },
+          serverDefaultProviderEnabled: true,
+        },
+        version: STORAGE_VERSION,
+      },
+    });
+
+    expect(payload.data.coreSettings).toEqual({
+      state: {
+        providers: [
+          {
+            id: "FIRST",
+            name: "First provider",
+            type: "OpenAI Compatible",
+            baseUrl: "https://first.example/v1",
+            enabled: true,
+            directCall: true,
+            models: ["first-model"],
+            modelsList: ["first-model", "first-preview"],
+          },
+          {
+            id: "SECOND",
+            name: "Second provider",
+            type: "Anthropic",
+            baseUrl: "https://second.example/v1",
+            enabled: false,
+            models: ["second-model"],
+            modelsList: ["second-model"],
+          },
+        ],
+        defaultModels: {
+          titleGeneration: "FIRST:first-model",
+          relatedQuestions: "",
+        },
+      },
+      version: STORAGE_VERSION,
+    });
+  });
+
   it("scrubs configured URLs and arbitrary headers without changing content URLs", () => {
     const chapterUrl =
       "https://docs.example.com/chapter?author=ada&design=systems#author-section";

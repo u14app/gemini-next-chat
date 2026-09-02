@@ -5,6 +5,7 @@ import {
 } from "@/store/storage/storageConfig";
 import { flushSessionMessageWrites } from "@/store/sessionMessagePersistence";
 import { getResearchTaskRepository } from "@/services/research";
+import { SERVER_DEFAULT_PROVIDER_ID } from "@/lib/defaultConfig/shared";
 
 export const APP_EXPORT_VERSION = 3;
 export const LEGACY_APP_EXPORT_VERSION = 2;
@@ -355,6 +356,53 @@ function parseStoredValue(value: unknown): unknown {
   }
 }
 
+function preparePortableCoreSettings(value: unknown): unknown {
+  if (!isRecord(value)) return value;
+  const container = isRecord(value.state) ? value.state : value;
+  if (!Array.isArray(container.providers)) return value;
+
+  const providers = container.providers.filter(
+    (provider) =>
+      !isRecord(provider) ||
+      ((typeof provider.id !== "string" ||
+        provider.id.trim() !== SERVER_DEFAULT_PROVIDER_ID) &&
+        provider.isServerDefault !== true),
+  );
+  const availableModels = new Set(
+    providers.flatMap((provider) => {
+      if (
+        !isRecord(provider) ||
+        provider.enabled === false ||
+        typeof provider.id !== "string" ||
+        !Array.isArray(provider.models)
+      ) {
+        return [];
+      }
+      return provider.models
+        .filter((model): model is string => typeof model === "string")
+        .map((model) => `${provider.id}:${model}`);
+    }),
+  );
+  const defaultModels = isRecord(container.defaultModels)
+    ? Object.fromEntries(
+        Object.entries(container.defaultModels).map(([task, model]) => [
+          task,
+          typeof model === "string" && availableModels.has(model) ? model : "",
+        ]),
+      )
+    : container.defaultModels;
+  const portableContainer: Record<string, unknown> = {
+    ...container,
+    providers,
+    ...(defaultModels === undefined ? {} : { defaultModels }),
+  };
+  delete portableContainer.serverDefaultProviderEnabled;
+
+  return container === value
+    ? portableContainer
+    : { ...value, state: portableContainer };
+}
+
 export function createAppExportPayload(
   input: AppExportInput,
 ): AppExportPayload {
@@ -367,6 +415,7 @@ export function createAppExportPayload(
     memory: input.memory,
     research: input.research,
   }) as AppExportPayload["data"];
+  data.coreSettings = preparePortableCoreSettings(data.coreSettings);
 
   return {
     exportVersion: APP_EXPORT_VERSION,

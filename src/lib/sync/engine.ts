@@ -144,6 +144,7 @@ async function downloadRemoteDocument(
   rootKey: Uint8Array,
   vaultBase: string,
   logicalId: string,
+  deviceId: string,
   signal?: AbortSignal,
 ): Promise<RemoteDocumentState> {
   const directory = await documentDirectory(rootKey, vaultBase, logicalId);
@@ -159,7 +160,7 @@ async function downloadRemoteDocument(
       "crdt-document",
       logicalId,
     );
-    const candidate = await loadSyncDocument(plaintext);
+    const candidate = await loadSyncDocument(plaintext, deviceId);
     doc = doc ? await mergeSyncDocuments(doc, candidate) : candidate;
   }
   return { doc, downloadedBytes };
@@ -440,62 +441,90 @@ async function runSyncUnlocked(
     rootKey,
     vaultBase,
     ROOT_DOCUMENT_ID,
+    deviceId,
     signal,
   );
   downloadedBytes += remoteRoot.downloadedBytes;
-  const previousRoot = localRootBase
+  const localPreviousRoot = localRootBase
     ? readSyncDocumentPayload(localRootBase)
-    : remoteRoot.doc
-      ? readSyncDocumentPayload(remoteRoot.doc)
-      : undefined;
-  const nextRootPayload = buildRootSyncIndex(
-    previousRoot,
+    : undefined;
+  const discoveredRoot =
+    localRootBase && remoteRoot.doc
+      ? await mergeSyncDocuments(localRootBase, remoteRoot.doc)
+      : localRootBase || remoteRoot.doc;
+  const discoveryPreviousRoot = discoveredRoot
+    ? readSyncDocumentPayload(discoveredRoot)
+    : undefined;
+  const discoveredRootPayload = buildRootSyncIndex(
+    discoveryPreviousRoot,
     captured.documents,
     configuration.vaultId,
     device,
     now,
-    { inferTombstones: Boolean(localRootBase) },
+    { inferTombstones: false },
   );
-  let rootDoc = await mergeCapturedDocument({
-    entry: {
-      id: ROOT_DOCUMENT_ID,
-      kind: "root",
-      payload: toSyncJson(nextRootPayload),
-    },
-    localBase: localRootBase,
-    remote: remoteRoot.doc,
-    deviceId,
-  });
-  let mergedRoot = readSyncDocumentPayload(rootDoc);
-  let descriptors = descriptorMap(mergedRoot);
+  const descriptors = descriptorMap(toSyncJson(discoveredRootPayload));
   const capturedMap = new Map(
     captured.documents.map((entry) => [entry.id, entry]),
   );
-  const mergedDocuments = new Map<string, MergedDocument>();
+  const remoteDocuments = new Map<string, RemoteDocumentState>();
 
   for (const descriptor of Object.values(descriptors)) {
-    const localBase = await loadLocalBase(descriptor.id, deviceId);
     const remoteState = await downloadRemoteDocument(
       remote,
       rootKey,
       vaultBase,
       descriptor.id,
+      deviceId,
       signal,
     );
     downloadedBytes += remoteState.downloadedBytes;
-    const entry = capturedMap.get(descriptor.id);
+    remoteDocuments.set(descriptor.id, remoteState);
+  }
+
+  // Capture once more after network IO. Persistent local CRDT baselines are
+  // loaded again and changed only here, so the discovery pass cannot consume
+  // the document handles or create a duplicate branch for this device actor.
+  const latest = await captureLocalSyncSnapshot();
+  const latestMap = new Map(latest.documents.map((entry) => [entry.id, entry]));
+  latestMap.set("opfs-manifest", capturedMap.get("opfs-manifest")!);
+  const latestRootPayload = buildRootSyncIndex(
+    localPreviousRoot,
+    [...latestMap.values()],
+    configuration.vaultId,
+    device,
+    now,
+    { inferTombstones: Boolean(localRootBase) },
+  );
+  const rootDoc = await mergeCapturedDocument({
+    entry: {
+      id: ROOT_DOCUMENT_ID,
+      kind: "root",
+      payload: toSyncJson(latestRootPayload),
+    },
+    localBase: await loadLocalBase(ROOT_DOCUMENT_ID, deviceId),
+    remote: remoteRoot.doc,
+    deviceId,
+  });
+  const mergedRoot = readSyncDocumentPayload(rootDoc);
+  const latestDescriptors = descriptorMap(mergedRoot);
+  const mergedDocuments = new Map<string, MergedDocument>();
+  for (const descriptor of Object.values(latestDescriptors)) {
+    const entry = latestMap.get(descriptor.id);
+    const localBase = await loadLocalBase(descriptor.id, deviceId);
+    const remoteDoc = remoteDocuments.get(descriptor.id)?.doc;
     let doc: SyncDoc | undefined;
     if (entry) {
       doc = await mergeCapturedDocument({
         entry,
         localBase,
-        remote: remoteState.doc,
+        remote: remoteDoc,
         deviceId,
       });
-    } else if (localBase && remoteState.doc) {
-      doc = await mergeSyncDocuments(localBase, remoteState.doc);
+    } else if (localBase && remoteDoc) {
+      doc = await mergeSyncDocuments(localBase, remoteDoc);
     } else {
-      doc = localBase || remoteState.doc;
+      doc = localBase || remoteDoc;
     }
     if (!doc) continue;
     mergedDocuments.set(descriptor.id, {
@@ -504,43 +533,21 @@ async function runSyncUnlocked(
       payload: readSyncDocumentPayload(doc),
     });
   }
-
-  // Capture once more after network IO. Applying the delta from the same local
-  // CRDT baseline preserves writes which completed while remote objects loaded.
-  const latest = await captureLocalSyncSnapshot();
-  const latestMap = new Map(latest.documents.map((entry) => [entry.id, entry]));
-  latestMap.set("opfs-manifest", capturedMap.get("opfs-manifest")!);
-  const latestRootPayload = buildRootSyncIndex(
-    previousRoot,
-    [...latestMap.values()],
-    configuration.vaultId,
-    device,
-    now,
-    { inferTombstones: Boolean(localRootBase) },
-  );
-  rootDoc = await mergeCapturedDocument({
-    entry: {
-      id: ROOT_DOCUMENT_ID,
-      kind: "root",
-      payload: toSyncJson(latestRootPayload),
-    },
-    localBase: localRootBase,
-    remote: remoteRoot.doc,
-    deviceId,
-  });
-  mergedRoot = readSyncDocumentPayload(rootDoc);
-  descriptors = descriptorMap(mergedRoot);
   for (const [id, entry] of latestMap) {
-    const existing = mergedDocuments.get(id);
+    if (mergedDocuments.has(id)) continue;
     const localBase = await loadLocalBase(id, deviceId);
     const doc = await mergeCapturedDocument({
       entry,
       localBase,
-      remote: existing?.doc,
+      remote: remoteDocuments.get(id)?.doc,
       deviceId,
     });
     mergedDocuments.set(id, {
-      descriptor: descriptors[id] || { id, kind: entry.kind, updatedAt: now },
+      descriptor: latestDescriptors[id] || {
+        id,
+        kind: entry.kind,
+        updatedAt: now,
+      },
       doc,
       payload: readSyncDocumentPayload(doc),
     });

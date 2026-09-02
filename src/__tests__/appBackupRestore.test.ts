@@ -1,6 +1,10 @@
 import { createHash } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { strToU8, zipSync } from "fflate";
+import {
+  PROVIDER_CONFIG_LIMITS,
+  PROVIDER_MODEL_LIMITS,
+} from "../config/limits";
 
 const { appDbMock, deletedUrls, storedItems, writtenFiles } = vi.hoisted(() => {
   const storedItems = new Map<string, unknown>();
@@ -55,9 +59,12 @@ vi.mock("../utils/opfs", () => ({
 }));
 
 import {
+  createBrowserAppBackup,
   restoreBrowserAppBackup,
   type BackupManifestV3,
 } from "../lib/data/appBackup";
+import { migrateCoreSettingsState } from "../lib/providers/config";
+import { pruneUnavailableDefaultModels } from "../lib/utils/defaultModels";
 import {
   APP_RESTORE_HYDRATION_TARGETS,
   APP_RESTORE_JOURNAL_KEY,
@@ -265,6 +272,82 @@ function makeBackup(): Blob {
     "files/000000": content,
   });
   return new Blob([bytes], { type: "application/zip" });
+}
+
+function makeProviderBackup(coreSettings: unknown): Blob {
+  const exportedAt = "2026-09-02T00:00:00.000Z";
+  const manifest: BackupManifestV3 = {
+    format: "neo-chat-backup",
+    exportVersion: 3,
+    storageVersion: 5,
+    exportedAt,
+    dataPath: "data.json",
+    files: [],
+    missingReferences: [],
+    excluded: [],
+  };
+  const payload = {
+    exportVersion: 3,
+    storageVersion: 5,
+    exportedAt,
+    metadata: {
+      opfs: { mode: "bundled", includesBlobs: true },
+      security: { credentialsIncluded: false, excluded: [] },
+    },
+    data: {
+      coreSettings,
+      sessionMessages: {},
+    },
+  };
+
+  return new Blob(
+    [
+      zipSync({
+        "manifest.json": strToU8(JSON.stringify(manifest)),
+        "data.json": strToU8(JSON.stringify(payload)),
+      }),
+    ],
+    { type: "application/zip" },
+  );
+}
+
+async function expectCoreSettingsBackupRejected(
+  coreSettings: unknown,
+): Promise<void> {
+  const oldCoreSettings = JSON.stringify({
+    state: { providers: [{ id: "EXISTING" }] },
+    version: 5,
+  });
+  const localStorage = createLocalStorage({
+    "neo-chat-core-settings": oldCoreSettings,
+  });
+  vi.stubGlobal("window", { localStorage });
+  vi.stubGlobal("navigator", {
+    storage: {
+      estimate: vi.fn(async () => ({ quota: 1_000_000_000, usage: 0 })),
+    },
+  });
+  const oldSettings = storedItems.get("neo-chat-settings");
+  const oldChat = storedItems.get("neo-chat-storage");
+
+  await expect(
+    restoreBrowserAppBackup(makeProviderBackup(coreSettings)),
+  ).rejects.toThrow(/backup|settings|provider|model/i);
+
+  expect(localStorage.values.get("neo-chat-core-settings")).toBe(
+    oldCoreSettings,
+  );
+  expect(storedItems.get("neo-chat-settings")).toBe(oldSettings);
+  expect(storedItems.get("neo-chat-storage")).toBe(oldChat);
+  expect(appDbMock.setItem).not.toHaveBeenCalled();
+  expect(appDbMock.removeItem).not.toHaveBeenCalled();
+}
+
+async function expectProviderBackupRejected(providers: unknown): Promise<void> {
+  await expectCoreSettingsBackupRejected({
+    state: { providers },
+    version: 5,
+  });
 }
 
 function makeLegacyResearchBackup(): Blob {
@@ -740,6 +823,259 @@ describe("browser backup restore", () => {
     expect(
       localStorage.values.get(APP_RESTORE_CREDENTIAL_NOTICE_KEY),
     ).toContain('"plugins"');
+  });
+
+  it("rejects duplicate provider identifiers before changing persisted data", async () => {
+    await expectProviderBackupRejected([
+      { id: "DUPLICATE", type: "OpenAI", models: ["model-a"] },
+      { id: "DUPLICATE", type: "OpenAI", models: ["model-b"] },
+    ]);
+  });
+
+  it.each([
+    ["string", "invalid core settings"],
+    ["null", null],
+    ["array", []],
+  ])(
+    "rejects a %s core settings payload before changing persisted data",
+    async (_, coreSettings) => {
+      await expectCoreSettingsBackupRejected(coreSettings);
+    },
+  );
+
+  it("round-trips portable providers through browser export and restore", async () => {
+    const localStorage = createLocalStorage({
+      "neo-chat-core-settings": JSON.stringify({
+        state: {
+          providers: [
+            {
+              id: "FIRST",
+              name: "First provider",
+              type: "OpenAI Compatible",
+              baseUrl: "https://first.example/v1",
+              apiKey: "plaintext-secret",
+              enabled: true,
+              directCall: true,
+              models: ["first-model"],
+              modelsList: ["first-model", "first-preview"],
+            },
+            {
+              id: "SERVER_DEFAULT",
+              name: "Source deployment provider",
+              type: "OpenAI",
+              baseUrl: "default",
+              apiKey: "",
+              enabled: true,
+              models: ["server-model"],
+              modelsList: ["server-model"],
+              isServerDefault: true,
+            },
+            {
+              id: "SECOND",
+              name: "Second provider",
+              type: "Anthropic",
+              baseUrl: "https://second.example/v1",
+              apiKeySecret: {
+                v: 1,
+                alg: "A256GCM",
+                keyId: "key-id",
+                iv: "iv",
+                ciphertext: "ciphertext",
+                context: "provider",
+              },
+              enabled: false,
+              directCall: false,
+              models: ["second-model"],
+              modelsList: ["second-model"],
+            },
+          ],
+          defaultModels: {
+            titleGeneration: "FIRST:first-model",
+            relatedQuestions: "SERVER_DEFAULT:server-model",
+            contextCompression: "SECOND:second-model",
+          },
+        },
+        version: 5,
+      }),
+    });
+    vi.stubGlobal("window", { localStorage });
+    vi.stubGlobal("navigator", {
+      storage: {
+        estimate: vi.fn(async () => ({ quota: 1_000_000_000, usage: 0 })),
+      },
+    });
+    storedItems.clear();
+    const backup = await createBrowserAppBackup();
+
+    localStorage.values.clear();
+    storedItems.clear();
+    await restoreBrowserAppBackup(backup.blob);
+
+    const stored = JSON.parse(
+      localStorage.values.get("neo-chat-core-settings") || "null",
+    );
+    const migrated = migrateCoreSettingsState(stored.state);
+    const defaultModels = pruneUnavailableDefaultModels(
+      migrated.defaultModels,
+      migrated.providers || [],
+    );
+
+    expect(migrated.providers).toEqual([
+      {
+        id: "FIRST",
+        name: "First provider",
+        type: "OpenAI Compatible",
+        baseUrl: "https://first.example/v1",
+        apiKey: "",
+        enabled: true,
+        directCall: true,
+        models: ["first-model"],
+        modelsList: ["first-model", "first-preview"],
+      },
+      {
+        id: "SECOND",
+        name: "Second provider",
+        type: "Anthropic",
+        baseUrl: "https://second.example/v1",
+        apiKey: "",
+        enabled: false,
+        directCall: false,
+        models: ["second-model"],
+        modelsList: ["second-model"],
+      },
+    ]);
+    expect(defaultModels).toMatchObject({
+      titleGeneration: "FIRST:first-model",
+      relatedQuestions: "",
+      contextCompression: "",
+    });
+    expect(JSON.stringify(stored)).not.toContain("plaintext-secret");
+    expect(JSON.stringify(stored)).not.toContain("ciphertext");
+    expect(JSON.stringify(stored)).not.toContain("SERVER_DEFAULT");
+  });
+
+  it.each([
+    ["non-array provider list", {}],
+    ["non-object provider", [null]],
+    ["empty provider identifier", [{ id: "", type: "OpenAI" }]],
+    ["unknown provider type", [{ id: "UNKNOWN", type: "Unknown Provider" }]],
+    [
+      "non-boolean provider flags",
+      [{ id: "FLAGS", type: "OpenAI", enabled: "yes" }],
+    ],
+    [
+      "invalid provider URL",
+      [{ id: "URL", type: "OpenAI Compatible", baseUrl: "https://" }],
+    ],
+    [
+      "provider count overflow",
+      Array.from(
+        { length: PROVIDER_CONFIG_LIMITS.maxProviders + 1 },
+        (_, index) => ({ id: `P${index}`, type: "OpenAI" }),
+      ),
+    ],
+    [
+      "duplicate normalized model identifier",
+      [
+        {
+          id: "MODELS",
+          type: "Google",
+          models: ["models/gemini-flash", "gemini-flash"],
+        },
+      ],
+    ],
+    [
+      "model count overflow",
+      [
+        {
+          id: "MODELS",
+          type: "OpenAI",
+          models: Array.from(
+            { length: PROVIDER_MODEL_LIMITS.maxModels + 1 },
+            (_, index) => `model-${index}`,
+          ),
+        },
+      ],
+    ],
+    [
+      "selected model outside the available list",
+      [
+        {
+          id: "MODELS",
+          type: "OpenAI",
+          models: ["selected-model"],
+          modelsList: ["available-model"],
+        },
+      ],
+    ],
+  ])("rejects %s without changing persisted data", async (_, providers) => {
+    await expectProviderBackupRejected(providers);
+  });
+
+  it("restores legal v2 provider state and discards its source deployment provider", async () => {
+    const localStorage = createLocalStorage({});
+    vi.stubGlobal("window", { localStorage });
+    vi.stubGlobal("navigator", {
+      storage: {
+        estimate: vi.fn(async () => ({ quota: 1_000_000_000, usage: 0 })),
+      },
+    });
+    const backup = new Blob([
+      JSON.stringify({
+        exportVersion: 2,
+        storageVersion: 5,
+        exportedAt: "2026-09-02T00:00:00.000Z",
+        data: {
+          coreSettings: {
+            state: {
+              providers: [
+                {
+                  id: "SERVER_DEFAULT",
+                  name: "Old deployment provider",
+                  type: "OpenAI",
+                  baseUrl: "default",
+                  enabled: true,
+                  models: ["server-model"],
+                  isServerDefault: true,
+                },
+                {
+                  id: "LEGACY_GOOGLE",
+                  name: "Legacy Google",
+                  type: "Gemini",
+                  baseUrl: "https://generativelanguage.googleapis.com/v1beta",
+                  enabled: true,
+                  models: ["models/gemini-flash"],
+                },
+              ],
+              defaultModels: {
+                titleGeneration: "LEGACY_GOOGLE:gemini-flash",
+                relatedQuestions: "SERVER_DEFAULT:server-model",
+              },
+            },
+            version: 5,
+          },
+          sessionMessages: {},
+        },
+      }),
+    ]);
+
+    await restoreBrowserAppBackup(backup);
+
+    const restored = JSON.parse(
+      localStorage.values.get("neo-chat-core-settings") || "null",
+    );
+    expect(restored.state.providers).toEqual([
+      expect.objectContaining({
+        id: "LEGACY_GOOGLE",
+        type: "Google",
+        models: ["gemini-flash"],
+        modelsList: ["gemini-flash"],
+      }),
+    ]);
+    expect(restored.state.defaultModels).toEqual({
+      titleGeneration: "LEGACY_GOOGLE:gemini-flash",
+      relatedQuestions: "",
+    });
   });
 
   it("restores workspace file and archive blocks to valid OPFS locations", async () => {

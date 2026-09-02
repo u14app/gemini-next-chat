@@ -1,9 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   applyLocalPayload,
   collectSyncConflicts,
   createSyncDocument,
   deriveAutomergeActorId,
+  loadAutomerge,
   loadSyncDocument,
   mergeSyncDocuments,
   readSyncDocumentPayload,
@@ -15,6 +16,18 @@ const ACTOR_B = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const ACTOR_C = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
 
 describe("sync CRDT documents", () => {
+  it("initializes embedded WASM without fetching the default asset URL", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    try {
+      const api = await loadAutomerge();
+
+      expect(api.isWasmInitialized()).toBe(true);
+      expect(fetchSpy).not.toHaveBeenCalled();
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
   it("converges concurrent entity additions without last-write-wins loss", async () => {
     const original = await createSyncDocument(
       "settings",

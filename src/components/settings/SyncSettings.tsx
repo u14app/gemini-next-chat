@@ -85,6 +85,7 @@ const SyncSettings: React.FC = () => {
   const [recoverySaved, setRecoverySaved] = useState(false);
   const [copied, setCopied] = useState(false);
   const [localBusy, setLocalBusy] = useState(false);
+  const [providerDraftDirty, setProviderDraftDirty] = useState(false);
   const [isOnline, setIsOnline] = useState(true);
   const [operationError, setOperationError] = useState<string>();
   const [storageHealth, setStorageHealth] =
@@ -141,6 +142,7 @@ const SyncSettings: React.FC = () => {
       setPrefix(store.provider.prefix);
       setForcePathStyle(store.provider.forcePathStyle);
     }
+    setProviderDraftDirty(false);
   }, [store.provider]);
 
   const statusLabel = t(`status.${store.status}`);
@@ -186,6 +188,23 @@ const SyncSettings: React.FC = () => {
     }
   };
 
+  const runConnectionTest = async () => {
+    if (!navigator.onLine) {
+      setIsOnline(false);
+      return;
+    }
+    setOperationError(undefined);
+    setLocalBusy(true);
+    try {
+      await store.testConnection();
+    } catch {
+      // The store owns this result so it can remain next to the provider
+      // controls instead of being presented as a sync failure.
+    } finally {
+      setLocalBusy(false);
+    }
+  };
+
   const saveProvider = () =>
     run(async () => {
       let provider: SyncProviderConfig;
@@ -218,6 +237,7 @@ const SyncSettings: React.FC = () => {
         };
       }
       await store.configureProvider(provider, credentials);
+      setProviderDraftDirty(false);
       setPassword("");
       setSecretAccessKey("");
       setSessionToken("");
@@ -483,7 +503,10 @@ const SyncSettings: React.FC = () => {
                   ? "bg-background text-foreground shadow-sm"
                   : "text-muted-foreground hover:text-foreground"
               }`}
-              onClick={() => setProviderKind(kind)}
+              onClick={() => {
+                setProviderKind(kind);
+                setProviderDraftDirty(true);
+              }}
             >
               {kind === "webdav" ? "WebDAV" : "S3 / MinIO"}
             </Button>
@@ -495,7 +518,10 @@ const SyncSettings: React.FC = () => {
               className={inputClass}
               type="url"
               value={endpoint}
-              onChange={(event) => setEndpoint(event.target.value)}
+              onChange={(event) => {
+                setEndpoint(event.target.value);
+                setProviderDraftDirty(true);
+              }}
               placeholder={
                 providerKind === "webdav"
                   ? "https://dav.example.com/remote.php/dav/files/me"
@@ -509,7 +535,10 @@ const SyncSettings: React.FC = () => {
                 <input
                   className={inputClass}
                   value={rootPath}
-                  onChange={(event) => setRootPath(event.target.value)}
+                  onChange={(event) => {
+                    setRootPath(event.target.value);
+                    setProviderDraftDirty(true);
+                  }}
                 />
               </Field>
               <Field label={t("username")}>
@@ -517,7 +546,10 @@ const SyncSettings: React.FC = () => {
                   className={inputClass}
                   autoComplete="username"
                   value={username}
-                  onChange={(event) => setUsername(event.target.value)}
+                  onChange={(event) => {
+                    setUsername(event.target.value);
+                    setProviderDraftDirty(true);
+                  }}
                 />
               </Field>
               <Field
@@ -533,7 +565,10 @@ const SyncSettings: React.FC = () => {
                   type="password"
                   autoComplete="current-password"
                   value={password}
-                  onChange={(event) => setPassword(event.target.value)}
+                  onChange={(event) => {
+                    setPassword(event.target.value);
+                    setProviderDraftDirty(true);
+                  }}
                 />
               </Field>
             </>
@@ -543,21 +578,30 @@ const SyncSettings: React.FC = () => {
                 <input
                   className={inputClass}
                   value={region}
-                  onChange={(event) => setRegion(event.target.value)}
+                  onChange={(event) => {
+                    setRegion(event.target.value);
+                    setProviderDraftDirty(true);
+                  }}
                 />
               </Field>
               <Field label={t("bucket")}>
                 <input
                   className={inputClass}
                   value={bucket}
-                  onChange={(event) => setBucket(event.target.value)}
+                  onChange={(event) => {
+                    setBucket(event.target.value);
+                    setProviderDraftDirty(true);
+                  }}
                 />
               </Field>
               <Field label={t("prefix")}>
                 <input
                   className={inputClass}
                   value={prefix}
-                  onChange={(event) => setPrefix(event.target.value)}
+                  onChange={(event) => {
+                    setPrefix(event.target.value);
+                    setProviderDraftDirty(true);
+                  }}
                 />
               </Field>
               <Field label={t("accessKeyId")}>
@@ -565,7 +609,10 @@ const SyncSettings: React.FC = () => {
                   className={inputClass}
                   autoComplete="off"
                   value={accessKeyId}
-                  onChange={(event) => setAccessKeyId(event.target.value)}
+                  onChange={(event) => {
+                    setAccessKeyId(event.target.value);
+                    setProviderDraftDirty(true);
+                  }}
                 />
               </Field>
               <Field
@@ -581,7 +628,10 @@ const SyncSettings: React.FC = () => {
                   type="password"
                   autoComplete="off"
                   value={secretAccessKey}
-                  onChange={(event) => setSecretAccessKey(event.target.value)}
+                  onChange={(event) => {
+                    setSecretAccessKey(event.target.value);
+                    setProviderDraftDirty(true);
+                  }}
                 />
               </Field>
               <Field label={t("sessionTokenOptional")}>
@@ -590,14 +640,20 @@ const SyncSettings: React.FC = () => {
                   type="password"
                   autoComplete="off"
                   value={sessionToken}
-                  onChange={(event) => setSessionToken(event.target.value)}
+                  onChange={(event) => {
+                    setSessionToken(event.target.value);
+                    setProviderDraftDirty(true);
+                  }}
                 />
               </Field>
               <label className="flex min-h-10 items-center gap-2 self-end text-sm text-foreground">
                 <input
                   type="checkbox"
                   checked={forcePathStyle}
-                  onChange={(event) => setForcePathStyle(event.target.checked)}
+                  onChange={(event) => {
+                    setForcePathStyle(event.target.checked);
+                    setProviderDraftDirty(true);
+                  }}
                 />
                 {t("forcePathStyle")}
               </label>
@@ -622,15 +678,65 @@ const SyncSettings: React.FC = () => {
             disabled={
               localBusy ||
               !isOnline ||
+              providerDraftDirty ||
               !store.provider ||
               !store.credentialSecret
             }
-            onClick={() => void run(store.testConnection)}
+            onClick={() => void runConnectionTest()}
           >
-            <Check size={16} aria-hidden="true" />
+            {store.connectionTestStatus === "testing" ? (
+              <Loader2
+                size={16}
+                className="animate-spin motion-reduce:animate-none"
+                aria-hidden="true"
+              />
+            ) : (
+              <Check size={16} aria-hidden="true" />
+            )}
             {t("testConnection")}
           </Button>
         </div>
+        {!providerDraftDirty && store.connectionTestStatus === "testing" ? (
+          <p
+            className="mt-3 flex items-center gap-2 text-sm text-muted-foreground"
+            role="status"
+            aria-live="polite"
+          >
+            <Loader2
+              size={16}
+              className="animate-spin motion-reduce:animate-none"
+              aria-hidden="true"
+            />
+            {t("connectionTesting")}
+          </p>
+        ) : null}
+        {!providerDraftDirty && store.connectionTestStatus === "success" ? (
+          <p
+            className="mt-3 flex items-center gap-2 text-sm text-emerald-700 dark:text-emerald-200"
+            role="status"
+            aria-live="polite"
+          >
+            <Check size={16} aria-hidden="true" />
+            {t("connectionTestSuccess")}
+          </p>
+        ) : null}
+        {!providerDraftDirty && store.connectionTestStatus === "error" ? (
+          <div
+            className="mt-3 flex gap-2 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-400/30 dark:bg-red-400/10 dark:text-red-200"
+            role="alert"
+          >
+            <AlertTriangle
+              size={17}
+              className="mt-0.5 shrink-0"
+              aria-hidden="true"
+            />
+            <span className="min-w-0 break-words">
+              {t("connectionTestError", {
+                error: store.connectionTestError || t("operationFailed"),
+              })}
+            </span>
+          </div>
+        ) : null}
       </section>
 
       <section className="rounded-xl border border-border bg-card p-4 md:p-5">

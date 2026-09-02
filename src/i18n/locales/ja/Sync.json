@@ -3,8 +3,8 @@
   "description": "自分の WebDAV または S3 ストレージを使い、ローカルファーストのデータを端末間でマージします。データはブラウザーを離れる前に暗号化されます。",
   "offlineBoundary": "現在オフラインです。再接続するまで、同期、プロバイダー変更、保管庫の作成・インポート、鍵のローテーション、競合の解決は利用できません。",
   "statusTitle": "同期状態",
-  "lastSync": "最終同期 {time} · 転送量 {bytes}",
-  "neverSynced": "この端末はまだ同期されていません。",
+  "lastSync": "最終成功同期 {time} · 転送量 {bytes}",
+  "neverSynced": "成功した同期はまだありません。",
   "status": {
     "disabled": "無効",
     "idle": "準備完了",
@@ -15,6 +15,9 @@
     "error": "エラー"
   },
   "syncNow": "今すぐ同期",
+  "connectionTesting": "接続をテスト中…",
+  "connectionTestSuccess": "接続に成功しました。",
+  "connectionTestError": "接続テストに失敗しました：{error}",
   "operationFailed": "同期処理に失敗しました。もう一度お試しください。",
   "storageHealthTitle": "同期とローカルストレージの状態",
   "storageHealthDescription": "保存済みのチャット・ナレッジファイル参照とブラウザーストレージ内の実ファイルを読み取り専用で比較します。ファイルは削除されません。",

@@ -19,6 +19,7 @@ const mocks = vi.hoisted(() => ({
     updateProvider: vi.fn(),
     deleteProvider: vi.fn(),
   },
+  modelDisplayNames: {} as Record<string, string>,
   signedApiFetch: vi.fn(),
 }));
 
@@ -30,7 +31,7 @@ vi.mock("next-intl", () => ({
 vi.mock("@/store/core/settingsStore", async () => {
   const { normalizeProviderBaseUrl } = await import("@/lib/security/urlPolicy");
   return {
-    formatModelName: (model: string) => model,
+    formatModelName: (model: string) => mocks.modelDisplayNames[model] || model,
     getEffectiveBaseUrl: normalizeProviderBaseUrl,
     useSettingsStore: () => ({
       modelMetadata: {},
@@ -93,6 +94,7 @@ beforeEach(() => {
   mocks.coreState.updateProvider.mockReset();
   mocks.coreState.deleteProvider.mockReset();
   mocks.signedApiFetch.mockReset();
+  mocks.modelDisplayNames = {};
 });
 
 afterEach(cleanup);
@@ -170,5 +172,206 @@ describe("ProviderSettings", () => {
 
     expect(() => render(<ProviderSettings />)).not.toThrow();
     expect(screen.queryByText(/^preview/)).toBeNull();
+  });
+
+  it("filters models by normalized ids and display names", async () => {
+    mocks.modelDisplayNames = {
+      "model-id": "Friendly Label",
+      "other-model": "Another Model",
+    };
+    mocks.coreState.providers = [
+      provider("FILTER", {
+        modelsList: ["model-id", "other-model"],
+      }),
+    ];
+
+    render(<ProviderSettings />);
+
+    const search = await screen.findByRole("searchbox", {
+      name: "modelSearchLabel",
+    });
+    fireEvent.change(search, { target: { value: "  fRiEnDlY   " } });
+
+    expect(screen.getByText("Friendly Label")).toBeTruthy();
+    expect(screen.queryByText("Another Model")).toBeNull();
+    expect(mocks.signedApiFetch).not.toHaveBeenCalled();
+
+    fireEvent.change(search, { target: { value: "  OTHER-MODEL " } });
+
+    expect(screen.getByText("Another Model")).toBeTruthy();
+    expect(screen.queryByText("Friendly Label")).toBeNull();
+  });
+
+  it("matches compatibility-normalized model text", async () => {
+    mocks.modelDisplayNames = {
+      "gpt-4o": "GPT-4o",
+    };
+    mocks.coreState.providers = [
+      provider("FILTER", {
+        modelsList: ["gpt-4o", "claude-3"],
+      }),
+    ];
+
+    render(<ProviderSettings />);
+
+    const search = await screen.findByRole("searchbox", {
+      name: "modelSearchLabel",
+    });
+    fireEvent.change(search, { target: { value: " ＧＰＴ " } });
+
+    expect(screen.getByText("GPT-4o")).toBeTruthy();
+    expect(screen.queryByText("claude-3")).toBeNull();
+  });
+
+  it("distinguishes an empty model list from a search with no matches", async () => {
+    mocks.coreState.providers = [
+      provider("FILTER", {
+        modelsList: ["model-id"],
+      }),
+    ];
+
+    render(<ProviderSettings />);
+
+    const search = await screen.findByRole("searchbox", {
+      name: "modelSearchLabel",
+    });
+    fireEvent.change(search, { target: { value: "missing" } });
+
+    expect(screen.getByText("noMatchingModels")).toBeTruthy();
+    expect(screen.queryByText("noModels")).toBeNull();
+  });
+
+  it("clears the model search with the clear action or Escape", async () => {
+    mocks.coreState.providers = [
+      provider("FILTER", {
+        modelsList: ["model-id", "other-model"],
+      }),
+    ];
+
+    render(<ProviderSettings />);
+
+    const search = await screen.findByRole("searchbox", {
+      name: "modelSearchLabel",
+    });
+    fireEvent.change(search, { target: { value: "model-id" } });
+
+    const clearButton = screen.getByRole("button", {
+      name: "clearModelSearch",
+    });
+    fireEvent.click(clearButton);
+    expect((search as HTMLInputElement).value).toBe("");
+    expect(screen.getByText("other-model")).toBeTruthy();
+
+    fireEvent.change(search, { target: { value: "other-model" } });
+    fireEvent.keyDown(search, { key: "Escape" });
+    expect((search as HTMLInputElement).value).toBe("");
+    expect(screen.getByText("model-id")).toBeTruthy();
+  });
+
+  it("resets the search query when switching providers", async () => {
+    mocks.coreState.providers = [
+      provider("FIRST", { modelsList: ["first-model"] }),
+      provider("SECOND", { modelsList: ["second-model"] }),
+    ];
+
+    render(<ProviderSettings />);
+
+    const search = await screen.findByRole("searchbox", {
+      name: "modelSearchLabel",
+    });
+    fireEvent.change(search, { target: { value: "first" } });
+    expect((search as HTMLInputElement).value).toBe("first");
+
+    fireEvent.click(screen.getByRole("button", { name: /SECOND/ }));
+
+    await vi.waitFor(() => {
+      expect(
+        (
+          screen.getByRole("searchbox", {
+            name: "modelSearchLabel",
+          }) as HTMLInputElement
+        ).value,
+      ).toBe("");
+    });
+    expect(screen.getByText("second-model")).toBeTruthy();
+  });
+
+  it("keeps the query when the current provider model list refreshes", async () => {
+    mocks.coreState.providers = [
+      provider("FILTER", { modelsList: ["first-model"] }),
+    ];
+
+    const view = render(<ProviderSettings />);
+
+    const search = await screen.findByRole("searchbox", {
+      name: "modelSearchLabel",
+    });
+    fireEvent.change(search, { target: { value: "refreshed" } });
+
+    mocks.coreState.providers = [
+      provider("FILTER", { modelsList: ["refreshed-model"] }),
+    ];
+    await act(async () => {
+      view.rerender(<ProviderSettings />);
+    });
+
+    expect(
+      (
+        screen.getByRole("searchbox", {
+          name: "modelSearchLabel",
+        }) as HTMLInputElement
+      ).value,
+    ).toBe("refreshed");
+    expect(screen.getByText("refreshed-model")).toBeTruthy();
+  });
+
+  it("keeps selection state and edit actions keyed by the raw model id", async () => {
+    mocks.modelDisplayNames = {
+      "model-id": "Friendly Label",
+    };
+    mocks.coreState.providers = [
+      provider("FILTER", {
+        modelsList: ["model-id", "other-model"],
+        models: ["model-id"],
+      }),
+    ];
+
+    render(<ProviderSettings />);
+
+    const search = await screen.findByRole("searchbox", {
+      name: "modelSearchLabel",
+    });
+    fireEvent.change(search, { target: { value: "friendly" } });
+
+    const checkbox = screen.getByRole("checkbox", {
+      name: "Friendly Label",
+    });
+    expect((checkbox as HTMLInputElement).checked).toBe(true);
+    expect((checkbox as HTMLInputElement).value).toBe("model-id");
+
+    fireEvent.click(checkbox);
+    expect(mocks.coreState.updateProvider).toHaveBeenCalledWith("FILTER", {
+      models: [],
+    });
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: 'editMetadataAria:{"name":"Friendly Label"}',
+      }),
+    );
+    expect((screen.getByLabelText("modelId") as HTMLInputElement).value).toBe(
+      "model-id",
+    );
+  });
+
+  it("shows the no-model state without rendering a search for an empty list", async () => {
+    mocks.coreState.providers = [provider("EMPTY")];
+
+    render(<ProviderSettings />);
+
+    expect(await screen.findByText("noModels")).toBeTruthy();
+    expect(
+      screen.queryByRole("searchbox", { name: "modelSearchLabel" }),
+    ).toBeNull();
   });
 });

@@ -7,6 +7,7 @@ import {
   migrateCoreSettingsState,
   normalizeModelProvider,
   normalizeModelProviders,
+  validateRestorableModelProviders,
 } from "../lib/providers/config";
 
 describe("provider config normalization", () => {
@@ -145,6 +146,18 @@ describe("provider config normalization", () => {
     });
 
     expect(migrated.providers?.[0]?.directCall).toBeUndefined();
+  });
+
+  it("preserves an explicit false direct-call setting during restore", () => {
+    expect(
+      validateRestorableModelProviders([
+        {
+          id: "RESTORED",
+          type: "OpenAI Compatible",
+          directCall: false,
+        },
+      ])[0]?.directCall,
+    ).toBe(false);
   });
 
   it("filters invalid providers and caps provider/model counts", () => {

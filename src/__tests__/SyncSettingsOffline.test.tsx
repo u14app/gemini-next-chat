@@ -30,6 +30,8 @@ const syncState = vi.hoisted(() => ({
   rootKeySecret: { version: 1 },
   vaultId: "vault-1",
   status: "idle" as const,
+  connectionTestStatus: "idle" as "idle" | "testing" | "success" | "error",
+  connectionTestError: undefined as string | undefined,
   lastSyncAt: undefined,
   lastSyncBytes: 0,
   activeController: undefined,
@@ -58,6 +60,14 @@ const syncState = vi.hoisted(() => ({
   disableSync: vi.fn(),
 }));
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
+}
+
 vi.mock("@/store/core/syncStore", () => ({
   useSyncStore: () => syncState,
 }));
@@ -66,6 +76,8 @@ import SyncSettings from "@/components/settings/SyncSettings";
 
 beforeEach(() => {
   vi.clearAllMocks();
+  syncState.connectionTestStatus = "idle";
+  syncState.connectionTestError = undefined;
   storageHealthMocks.inspectLocalStorageHealth.mockResolvedValue({
     quota: {
       usage: 1024 * 1024,
@@ -148,6 +160,109 @@ describe("SyncSettings offline boundary", () => {
         "Provider could not be saved.",
       );
     });
+  });
+
+  it("shows connection-test success inline with a live status", async () => {
+    syncState.testConnection.mockImplementationOnce(async () => {
+      syncState.connectionTestStatus = "success";
+      syncState.connectionTestError = undefined;
+    });
+    render(
+      <NextIntlClientProvider locale="en" messages={{ Sync: syncMessages }}>
+        <SyncSettings />
+      </NextIntlClientProvider>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Test connection" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Connection successful.")).toBeTruthy();
+    });
+    expect(
+      screen.getByText("Connection successful.").closest('[role="status"]'),
+    ).toBeTruthy();
+  });
+
+  it("shows a loading status while the connection test is running", async () => {
+    const pending = deferred<void>();
+    syncState.testConnection.mockImplementationOnce(() => {
+      syncState.connectionTestStatus = "testing";
+      return pending.promise;
+    });
+    render(
+      <NextIntlClientProvider locale="en" messages={{ Sync: syncMessages }}>
+        <SyncSettings />
+      </NextIntlClientProvider>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Test connection" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Testing connection…")).toBeTruthy();
+    });
+    expect(
+      screen
+        .getByRole("button", { name: "Test connection" })
+        .hasAttribute("disabled"),
+    ).toBe(true);
+
+    syncState.connectionTestStatus = "success";
+    pending.resolve();
+    await waitFor(() => {
+      expect(screen.getByText("Connection successful.")).toBeTruthy();
+    });
+  });
+
+  it("shows connection-test failures beside the provider controls", async () => {
+    syncState.testConnection.mockImplementationOnce(async () => {
+      syncState.connectionTestStatus = "error";
+      syncState.connectionTestError = "Remote endpoint rejected the request.";
+      throw new Error("Remote endpoint rejected the request.");
+    });
+    render(
+      <NextIntlClientProvider locale="en" messages={{ Sync: syncMessages }}>
+        <SyncSettings />
+      </NextIntlClientProvider>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Test connection" }));
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(
+          "Connection test failed: Remote endpoint rejected the request.",
+        ),
+      ).toBeTruthy();
+    });
+    expect(
+      screen
+        .getByText(
+          "Connection test failed: Remote endpoint rejected the request.",
+        )
+        .closest('[role="alert"]'),
+    ).toBeTruthy();
+  });
+
+  it("invalidates a connection result when the provider draft changes", async () => {
+    syncState.connectionTestStatus = "success";
+    render(
+      <NextIntlClientProvider locale="en" messages={{ Sync: syncMessages }}>
+        <SyncSettings />
+      </NextIntlClientProvider>,
+    );
+
+    expect(screen.getByText("Connection successful.")).toBeTruthy();
+    const endpoint = await screen.findByDisplayValue("https://dav.example.com");
+    fireEvent.change(endpoint, {
+      target: { value: "https://other.example.com" },
+    });
+
+    expect(screen.queryByText("Connection successful.")).toBeNull();
+    expect(
+      screen
+        .getByRole("button", { name: "Test connection" })
+        .hasAttribute("disabled"),
+    ).toBe(true);
   });
 
   it("shows read-only local health and truthful unavailable capabilities", async () => {

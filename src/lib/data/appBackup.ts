@@ -48,6 +48,7 @@ import {
   getResearchTaskRepository,
   parseResearchTaskValue,
 } from "@/services/research";
+import { validateRestorableModelProviders } from "@/lib/providers/config";
 
 const BACKUP_FORMAT = "neo-chat-backup";
 const BACKUP_MIME_TYPE = "application/zip";
@@ -1023,6 +1024,46 @@ function parseStoredValue(value: unknown): unknown {
   }
 }
 
+function prepareRestorableCoreSettings(value: unknown): unknown {
+  if (value === undefined) return value;
+  if (!isRecord(value)) {
+    throw new Error("The backup contains invalid core settings.");
+  }
+  if ("state" in value && !isRecord(value.state)) {
+    throw new Error("The backup contains an invalid core settings state.");
+  }
+  const state = isRecord(value.state) ? value.state : value;
+  if (!("providers" in state)) return value;
+
+  const providers = validateRestorableModelProviders(state.providers);
+  const availableModels = new Set(
+    providers
+      .filter((provider) => provider.enabled)
+      .flatMap((provider) =>
+        provider.models.map((model) => `${provider.id}:${model}`),
+      ),
+  );
+  if (state.defaultModels !== undefined && !isRecord(state.defaultModels)) {
+    throw new Error("The backup contains an invalid default model list.");
+  }
+  const defaultModels = isRecord(state.defaultModels)
+    ? Object.fromEntries(
+        Object.entries(state.defaultModels).map(([task, model]) => [
+          task,
+          typeof model === "string" && availableModels.has(model) ? model : "",
+        ]),
+      )
+    : state.defaultModels;
+  const restoredState: Record<string, unknown> = {
+    ...state,
+    providers,
+    ...(defaultModels === undefined ? {} : { defaultModels }),
+  };
+  delete restoredState.serverDefaultProviderEnabled;
+
+  return state === value ? restoredState : { ...value, state: restoredState };
+}
+
 async function readSnapshot(options: {
   transactionId: string;
   targetDbKeys: string[];
@@ -1135,6 +1176,12 @@ export async function restoreBrowserAppBackup(
   });
   const parsed = await parseBrowserBackup(file, signal);
   throwIfAborted(signal);
+  const scrubbedData = scrubAppExportValue(
+    parsed.payload.data,
+  ) as AppExportPayload["data"];
+  scrubbedData.coreSettings = prepareRestorableCoreSettings(
+    scrubbedData.coreSettings,
+  );
   const dataBytes = strToU8(JSON.stringify(parsed.payload)).byteLength;
 
   // Drain the current queue before requesting the exclusive lock. Waiting on
@@ -1159,9 +1206,6 @@ export async function restoreBrowserAppBackup(
     files.forEach((manifestFile, index) => {
       mapping.set(manifestFile.originalUrl, stagedUrls[index]);
     });
-    const scrubbedData = scrubAppExportValue(
-      parsed.payload.data,
-    ) as AppExportPayload["data"];
     const missingUrls = new Set(
       parsed.manifest
         ? parsed.manifest.missingReferences

@@ -3,8 +3,8 @@
   "description": "通过你自己的 WebDAV 或 S3 存储在设备间合并本地优先数据。所有内容都会在离开浏览器前加密。",
   "offlineBoundary": "当前处于离线状态。恢复联网前，无法同步、修改存储后端、创建或导入保险库、轮换密钥以及处理冲突。",
   "statusTitle": "同步状态",
-  "lastSync": "上次同步于 {time} · 传输 {bytes}",
-  "neverSynced": "此设备尚未同步。",
+  "lastSync": "上次成功同步于 {time} · 传输 {bytes}",
+  "neverSynced": "尚未成功同步。",
   "status": {
     "disabled": "已停用",
     "idle": "就绪",
@@ -15,6 +15,9 @@
     "error": "出错"
   },
   "syncNow": "立即同步",
+  "connectionTesting": "正在测试连接…",
+  "connectionTestSuccess": "连接成功。",
+  "connectionTestError": "连接测试失败：{error}",
   "operationFailed": "同步操作失败，请重试。",
   "storageHealthTitle": "同步与本地存储健康",
   "storageHealthDescription": "只读诊断会对比已保存的聊天、知识文件引用与浏览器存储中的实际文件，不会删除任何内容。",

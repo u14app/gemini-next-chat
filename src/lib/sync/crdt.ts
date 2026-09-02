@@ -17,7 +17,16 @@ type MutableRecord = Record<string, unknown>;
 let automergePromise: Promise<AutomergeApi> | undefined;
 
 export function loadAutomerge(): Promise<AutomergeApi> {
-  automergePromise ||= import("@automerge/automerge");
+  // The slim entrypoint retains a generated URL fallback which Turbopack may
+  // emit as an unused asset. Supplying embedded bytes here keeps that fallback
+  // dormant, so sync initialization never fetches a deployment-suffixed URL.
+  automergePromise ||= Promise.all([
+    import("@automerge/automerge/slim"),
+    import("@automerge/automerge/automerge.wasm.base64"),
+  ]).then(async ([api, { automergeWasmBase64 }]) => {
+    await api.initializeBase64Wasm(automergeWasmBase64);
+    return api;
+  });
   return automergePromise;
 }
 
