@@ -1,3 +1,7 @@
+import {
+  isResearchTaskExecutionLease,
+  type ResearchTaskExecutionLease,
+} from "@/services/research/taskExecutionLock";
 import { v7 as uuidv7 } from "uuid";
 
 import {
@@ -26,17 +30,21 @@ import {
  */
 export async function resumeLegacyScopeApproval({
   task,
+  lease,
   checkpointUnavailableText,
   claimActiveSlot,
-  launchResearch,
   onNotice,
 }: {
   task: ResearchTask;
+  lease: ResearchTaskExecutionLease;
   checkpointUnavailableText: string;
   claimActiveSlot: (sessionId: string, taskId: string) => Promise<boolean>;
-  launchResearch: (taskId: string) => void;
   onNotice?: (message: string) => void;
 }) {
+  if (!isResearchTaskExecutionLease(lease, task.id))
+    throw new Error(
+      "Research scope recovery requires the task execution lease.",
+    );
   const store = useResearchStore.getState();
   const taskId = task.id;
   const plan = getActivePlan(task);
@@ -52,9 +60,9 @@ export async function resumeLegacyScopeApproval({
       },
     }));
     onNotice?.(checkpointUnavailableText);
-    return;
+    return false;
   }
-  if (!(await claimActiveSlot(task.sessionId, taskId))) return;
+  if (!(await claimActiveSlot(task.sessionId, taskId))) return false;
   const processedFollowUpIds = new Set(
     (activeRun.scopeExpansionEvents ?? []).flatMap((event) => [
       ...event.scheduledFollowUpIds,
@@ -169,5 +177,5 @@ export async function resumeLegacyScopeApproval({
     };
   });
   store.setActiveTask(taskId);
-  launchResearch(taskId);
+  return true;
 }

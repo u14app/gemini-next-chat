@@ -1,7 +1,13 @@
 // @vitest-environment jsdom
 
 import React from "react";
-import { act, cleanup, render, screen } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { NextIntlClientProvider } from "next-intl";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -12,7 +18,11 @@ import type { LongTextPresentation } from "@/types";
 
 vi.mock("@/components/content/MarkdownRenderer", () => ({
   default: ({ content }: { content: string }) => (
-    <div data-testid="markdown-preview">{content}</div>
+    <div data-testid="markdown-preview">
+      <a href="#internal">Internal link</a>
+      <button type="button">Inner action</button>
+      <span data-testid="markdown-content">{content}</span>
+    </div>
   ),
 }));
 
@@ -90,9 +100,12 @@ describe("LongTextBlock", () => {
       );
     });
 
-    const preview = screen.getByTestId("markdown-preview");
-    expect(preview.textContent?.length).toBeLessThanOrEqual(2_400);
-    expect(preview.textContent).not.toContain("Paragraph text. ".repeat(240));
+    expect(
+      screen.getByTestId("markdown-content").textContent?.length,
+    ).toBeLessThanOrEqual(2_400);
+    expect(screen.getByTestId("markdown-content").textContent).not.toContain(
+      "Paragraph text. ".repeat(240),
+    );
 
     act(() => {
       observerCallback?.(
@@ -134,9 +147,9 @@ describe("LongTextBlock", () => {
 
     expect(screen.getByText("Incomplete")).toBeTruthy();
     await userEvent.click(
-      screen.getByRole("button", {
+      screen.getAllByRole<HTMLButtonElement>("button", {
         name: "Open long text document Architecture report in full screen",
-      }),
+      })[0],
     );
     expect(onOpen).toHaveBeenCalledTimes(1);
 
@@ -147,6 +160,84 @@ describe("LongTextBlock", () => {
     );
     expect(click).toHaveBeenCalledTimes(1);
     expect(URL.createObjectURL).toHaveBeenCalledWith(expect.any(Blob));
+  });
+
+  it("opens from the title and body while leaving nested controls and selections alone", async () => {
+    const onOpen = vi.fn();
+    const user = userEvent.setup();
+    renderBlock({ onOpen, content: "Short body" });
+    act(() => {
+      observerCallback?.(
+        [{ isIntersecting: true } as IntersectionObserverEntry],
+        {} as IntersectionObserver,
+      );
+    });
+
+    const title = screen.getByRole("button", { name: "Architecture report" });
+    await user.click(title);
+    expect(onOpen).toHaveBeenCalledTimes(1);
+
+    await user.click(screen.getByTestId("markdown-preview"));
+    expect(onOpen).toHaveBeenCalledTimes(2);
+
+    await user.click(screen.getByRole("link", { name: "Internal link" }));
+    await user.click(screen.getByRole("button", { name: "Inner action" }));
+    expect(onOpen).toHaveBeenCalledTimes(2);
+
+    title.focus();
+    await user.keyboard("{Enter}");
+    expect(onOpen).toHaveBeenCalledTimes(3);
+
+    const selection = window.getSelection();
+    const preview = screen.getByTestId("markdown-preview");
+    selection?.selectAllChildren(preview);
+    fireEvent.click(preview);
+    expect(onOpen).toHaveBeenCalledTimes(3);
+    selection?.removeAllRanges();
+  });
+
+  it("does not expose open entry points while streaming or forced expanded", async () => {
+    const onOpen = vi.fn();
+    const user = userEvent.setup();
+    const { rerender } = renderBlock({ onOpen, isStreaming: true });
+    act(() => {
+      observerCallback?.(
+        [{ isIntersecting: true } as IntersectionObserverEntry],
+        {} as IntersectionObserver,
+      );
+    });
+
+    expect(
+      screen.getByRole<HTMLButtonElement>("button", {
+        name: "Open long text document Architecture report in full screen",
+      }).disabled,
+    ).toBe(true);
+    expect(
+      screen.queryByRole("button", { name: "Architecture report" }),
+    ).toBeNull();
+    await user.click(screen.getByTestId("markdown-preview"));
+    expect(onOpen).not.toHaveBeenCalled();
+
+    rerender(
+      <NextIntlClientProvider
+        locale="en"
+        messages={{ Message: messageMessages }}
+      >
+        <div data-chat-scroll-container>
+          <LongTextBlock
+            content="Forced body"
+            presentation={presentation}
+            forceExpanded
+            onOpen={onOpen}
+          />
+        </div>
+      </NextIntlClientProvider>,
+    );
+    expect(
+      screen.queryByRole("button", { name: /Architecture report/ }),
+    ).toBeNull();
+    await user.click(screen.getByText("Forced body"));
+    expect(onOpen).not.toHaveBeenCalled();
   });
 
   it("renders complete plain text when forced open for export", () => {

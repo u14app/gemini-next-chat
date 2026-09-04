@@ -46,6 +46,7 @@ export const stopReasonSchema = z
   .object({
     code: z.enum([
       "coverage_satisfied",
+      "coverage_sufficient",
       "max_depth",
       "max_queries",
       "max_sources",

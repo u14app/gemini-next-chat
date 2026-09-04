@@ -54,7 +54,8 @@ export interface ResearchWaveNodeAlias {
 export interface ResearchWaveSourceAlias {
   key: string;
   sourceId: string;
-  evidenceIds: string[];
+  aliasSourceIds?: readonly string[];
+  evidenceIds: readonly string[];
   title?: string;
   locator: string;
   sourceType: ResearchSourceType;
@@ -62,6 +63,6 @@ export interface ResearchWaveSourceAlias {
 }
 
 export interface ResearchWaveAliasContext {
-  nodes: ResearchWaveNodeAlias[];
-  sources: ResearchWaveSourceAlias[];
+  nodes: readonly Readonly<ResearchWaveNodeAlias>[];
+  sources: readonly Readonly<ResearchWaveSourceAlias>[];
 }

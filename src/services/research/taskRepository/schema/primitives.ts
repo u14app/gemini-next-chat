@@ -56,11 +56,11 @@ export const strategySchema = z
 
 export const reconSchema = z
   .object({
-    status: z.enum(["completed", "partial", "unavailable"]),
+    status: z.enum(["completed", "partial", "unavailable", "skipped"]),
     sourceFeasibility: z.enum(["verified", "unverified"]),
     startedAt: z.number().finite().nonnegative(),
     completedAt: z.number().finite().nonnegative(),
-    timeoutMs: z.number().int().positive().max(30_000),
+    timeoutMs: z.number().int().positive().max(90_000),
     queryLimit: z.number().int().min(1).max(2),
     resultsPerQuery: z.number().int().min(1).max(5),
     usage: z
@@ -84,6 +84,19 @@ export const reconSchema = z
       )
       .max(2),
     providerId: z.string().min(1).max(240).optional(),
+    knowledgeQueries: z
+      .array(
+        z
+          .object({
+            query: z.string().min(1).max(8_000),
+            status: z.enum(["completed", "failed", "timed_out"]),
+            resultCount: z.number().int().nonnegative().max(5),
+            error: z.string().min(1).max(MAX_ERROR_CHARS).optional(),
+          })
+          .strict(),
+      )
+      .max(2)
+      .optional(),
   })
   .strict()
   .superRefine((recon, context) => {

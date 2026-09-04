@@ -53,6 +53,30 @@ export function selectGlobalActiveResearchTaskId({
   return active && isActiveResearchStatus(active.status) ? active.id : null;
 }
 
+export function selectGlobalResearchAttentionTaskId({
+  tasksById,
+  activeTaskId,
+}: {
+  tasksById: Record<string, ResearchTask>;
+  activeTaskId: string | null;
+}): string | null {
+  const active = selectGlobalActiveResearchTaskId({
+    tasksById,
+    activeTaskId,
+  });
+  if (active) return active;
+  return (
+    Object.values(tasksById)
+      .filter(
+        (task) =>
+          task.status === "paused" &&
+          task.checkpoint !== undefined &&
+          isActiveResearchStatus(task.checkpoint.resumeStatus),
+      )
+      .sort((left, right) => right.updatedAt - left.updatedAt)[0]?.id ?? null
+  );
+}
+
 /**
  * The task whose plan is still awaiting the user's approval, if any. A chat
  * message sent while such a plan is on screen refines that plan instead of

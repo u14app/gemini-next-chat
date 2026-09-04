@@ -51,6 +51,34 @@ describe("web_search built-in binding", () => {
     mocks.createSearchProvider.mockReset();
   });
 
+  it("rejects private-derived planning queries before making a network request", async () => {
+    const queryBudget = {
+      remainingQueries: 2,
+      maxResultsPerQuery: 5,
+      allowedQueries: new Set(["original public topic"]),
+    };
+    const binding = createWebSearchBinding({ queryBudget });
+    await expect(
+      binding.execute(
+        { query: "original public topic PRIVATE detail" },
+        createContext(vi.fn()),
+      ),
+    ).resolves.toMatchObject({
+      ok: false,
+      error: { code: "RESEARCH_QUERY_NOT_ALLOWED" },
+    });
+    expect(mocks.createSearchProvider).not.toHaveBeenCalled();
+    expect(queryBudget.remainingQueries).toBe(2);
+
+    mocks.createSearchProvider.mockResolvedValue({ sources: [], images: [] });
+    await binding.execute(
+      { query: "original public topic" },
+      createContext(vi.fn()),
+    );
+    expect(mocks.createSearchProvider).toHaveBeenCalledTimes(1);
+    expect(queryBudget.remainingQueries).toBe(1);
+  });
+
   it("returns a structured error for an invalid query", async () => {
     const emitSearch = vi.fn<(event: BuiltinSearchEvent) => void>();
     const binding = createWebSearchBinding();
@@ -127,7 +155,17 @@ describe("web_search built-in binding", () => {
   it("bounds the normalized query sent to the provider", async () => {
     const emitSearch = vi.fn<(event: BuiltinSearchEvent) => void>();
     mocks.createSearchProvider.mockResolvedValue({ sources: [], images: [] });
-    const binding = createWebSearchBinding();
+    const binding = createWebSearchBinding({
+      queryBudget: {
+        remainingQueries: 1,
+        maxResultsPerQuery: 5,
+        searchPolicy: {
+          preferredDomains: ["docs.example.com"],
+          excludedDomains: [],
+          dateTo: "2026-12-31",
+        },
+      },
+    });
 
     await binding.execute(
       { query: ` ${"q".repeat(5_000)} ` },
@@ -138,6 +176,8 @@ describe("web_search built-in binding", () => {
       query: string;
     };
     expect(options.query).toHaveLength(4_000);
+    expect(options.query).toContain("site:docs.example.com");
+    expect(options.query).toContain("before:2026-12-31");
   });
 
   it("enforces a shared Research query budget before network access", async () => {
@@ -168,6 +208,7 @@ describe("web_search built-in binding", () => {
     expect(mocks.createSearchProvider).toHaveBeenCalledWith(
       { query: "allowed", maxResults: 5 },
       undefined,
+      { purpose: "research", deadlineAt: undefined },
     );
   });
 
@@ -194,6 +235,88 @@ describe("web_search built-in binding", () => {
 
     expect(queryBudget.remainingQueries).toBe(1);
     expect(mocks.createSearchProvider).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects reordered duplicate research intent", async () => {
+    const emitSearch = vi.fn<(event: BuiltinSearchEvent) => void>();
+    const queryBudget = {
+      remainingQueries: 2,
+      maxResultsPerQuery: 5,
+      seenQueries: new Set<string>(),
+    };
+    mocks.createSearchProvider.mockResolvedValue({ sources: [], images: [] });
+    const binding = createWebSearchBinding({ queryBudget });
+
+    await binding.execute(
+      { query: "product pricing 2025" },
+      createContext(emitSearch),
+    );
+    await expect(
+      binding.execute(
+        { query: "2025 product pricing" },
+        createContext(emitSearch),
+      ),
+    ).resolves.toMatchObject({
+      ok: false,
+      error: { code: "RESEARCH_QUERY_DUPLICATE" },
+    });
+
+    expect(queryBudget.remainingQueries).toBe(1);
+    expect(mocks.createSearchProvider).toHaveBeenCalledTimes(1);
+  });
+
+  it("enforces approved domain and date filters on legacy web search", async () => {
+    const emitSearch = vi.fn<(event: BuiltinSearchEvent) => void>();
+    mocks.createSearchProvider.mockResolvedValue({
+      sources: [
+        {
+          title: "Approved documentation",
+          content: "Approved",
+          url: "https://docs.example.com/release",
+        },
+        {
+          title: "Out of scope",
+          content: "Outside",
+          url: "https://outside.example/release",
+        },
+        {
+          title: "Excluded archive",
+          content: "Archived",
+          url: "https://archive.example.com/release",
+        },
+      ],
+      images: [],
+    });
+    const binding = createWebSearchBinding({
+      queryBudget: {
+        remainingQueries: 1,
+        maxResultsPerQuery: 5,
+        searchPolicy: {
+          preferredDomains: ["docs.example.com"],
+          excludedDomains: ["archive.example.com"],
+          dateFrom: "2025-01-01",
+          dateTo: "2025-12-31",
+        },
+      },
+    });
+
+    const result = (await binding.execute(
+      { query: "release policy" },
+      createContext(emitSearch),
+    )) as { sources: Array<{ url: string }> };
+
+    expect(mocks.createSearchProvider).toHaveBeenCalledWith(
+      {
+        query:
+          "release policy (site:docs.example.com) -site:archive.example.com after:2025-01-01 before:2025-12-31",
+        maxResults: 5,
+      },
+      undefined,
+      { purpose: "research", deadlineAt: undefined },
+    );
+    expect(result.sources.map((source) => source.url)).toEqual([
+      "https://docs.example.com/release",
+    ]);
   });
 
   it("refuses reconnaissance after its hard deadline", async () => {
@@ -340,9 +463,10 @@ describe("search_web v2 built-in binding", () => {
         query: expect.stringContaining("site:example.com"),
         scope: "news",
         maxResults: 3,
-        timeRange: "month",
+        timeRange: undefined,
       }),
       undefined,
+      { purpose: "research", deadlineAt: undefined },
     );
     expect(result.filters).toMatchObject({
       domains: ["example.com"],
@@ -380,5 +504,48 @@ describe("search_web v2 built-in binding", () => {
     expect(queryBudget.remainingQueries).toBe(1);
     expect(mocks.createSearchProvider).not.toHaveBeenCalled();
     expect(emitSearch).not.toHaveBeenCalled();
+  });
+
+  it("intersects requested filters with the approved search scope", async () => {
+    const emitSearch = vi.fn<(event: BuiltinSearchEvent) => void>();
+    mocks.createSearchProvider.mockResolvedValue({ sources: [], images: [] });
+    const queryBudget = {
+      remainingQueries: 1,
+      maxResultsPerQuery: 5,
+      searchPolicy: {
+        preferredDomains: ["example.com"],
+        excludedDomains: ["blog.example.com"],
+        dateFrom: "2025-03-01",
+        dateTo: "2025-10-31",
+      },
+    };
+
+    const result = (await createSearchWebV2Binding({ queryBudget }).execute(
+      {
+        queries: ["approved research"],
+        domains: ["docs.example.com", "other.example"],
+        date_from: "2025-01-01",
+        date_to: "2025-12-31",
+        time_range: "year",
+      },
+      createContext(emitSearch),
+    )) as { filters: Record<string, unknown> };
+
+    expect(mocks.createSearchProvider).toHaveBeenCalledWith(
+      expect.objectContaining({
+        query: expect.stringMatching(
+          /site:docs\.example\.com.*-site:blog\.example\.com.*after:2025-03-01.*before:2025-10-31/,
+        ),
+        timeRange: undefined,
+      }),
+      undefined,
+      { purpose: "research", deadlineAt: undefined },
+    );
+    expect(result.filters).toMatchObject({
+      domains: ["docs.example.com"],
+      excludedDomains: ["blog.example.com"],
+      dateFrom: "2025-03-01",
+      dateTo: "2025-10-31",
+    });
   });
 });

@@ -1,4 +1,14 @@
 import {
+  getResearchSourceOperation,
+  isResearchSourceProvider,
+} from "@/lib/plugin/researchSources/catalog";
+import {
+  getSpecializedCallLocator,
+  normalizeSpecializedSourceResult,
+  prepareSpecializedSourceCall,
+} from "@/lib/plugin/researchSources/client";
+import type { ResearchSourceContracts } from "@/lib/plugin/researchSources/contracts";
+import {
   Message,
   Attachment,
   ChatConfig,
@@ -116,6 +126,7 @@ import {
 } from "./chat/builtinResultAggregators";
 import { mapWithConcurrencyGroups } from "@/lib/utils/concurrency";
 import { boundHistoryForRequest } from "@/lib/chat/requestContextBudget";
+import { prepareResearchResultHistory } from "./chat/researchResultHistory";
 import type { StructuredResponseFormat } from "@/lib/chat/responseFormat";
 import {
   appendAgentSystemInstruction,
@@ -414,6 +425,8 @@ export interface StreamChatResponseOptions {
   /** Internal-only native JSON Schema constraint for bounded model rounds. */
   responseFormat?: StructuredResponseFormat;
   disableTools?: boolean;
+  /** Keep bounded text workflows from starting native image planning or generation. */
+  disableImageGeneration?: boolean;
   initialOutputBlocks?: MessageOutputBlock[];
   resumeLongTextBlockId?: string;
   knowledgeScope?: BuiltinKnowledgeScope;
@@ -457,6 +470,8 @@ export interface StreamChatResponseOptions {
   researchQueryBudget?: BuiltinResearchQueryBudget;
   /** Shared, fail-closed full-source allowance for bounded Research stages. */
   researchSourceBudget?: BuiltinResearchSourceBudget;
+  /** Specialized source definitions frozen at research approval. */
+  researchSourceContracts?: ResearchSourceContracts;
 }
 
 // Stream chat response from backend API
@@ -1202,6 +1217,7 @@ export const streamChatResponse = async (
 
     if (
       !researchModeEnabled &&
+      !options?.disableImageGeneration &&
       requestConfig.imageCount === undefined &&
       supportsImageGeneration(selectedModelMetadata)
     ) {
@@ -1227,6 +1243,7 @@ export const streamChatResponse = async (
 
     if (
       !researchModeEnabled &&
+      !options?.disableImageGeneration &&
       isOpenAIProviderType(provider.type) &&
       supportsImageGeneration(selectedModelMetadata) &&
       (!supportsTextOutput(selectedModelMetadata) ||
@@ -1357,6 +1374,7 @@ export const streamChatResponse = async (
         tools: requestTools,
         enableImageGeneration:
           !researchModeEnabled &&
+          !options?.disableImageGeneration &&
           supportsImageGeneration(selectedModelMetadata) &&
           (provider.type === "OpenAI" || isGoogleProviderType(provider.type)),
         enableGoogleSearch:
@@ -2475,18 +2493,78 @@ export const streamChatResponse = async (
               const resolvedPluginFunction = offeredPluginFunctionsByName.get(
                 toolCall.name,
               );
+              const sourceProvider =
+                resolvedPluginFunction?.plugin.id ?? toolCall.pluginId;
+              const sourceOperation = getResearchSourceOperation(
+                sourceProvider,
+                resolvedPluginFunction?.functionDef.name ?? toolCall.name,
+              );
+              const boundedResearch =
+                options?.executionWorkflow?.kind === "research" &&
+                options.executionWorkflow.phase === "execute";
+              let sourceCallFailure: unknown;
+              if (sourceOperation && isResearchSourceProvider(sourceProvider)) {
+                const frozen =
+                  options?.researchSourceContracts?.[
+                    resolvedPluginFunction?.functionDef.name ?? toolCall.name
+                  ];
+                if (
+                  boundedResearch &&
+                  (!frozen ||
+                    frozen.pluginId !== sourceProvider ||
+                    frozen.functionFingerprint !== toolCall.functionFingerprint)
+                ) {
+                  sourceCallFailure = {
+                    ok: false,
+                    error: {
+                      code: "TOOL_DEFINITION_CHANGED",
+                      message:
+                        "The source definition differs from the approved snapshot.",
+                      recoverable: true,
+                    },
+                  };
+                } else if (
+                  boundedResearch &&
+                  (!options?.researchQueryBudget ||
+                    (sourceOperation === "read" &&
+                      !options?.researchSourceBudget))
+                ) {
+                  sourceCallFailure = {
+                    ok: false,
+                    error: {
+                      code: "RESEARCH_SOURCE_BUDGET_UNAVAILABLE",
+                      message: "The approved source budget is unavailable.",
+                      recoverable: true,
+                    },
+                  };
+                } else {
+                  const prepared = prepareSpecializedSourceCall(
+                    sourceProvider,
+                    sourceOperation,
+                    toolCall.args,
+                    boundedResearch ? options?.researchQueryBudget : undefined,
+                  );
+                  if ("error" in prepared) sourceCallFailure = prepared.error;
+                  else toolCall = { ...toolCall, args: prepared.args };
+                }
+              }
               const consumesResearchSource =
                 options?.executionWorkflow?.kind === "research" &&
                 options.executionWorkflow.phase === "execute" &&
                 !readsInternalWorkspaceResult &&
-                (Boolean(toolCall.pluginId) ||
+                ((Boolean(toolCall.pluginId) && sourceOperation !== "search") ||
                   RESEARCH_SINGLE_SOURCE_READ_TOOLS.has(toolCall.name));
-              const sourceLocator = toolCall.pluginId
-                ? `${toolCall.invocationPolicy?.origin === "mcp" ? "mcp" : "plugin"}://${encodeURIComponent(toolCall.pluginId)}/${encodeURIComponent(toolCall.name)}`
-                : toolCall.name === "read_workspace_file"
-                  ? `workspace:///${encodeURIComponent(String(toolCall.args?.path || "unknown"))}`
-                  : `${toolCall.name}://${toolCall.id}`;
-              if (
+              const sourceLocator =
+                sourceOperation === "read" && sourceProvider
+                  ? getSpecializedCallLocator(sourceProvider, toolCall.args)
+                  : toolCall.pluginId
+                    ? `${toolCall.invocationPolicy?.origin === "mcp" ? "mcp" : "plugin"}://${encodeURIComponent(toolCall.pluginId)}/${encodeURIComponent(toolCall.name)}`
+                    : toolCall.name === "read_workspace_file"
+                      ? `workspace:///${encodeURIComponent(String(toolCall.args?.path || "unknown"))}`
+                      : `${toolCall.name}://${toolCall.id}`;
+              if (sourceCallFailure) {
+                resultData = sourceCallFailure;
+              } else if (
                 consumesResearchSource &&
                 !consumeBuiltinResearchSourceBodies(
                   options?.researchSourceBudget,
@@ -2606,6 +2684,16 @@ export const streamChatResponse = async (
                         : undefined,
                     );
               }
+              if (sourceOperation && isResearchSourceProvider(sourceProvider)) {
+                resultData = await normalizeSpecializedSourceResult(
+                  resultData,
+                  sourceProvider,
+                  sourceOperation,
+                  boundedResearch
+                    ? options?.researchQueryBudget?.searchPolicy
+                    : undefined,
+                );
+              }
               if (
                 toolCall.name === "start_deep_research" &&
                 resultData &&
@@ -2693,6 +2781,7 @@ export const streamChatResponse = async (
               !readsInternalWorkspaceResult &&
               !builtinBinding &&
               Boolean(toolCall.pluginId) &&
+              !isResearchSourceProvider(toolCall.pluginId) &&
               !isError &&
               existingEvidence.length === 0 &&
               policy.effects.length > 0 &&
@@ -2762,10 +2851,32 @@ export const streamChatResponse = async (
             const compactedResult = isError
               ? resultData
               : compactPluginImageResultForHistory(resultData);
-            const historyResult = await compactLargeToolResult(
-              toolCall,
-              compactedResult,
-            );
+            const retainResearchBody =
+              agentRun?.workflowKind === "research" &&
+              options?.executionWorkflow?.kind === "research" &&
+              options.executionWorkflow.phase === "execute" &&
+              !readsInternalWorkspaceResult &&
+              !isError &&
+              policy.effects.length > 0 &&
+              policy.effects.every(
+                (effect) =>
+                  effect === "local_read" || effect === "network_read",
+              ) &&
+              agentRun.evidence.some(
+                (item) =>
+                  item.toolCallId === toolCall.id &&
+                  item.retrievalKind !== "search",
+              );
+            const historyResult = retainResearchBody
+              ? await prepareResearchResultHistory(
+                  sessionId,
+                  toolCall.id,
+                  compactedResult,
+                )
+              : await compactLargeToolResult(toolCall, compactedResult);
+            if (researchModeEnabled && historyResult.resultRef) {
+              workspaceInternalReadScope.add(historyResult.resultRef.id);
+            }
             const endedAt = Date.now();
             const hasSideEffect =
               !isError &&

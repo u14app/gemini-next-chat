@@ -18,6 +18,7 @@ export type ResearchNodeStatus =
 
 export type ResearchStopReasonCode =
   | "coverage_satisfied"
+  | "coverage_sufficient"
   | "max_depth"
   | "max_queries"
   | "max_sources"
@@ -131,6 +132,14 @@ export interface ResearchRunCheckpoint {
 
 export type ResearchReportKind = "initial" | "continue" | "update";
 
+export interface ResearchReportAuditSnapshot {
+  blocking: string[];
+  advisory: string[];
+  unknownCitationCount: number;
+  unsupportedFindingCount: number;
+  missingSectionCount: number;
+}
+
 export interface ResearchReportRun {
   id: string;
   taskId: string;
@@ -166,11 +175,14 @@ export interface ResearchReportVersion {
   gaps: string[];
   coveredStepIds?: string[];
   evidenceIds?: string[];
+  /** Missing only on legacy versions, which may use restricted reconstruction. */
+  evidenceSnapshotStatus?: "available" | "unavailable";
   diff?: {
     addedEvidenceIds: string[];
     changedSourceIds: string[];
     unchangedSourceIds: string[];
   };
+  audit?: ResearchReportAuditSnapshot;
   agentRunId?: string;
   kind: ResearchReportKind;
 }

@@ -22,12 +22,21 @@ import {
 } from "@/components/research";
 import messageMessages from "@/i18n/locales/en/Message.json";
 import researchMessages from "@/i18n/locales/en/Research.json";
+import evidenceQuestionMessages from "@/i18n/locales/en/EvidenceQuestions.json";
+import steeringMessages from "@/i18n/locales/en/ResearchSteering.json";
+import templateMessages from "@/i18n/locales/en/ResearchTemplates.json";
 import japaneseResearchMessages from "@/i18n/locales/ja/Research.json";
 import chineseResearchMessages from "@/i18n/locales/zh/Research.json";
 
 vi.mock("@/components/content/MarkdownRenderer", () => ({
   default: ({ content }: { content: string }) => (
     <article data-testid="research-report-markdown">{content}</article>
+  ),
+}));
+
+vi.mock("@/components/research/workbench/EvidenceQuestionsPanel", () => ({
+  default: ({ reportId }: { reportId?: string }) => (
+    <div data-testid="evidence-topic-panel" data-report-id={reportId} />
   ),
 }));
 
@@ -78,11 +87,24 @@ const baseTask: ResearchTaskViewModel = {
       domain: "example.com",
     },
   ],
+  claims: [
+    {
+      id: "claim-1",
+      text: "The documented workflow separates discovery from verification.",
+      importance: "major",
+      verificationStatus: "verified",
+      independentPublisherCount: 2,
+      supportingEvidenceIds: ["evidence-1"],
+      contradictingEvidenceIds: [],
+      stepId: "step-1",
+    },
+  ],
   activities: [
     {
       id: "activity-1",
       createdAt: Date.UTC(2026, 7, 24),
       phase: "researching",
+      status: "committed",
       title: "Collected primary documentation",
       detail: "One source was committed to the evidence index.",
     },
@@ -118,6 +140,22 @@ const partialTask: ResearchTaskViewModel = {
       createdAt: Date.UTC(2026, 7, 23),
       title: "Research systems report",
       markdown: "# Research systems report\n\nOlder full report body",
+      kind: "initial",
+      gaps: [],
+      coveredStepIds: ["step-1", "step-2", "step-3", "step-4"],
+      planStepCount: 4,
+      claims: [
+        {
+          id: "claim-1",
+          text: "The documented workflow separates discovery from verification.",
+          importance: "major",
+          verificationStatus: "verified",
+          independentPublisherCount: 2,
+          supportingEvidenceIds: ["evidence-1"],
+          contradictingEvidenceIds: [],
+          stepId: "step-1",
+        },
+      ],
     },
     {
       id: "report-2",
@@ -125,6 +163,24 @@ const partialTask: ResearchTaskViewModel = {
       createdAt: Date.UTC(2026, 7, 24),
       title: "Updated research systems report",
       markdown: "# Updated research systems report\n\nFull report body",
+      kind: "update",
+      gaps: ["One source could not be independently verified."],
+      coveredStepIds: ["step-1", "step-2", "step-3"],
+      planStepCount: 4,
+      stopReason: { code: "max_queries" },
+      diff: {
+        addedEvidenceIds: ["evidence-1"],
+        changedSourceIds: ["source-1"],
+        unchangedSourceIds: [],
+      },
+      audit: {
+        blocking: [],
+        advisory: ["One finding needs a stronger citation."],
+        unknownCitationCount: 0,
+        unsupportedFindingCount: 1,
+        missingSectionCount: 0,
+      },
+      claims: [...(baseTask.claims ?? [])],
     },
   ],
 };
@@ -140,10 +196,12 @@ const v2Plan: NonNullable<ResearchTaskViewModel["plan"]> = {
   objective: "Recommend a research workflow using verifiable evidence.",
   scope: {
     audience: "Product and engineering leads",
-    timeRange: "2024–2026",
+    timeRange: "2024-2026",
     allowedSourceTypes: ["web", "knowledge"],
     includes: ["Primary product documentation", "Independent benchmarks"],
     excludes: ["Anonymous social posts"],
+    preferredDomains: ["docs.example.com"],
+    excludedDomains: ["archive.example.com"],
   },
   assumptions: ["Public documentation is sufficient for this decision."],
   deliverable: {
@@ -188,7 +246,7 @@ const v2Plan: NonNullable<ResearchTaskViewModel["plan"]> = {
     ...step,
     objective: `Evidence objective for ${step.title}`,
     queryTopics: [`${step.title} primary sources`],
-    sourcePriorities: ["web:high — Prefer primary documentation"],
+    sourcePriorities: ["web:high - Prefer primary documentation"],
     evidenceStandard: "Major claims require independent support.",
   })),
 };
@@ -313,7 +371,13 @@ function renderWithResearchMessages(node: React.ReactNode) {
   return render(
     <NextIntlClientProvider
       locale="en"
-      messages={{ Message: messageMessages, Research: researchMessages }}
+      messages={{
+        EvidenceQuestions: evidenceQuestionMessages,
+        ResearchSteering: steeringMessages,
+        ResearchTemplates: templateMessages,
+        Message: messageMessages,
+        Research: researchMessages,
+      }}
     >
       {node}
     </NextIntlClientProvider>,
@@ -325,26 +389,50 @@ async function flushDialogFocus() {
 }
 
 describe("ResearchTaskCard", () => {
-  it("uses verified coverage and vertically centers the live activity icon", () => {
+  it("localizes legacy report headings in the chat document preview", () => {
+    render(
+      <NextIntlClientProvider
+        locale="zh"
+        messages={{
+          Research: chineseResearchMessages,
+          Message: messageMessages,
+          ResearchSteering: steeringMessages,
+          ResearchTemplates: templateMessages,
+          EvidenceQuestions: evidenceQuestionMessages,
+        }}
+      >
+        <ResearchTaskCard
+          task={{
+            ...completedTask,
+            reportVersions: completedTask.reportVersions.map((report) => ({
+              ...report,
+              markdown: "# Report\n\n## Executive summary\nBody.",
+            })),
+          }}
+          onOpenWorkbench={vi.fn()}
+        />
+      </NextIntlClientProvider>,
+    );
+    expect(
+      screen.getByTestId("research-report-markdown").textContent,
+    ).toContain("## 执行摘要");
+    expect(
+      screen.getByTestId("research-report-markdown").textContent,
+    ).not.toContain("## Executive summary");
+  });
+
+  it("omits volatile coverage progress and uses activity lifecycle status", () => {
     renderWithResearchMessages(
       <ResearchTaskCard task={orchestratedTask} onOpenWorkbench={vi.fn()} />,
     );
 
-    const progress = screen.getByRole("progressbar", {
-      name: "Research progress",
-    });
-    expect(progress.getAttribute("aria-valuenow")).toBe("1");
-    expect(progress.getAttribute("aria-valuemax")).toBe("4");
-    expect(progress.firstElementChild?.getAttribute("style")).toContain(
-      "width: 25%",
-    );
-    expect(progress.nextElementSibling?.textContent).toContain(
-      "Verified coverage 1/4 key steps",
-    );
-    expect(
-      screen.getByText("Collected primary documentation").closest("h3")
-        ?.className,
-    ).toContain("items-center");
+    expect(screen.queryByRole("progressbar")).toBeNull();
+    expect(screen.queryByText(/Verified coverage/)).toBeNull();
+    const activity = screen
+      .getByText("Collected primary documentation")
+      .closest("h3");
+    expect(activity?.querySelector(".lucide-circle-check")).toBeTruthy();
+    expect(activity?.querySelector(".lucide-loader-circle")).toBeNull();
   });
 
   it("explains that a legacy scope pause resumes from committed evidence", async () => {
@@ -397,14 +485,14 @@ describe("ResearchTaskCard", () => {
     expect(screen.queryByText(/One source could not/)).toBeNull();
 
     await userEvent.click(
-      screen.getByRole("button", {
+      screen.getAllByRole("button", {
         name: "Open long text document Updated research systems report in full screen",
-      }),
+      })[0],
     );
     expect(onOpenWorkbench).toHaveBeenCalledOnce();
   });
 
-  it("keeps a partial report out of the chat document block", () => {
+  it("shows a partial report in the chat document block", () => {
     renderWithResearchMessages(
       <ResearchTaskCard task={partialTask} onOpenWorkbench={vi.fn()} />,
     );
@@ -412,12 +500,14 @@ describe("ResearchTaskCard", () => {
     expect(screen.getByText(/One source could not/)).toBeTruthy();
     expect(screen.queryByText("A concise card summary.")).toBeNull();
     expect(screen.queryByText("Finding one")).toBeNull();
-    expect(screen.queryByText("# Full report body")).toBeNull();
     expect(
-      screen.queryByLabelText(
+      screen.getByText(/# Updated research systems report\s+Full report body/),
+    ).toBeTruthy();
+    expect(
+      screen.getByLabelText(
         "Long text document: Updated research systems report",
       ),
-    ).toBeNull();
+    ).toBeTruthy();
   });
 
   it("confirms a plan and submits a natural-language adjustment", async () => {
@@ -635,6 +725,68 @@ describe("ResearchGlobalBar", () => {
     expect(onOpenWorkbench).toHaveBeenCalledOnce();
     expect(screen.getByLabelText("Active deep research")).toBeTruthy();
   });
+
+  it("prioritizes a running activity and falls back to the current phase", () => {
+    const { rerender } = renderWithResearchMessages(
+      <ResearchGlobalBar
+        task={{
+          ...orchestratedTask,
+          activities: [
+            { ...orchestratedTask.activities[0], status: "committed" },
+            {
+              id: "activity-running",
+              createdAt: Date.UTC(2026, 7, 24, 1),
+              phase: "researching",
+              status: "running",
+              title: "Fetching the primary policy",
+            },
+          ],
+        }}
+        onOpenWorkbench={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("Fetching the primary policy")).toBeTruthy();
+    rerender(
+      <NextIntlClientProvider
+        locale="en"
+        messages={{
+          EvidenceQuestions: evidenceQuestionMessages,
+          ResearchSteering: steeringMessages,
+          ResearchTemplates: templateMessages,
+          Message: messageMessages,
+          Research: researchMessages,
+        }}
+      >
+        <ResearchGlobalBar
+          task={{
+            ...orchestratedTask,
+            activities: [
+              { ...orchestratedTask.activities[0], status: "committed" },
+            ],
+          }}
+          onOpenWorkbench={vi.fn()}
+        />
+      </NextIntlClientProvider>,
+    );
+    expect(screen.getByText("Exploring sources")).toBeTruthy();
+  });
+
+  it("offers a paused task for explicit resume", async () => {
+    const onResume = vi.fn();
+    const user = userEvent.setup();
+    renderWithResearchMessages(
+      <ResearchGlobalBar
+        task={{ ...orchestratedTask, status: "paused" }}
+        onOpenWorkbench={vi.fn()}
+        onResume={onResume}
+      />,
+    );
+
+    expect(screen.getByLabelText("Deep research ready to resume")).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Resume" }));
+    expect(onResume).toHaveBeenCalledOnce();
+  });
 });
 
 describe("ResearchWorkbench", () => {
@@ -654,7 +806,7 @@ describe("ResearchWorkbench", () => {
     }
   });
 
-  it("renders full report versions only in the workbench and wires exports", async () => {
+  it("keeps the selected report version across body, supplements, and exports", async () => {
     const onDownloadMarkdown = vi.fn();
     const onPrintPdf = vi.fn();
     const onSelectReportVersion = vi.fn();
@@ -675,8 +827,22 @@ describe("ResearchWorkbench", () => {
     expect(
       screen.getByTestId("research-report-markdown").textContent,
     ).not.toContain("# Updated research systems report");
-    expect(screen.queryByText(/Known gaps/)).toBeNull();
-    expect(screen.queryByText("Evidence added")).toBeNull();
+    expect(screen.queryByText("3 of 4 research steps covered")).toBeNull();
+    expect(
+      screen.queryByText("One source could not be independently verified."),
+    ).toBeNull();
+    await user.click(
+      screen.getByRole("tab", { name: "Supplementary material" }),
+    );
+    expect(screen.getByText("3 of 4 research steps covered")).toBeTruthy();
+    expect(
+      screen.getByText("One source could not be independently verified."),
+    ).toBeTruthy();
+    expect(
+      screen.getByText("1 publication check needs attention."),
+    ).toBeTruthy();
+    expect(screen.getByText("1 evidence item added")).toBeTruthy();
+    await user.click(screen.getByRole("tab", { name: "Report" }));
     await user.click(screen.getByRole("combobox", { name: "Report version" }));
     await user.click(
       screen.getByRole("option", {
@@ -688,21 +854,74 @@ describe("ResearchWorkbench", () => {
       screen.getByTestId("research-report-markdown").textContent,
     ).toContain("Older full report");
 
-    await user.click(screen.getByRole("button", { name: "Markdown" }));
-    await user.click(screen.getByRole("button", { name: "PDF" }));
+    await user.click(screen.getByRole("button", { name: "Download" }));
+    await user.click(screen.getByRole("menuitem", { name: "Markdown" }));
+    await user.click(screen.getByRole("button", { name: "Download" }));
+    await user.click(screen.getByRole("menuitem", { name: "PDF" }));
     expect(onDownloadMarkdown).toHaveBeenCalledWith("report-1");
     expect(onPrintPdf).toHaveBeenCalledWith("report-1");
   });
 
-  it("collects evidence questions and continuation goals before invoking callbacks", async () => {
-    const onAskEvidence = vi.fn();
+  it("projects report appendices into supplementary material", async () => {
+    const user = userEvent.setup();
+    const task = {
+      ...completedTask,
+      reportVersions: [
+        {
+          ...completedTask.reportVersions[1],
+          markdown: `# Updated research systems report
+
+## Executive summary
+
+Body summary.
+
+## Sources
+
+- Primary documentation [Source 1]
+
+## Evidence gaps
+
+- One gap remains.
+
+## Knowledge supplement (not verified in this research)
+
+Model context is clearly labeled.`,
+        },
+      ],
+      activeReportVersionId: "report-2",
+    };
+    renderWithResearchMessages(
+      <ResearchWorkbench task={task} onClose={vi.fn()} />,
+    );
+
+    expect(
+      screen.getByTestId("research-report-markdown").textContent,
+    ).toContain("Body summary.");
+    expect(
+      screen.getByTestId("research-report-markdown").textContent,
+    ).not.toContain("Primary documentation");
+
+    await user.click(
+      screen.getByRole("tab", { name: "Supplementary material" }),
+    );
+    expect(
+      screen.getByTestId("research-report-markdown").textContent,
+    ).toContain("Primary documentation");
+    expect(
+      screen.getByTestId("research-report-markdown").textContent,
+    ).toContain("Model context is clearly labeled.");
+    expect(
+      screen.getByTestId("research-report-markdown").textContent,
+    ).toContain("One gap remains.");
+  });
+
+  it("opens version-scoped evidence topics and collects continuation goals", async () => {
     const onContinueResearch = vi.fn();
     const user = userEvent.setup();
     renderWithResearchMessages(
       <ResearchWorkbench
         task={completedTask}
         onClose={vi.fn()}
-        onAskEvidence={onAskEvidence}
         onContinueResearch={onContinueResearch}
       />,
     );
@@ -711,17 +930,15 @@ describe("ResearchWorkbench", () => {
       screen.getByRole("button", { name: "Ask existing evidence" }),
     );
     expect(
-      screen.getByRole("dialog", { name: "Ask the existing evidence" }),
-    ).toBeTruthy();
-    await flushDialogFocus();
-    await user.type(
-      screen.getByRole("textbox", { name: "Question" }),
-      "Where does the evidence disagree?",
-    );
-    await user.click(screen.getByRole("button", { name: "Ask question" }));
-    expect(onAskEvidence).toHaveBeenCalledWith(
-      "Where does the evidence disagree?",
-    );
+      screen
+        .getByRole("tab", { name: "Questions" })
+        .getAttribute("aria-selected"),
+    ).toBe("true");
+    expect(
+      (await screen.findByTestId("evidence-topic-panel")).getAttribute(
+        "data-report-id",
+      ),
+    ).toBe(completedTask.activeReportVersionId);
     expect(screen.queryByRole("dialog")).toBeNull();
 
     await user.click(screen.getByRole("button", { name: "New follow-up" }));
@@ -745,7 +962,7 @@ describe("ResearchWorkbench", () => {
       <ResearchWorkbench task={completedTask} onClose={vi.fn()} />,
     );
 
-    expect(screen.getAllByRole("tab")).toHaveLength(4);
+    expect(screen.getAllByRole("tab")).toHaveLength(7);
     await user.click(screen.getByRole("tab", { name: "Evidence" }));
     expect(screen.getByRole("tabpanel", { name: "Evidence" })).toBeTruthy();
     expect(screen.queryByLabelText("Select evidence")).toBeNull();
@@ -763,6 +980,46 @@ describe("ResearchWorkbench", () => {
     expect(sourceLinks[0].getAttribute("href")).toBe(
       "https://example.com/research",
     );
+
+    await user.type(
+      screen.getByRole("searchbox", { name: "Search evidence" }),
+      "discovery from verification",
+    );
+    expect(screen.getByText("1 evidence item")).toBeTruthy();
+    await user.clear(
+      screen.getByRole("searchbox", { name: "Search evidence" }),
+    );
+    await user.click(
+      screen.getByRole("combobox", { name: "Source authority" }),
+    );
+    await user.click(screen.getByRole("option", { name: "Primary source" }));
+    expect(screen.getByText("0 evidence items")).toBeTruthy();
+  });
+
+  it("explains claim verification and links back to evidence", async () => {
+    const user = userEvent.setup();
+    renderWithResearchMessages(
+      <ResearchWorkbench task={completedTask} onClose={vi.fn()} />,
+    );
+
+    await user.click(screen.getByRole("tab", { name: "Claims" }));
+    expect(
+      screen.getByText(
+        "The documented workflow separates discovery from verification.",
+      ),
+    ).toBeTruthy();
+    expect(screen.getByText("2 independent publishers")).toBeTruthy();
+    await user.click(
+      screen.getByText(
+        "The documented workflow separates discovery from verification.",
+      ),
+    );
+    await user.click(
+      screen.getByRole("button", {
+        name: "Inspect evidence: Primary product documentation",
+      }),
+    );
+    expect(screen.getByRole("tabpanel", { name: "Evidence" })).toBeTruthy();
   });
 
   it("shows internal results as subdued metadata instead of claim titles", async () => {
@@ -810,7 +1067,14 @@ describe("ResearchWorkbench", () => {
       <ResearchWorkbench task={completedTask} onClose={vi.fn()} />,
     );
 
-    for (const tabName of ["Report", "Research plan", "Evidence", "Activity"]) {
+    for (const tabName of [
+      "Report",
+      "Research plan",
+      "Evidence",
+      "Claims",
+      "Activity",
+      "Supplementary material",
+    ]) {
       await user.click(screen.getByRole("tab", { name: tabName }));
       expect(
         screen.getByRole("tabpanel", { name: tabName }).firstElementChild
@@ -859,13 +1123,21 @@ describe("ResearchWorkbench", () => {
       }),
     ).toBeTruthy();
     expect(screen.getByText("Anonymous social posts")).toBeTruthy();
+    expect(
+      screen.getAllByText("Preferred domains: docs.example.com").length,
+    ).toBeGreaterThan(0);
+    expect(
+      screen.getAllByText("Excluded domains: archive.example.com").length,
+    ).toBeGreaterThan(0);
     expect(screen.getByText("Web search")).toBeTruthy();
     expect(screen.getByText("Fetch URL")).toBeTruthy();
     expect(screen.getByText("Knowledge (2)")).toBeTruthy();
-    expect(screen.getByText("4 steps")).toBeTruthy();
-    expect(screen.getByText("16 queries")).toBeTruthy();
     expect(
-      within(screen.getByText("4 steps").closest("footer")!)
+      screen.getByRole("heading", { name: "Research steps" }),
+    ).toBeTruthy();
+    expect(screen.getByText("16")).toBeTruthy();
+    expect(
+      within(document.querySelector("footer")!)
         .getAllByRole("button")
         .map((button) => button.textContent),
     ).toEqual(["Advanced strategy", "Adjust plan", "Start research"]);
@@ -943,9 +1215,9 @@ describe("ResearchWorkbench", () => {
     );
 
     await user.click(screen.getByRole("tab", { name: "Activity" }));
-    const panel = screen.getByRole("heading", {
-      name: "Research activity",
-    }).parentElement!;
+    const panel = screen
+      .getByRole("heading", { name: "Research activity" })
+      .closest(".max-w-5xl")!;
     expect(panel.className).toContain("w-full");
     expect(panel.className).not.toContain("max-w-3xl");
     expect(
@@ -996,7 +1268,7 @@ describe("ResearchWorkbench", () => {
     expect(screen.getAllByText("16").length).toBeGreaterThan(0);
     expect(
       screen.getAllByText(
-        "Planning reconnaissance sends the research question to the configured public search service. Its snippets inform the plan only and are not report evidence.",
+        "Planning precheck is on demand: it checks selected knowledge bases first, then public search summaries only if needed. Results inform the plan and are not formal evidence.",
       ).length,
     ).toBeGreaterThan(0);
     expect(
@@ -1039,17 +1311,22 @@ describe("ResearchWorkbench", () => {
       <ResearchWorkbench task={orchestratedTask} onClose={vi.fn()} />,
     );
 
+    await user.click(screen.getByRole("tab", { name: "Activity" }));
     expect(screen.getByLabelText("Research run status")).toBeTruthy();
-    const waves = screen.getByRole("list", { name: "Research waves" });
+    expect(screen.getAllByText("9/16").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("2/4").length).toBeGreaterThan(0);
+
+    await user.click(screen.getByRole("tab", { name: "Research plan" }));
+    const waves = screen.getByRole("list", { name: "Research rounds" });
     expect(waves.tagName).toBe("OL");
     expect(
-      screen.getAllByRole("list", { name: "Research waves" }),
+      screen.getAllByRole("list", { name: "Research rounds" }),
     ).toHaveLength(1);
     expect(waves.parentElement?.parentElement?.className).toContain(
       "lg:grid-cols",
     );
-    expect(screen.getByText("Wave 1")).toBeTruthy();
-    expect(screen.getByText("Wave 2")).toBeTruthy();
+    expect(screen.getByText("Round 1")).toBeTruthy();
+    expect(screen.getByText("Round 2")).toBeTruthy();
 
     const pendingNodeTrigger = screen
       .getByText("Check regional deployment variants")
@@ -1073,9 +1350,6 @@ describe("ResearchWorkbench", () => {
         "This direction expands the approved source or research scope and requires approval before access.",
       ),
     ).toBeTruthy();
-    expect(screen.getAllByText("9/16").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("2/4").length).toBeGreaterThan(0);
-
     const activeStepSummary = screen
       .getAllByText("Verify claims")
       .map((item) => item.closest("button"))
@@ -1115,7 +1389,8 @@ describe("ResearchWorkbench", () => {
               id: "wave-2-degraded",
               createdAt: Date.UTC(2026, 7, 24, 1),
               phase: "researching",
-              title: "Wave 2 archived with evidence gaps",
+              status: "completed",
+              title: "Round 2 archived with evidence gaps",
               detail:
                 "One research node produced no valid learning packet; preserved evidence remains available.",
               tone: "warning",
@@ -1128,7 +1403,7 @@ describe("ResearchWorkbench", () => {
 
     await user.click(screen.getByRole("tab", { name: "Activity" }));
     const warning = screen.getByRole("heading", {
-      name: "Wave 2 archived with evidence gaps",
+      name: "Round 2 archived with evidence gaps",
     });
     expect(warning.className).toContain("text-amber");
     const warningItem = warning.closest("li")!;
@@ -1190,7 +1465,8 @@ describe("ResearchWorkbench", () => {
               id: "wave-degraded-a11y",
               createdAt: Date.UTC(2026, 7, 24, 2),
               phase: "researching",
-              title: "Wave 2 archived with evidence gaps",
+              status: "completed",
+              title: "Round 2 archived with evidence gaps",
               detail: "Preserved evidence remains available.",
               tone: "warning",
             },

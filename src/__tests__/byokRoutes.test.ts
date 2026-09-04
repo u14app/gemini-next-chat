@@ -150,9 +150,9 @@ describe("BYOK route integration", () => {
 
   it("decrypts search credentials before calling the upstream API", async () => {
     mocks.decryptOptionalSecret.mockResolvedValue("tvly-secret");
-    mocks.safeFetchJson.mockResolvedValue({
+    mocks.safeFetchText.mockResolvedValue({
       response: new Response(null, { status: 200 }),
-      data: {
+      text: JSON.stringify({
         results: [
           {
             title: "Result",
@@ -161,7 +161,7 @@ describe("BYOK route integration", () => {
           },
         ],
         images: [],
-      },
+      }),
     });
 
     const { POST } = await import("../app/api/search/route");
@@ -183,7 +183,7 @@ describe("BYOK route integration", () => {
       apiKeySecret,
       "search:tavily",
     );
-    expect(mocks.safeFetchJson).toHaveBeenCalledWith(
+    expect(mocks.safeFetchText).toHaveBeenCalledWith(
       "https://api.tavily.com/search",
       expect.objectContaining({
         headers: expect.objectContaining({
@@ -197,13 +197,13 @@ describe("BYOK route integration", () => {
 
   it("preserves an actionable Firecrawl public-service rejection", async () => {
     mocks.decryptOptionalSecret.mockResolvedValue(undefined);
-    mocks.safeFetchJson.mockResolvedValue({
+    mocks.safeFetchText.mockResolvedValue({
       response: new Response(null, { status: 403 }),
-      data: {
+      text: JSON.stringify({
         success: false,
         error:
           "This IP looks suspicious, so Firecrawl cannot be used without an API key.",
-      },
+      }),
     });
 
     const { POST } = await import("../app/api/search/route");

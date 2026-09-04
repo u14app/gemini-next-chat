@@ -63,6 +63,8 @@ import { Button } from "@/components/ui/primitives";
 import { CustomSelect, SimpleSwitch } from "@/components/ui/controls";
 import { diffAgentProfiles } from "@/lib/assistant/profileHistory";
 import { useAgentProfileRevisionStore } from "@/store/core/agentProfileRevisionStore";
+import ResearchTemplatePicker from "@/components/research/ResearchTemplatePicker";
+import type { ResearchTemplateSelection } from "@/lib/research/templates";
 
 interface AssistantHubProps {
   onClose: () => void;
@@ -104,6 +106,20 @@ const createAgentProfileDraft = (profile?: AgentProfileV2): AgentProfileV2 => {
       ],
       memoryScopes: [...(source.capabilities.memoryScopes || ["global"])],
     },
+    ...(source.researchTemplate === null
+      ? { researchTemplate: null }
+      : source.researchTemplate
+        ? {
+            researchTemplate: {
+              ...source.researchTemplate,
+              requiredSections: [...source.researchTemplate.requiredSections],
+              sourcePriorities: source.researchTemplate.sourcePriorities.map(
+                (priority) => ({ ...priority }),
+              ),
+              strategy: { ...source.researchTemplate.strategy },
+            },
+          }
+        : {}),
   };
 };
 
@@ -150,6 +166,7 @@ const AssistantEditorModal = ({
   onDelete?: (identifier: string) => void;
 }) => {
   const t = useTranslations("Assistant");
+  const tResearchTemplates = useTranslations("ResearchTemplates");
   const isEditing = !!agent;
   const { selectedModel } = useChatStore();
   const installedPlugins = useSettingsStore((state) => state.installedPlugins);
@@ -415,6 +432,27 @@ const AssistantEditorModal = ({
         capabilities: { ...profile.capabilities, skillPolicies },
       };
     });
+  };
+
+  const setResearchTemplate = (selection: ResearchTemplateSelection) => {
+    updateAgentProfile((profile) => {
+      if (selection === undefined) {
+        const withoutTemplate = { ...profile };
+        delete withoutTemplate.researchTemplate;
+        return withoutTemplate;
+      }
+      return { ...profile, researchTemplate: selection };
+    });
+  };
+
+  const researchTemplateText = (key: string, fallback: string) => {
+    try {
+      return tResearchTemplates.has(key)
+        ? tResearchTemplates(key as never)
+        : fallback;
+    } catch {
+      return fallback;
+    }
   };
 
   const clearDeleteConfirmation = () => {
@@ -913,6 +951,171 @@ const AssistantEditorModal = ({
                     </Button>
                   </div>
                 ) : null}
+
+                <ResearchTemplatePicker
+                  selection={agentProfile.researchTemplate}
+                  onChange={setResearchTemplate}
+                  labels={{
+                    title: researchTemplateText("title", "Research template"),
+                    description: researchTemplateText(
+                      "profileDescription",
+                      "Carry a reusable Research deliverable shape with this profile.",
+                    ),
+                    inherit: researchTemplateText(
+                      "profileInherit",
+                      "No profile template",
+                    ),
+                    disabled: researchTemplateText(
+                      "disabled",
+                      "Disable inherited template",
+                    ),
+                    loading: researchTemplateText(
+                      "loading",
+                      "Loading templates...",
+                    ),
+                    unavailable: researchTemplateText(
+                      "unavailable",
+                      "Built-in templates remain available.",
+                    ),
+                    duplicate: researchTemplateText(
+                      "duplicate",
+                      "Duplicate template",
+                    ),
+                    remove: researchTemplateText("remove", "Delete template"),
+                    builtIn: researchTemplateText("builtIn", "Built-in"),
+                    custom: researchTemplateText("custom", "Custom"),
+                    selectAria: researchTemplateText(
+                      "profileSelectAria",
+                      "Profile research template",
+                    ),
+                    duplicateAria: researchTemplateText(
+                      "duplicateAria",
+                      "Duplicate profile research template",
+                    ),
+                    removeAria: researchTemplateText(
+                      "removeAria",
+                      "Delete profile research template",
+                    ),
+                    newTemplate: researchTemplateText(
+                      "newTemplate",
+                      "New template",
+                    ),
+                    editTemplate: researchTemplateText(
+                      "editTemplate",
+                      "Edit template",
+                    ),
+                    editAria: researchTemplateText(
+                      "editAria",
+                      "Edit selected research template",
+                    ),
+                    snapshot: researchTemplateText(
+                      "snapshot",
+                      "Saved snapshot",
+                    ),
+                    preview: researchTemplateText(
+                      "preview",
+                      "Template preview",
+                    ),
+                    deliverable: researchTemplateText(
+                      "deliverable",
+                      "Deliverable",
+                    ),
+                    sections: researchTemplateText(
+                      "sections",
+                      "Required sections",
+                    ),
+                    sources: researchTemplateText(
+                      "sources",
+                      "Source priorities",
+                    ),
+                    strategy: researchTemplateText(
+                      "strategy",
+                      "Starting strategy",
+                    ),
+                    templateEditor: {
+                      title: researchTemplateText(
+                        "editor.title",
+                        "Template details",
+                      ),
+                      name: researchTemplateText("editor.name", "Name"),
+                      namePlaceholder: researchTemplateText(
+                        "editor.namePlaceholder",
+                        "e.g. Product evaluation",
+                      ),
+                      description: researchTemplateText(
+                        "editor.description",
+                        "Description",
+                      ),
+                      descriptionPlaceholder: researchTemplateText(
+                        "editor.descriptionPlaceholder",
+                        "What this template helps you deliver",
+                      ),
+                      deliverable: researchTemplateText(
+                        "editor.deliverable",
+                        "Deliverable type",
+                      ),
+                      sections: researchTemplateText(
+                        "editor.sections",
+                        "Required sections",
+                      ),
+                      sectionsHint: researchTemplateText(
+                        "editor.sectionsHint",
+                        "One section per line. Standard audit sections are added automatically.",
+                      ),
+                      sources: researchTemplateText(
+                        "editor.sources",
+                        "Source priorities",
+                      ),
+                      sourceType: researchTemplateText(
+                        "editor.sourceType",
+                        "Source type",
+                      ),
+                      priority: researchTemplateText(
+                        "editor.priority",
+                        "Priority",
+                      ),
+                      rationale: researchTemplateText(
+                        "editor.rationale",
+                        "Rationale",
+                      ),
+                      rationalePlaceholder: researchTemplateText(
+                        "editor.rationalePlaceholder",
+                        "Why this source is useful",
+                      ),
+                      addSource: researchTemplateText(
+                        "editor.addSource",
+                        "Add source priority",
+                      ),
+                      strategy: researchTemplateText(
+                        "editor.strategy",
+                        "Starting strategy",
+                      ),
+                      cancel: researchTemplateText("editor.cancel", "Cancel"),
+                      save: researchTemplateText(
+                        "editor.save",
+                        "Save template",
+                      ),
+                      required: researchTemplateText(
+                        "editor.required",
+                        "Complete the required fields before saving.",
+                      ),
+                      removeSourceAria: researchTemplateText(
+                        "editor.removeSourceAria",
+                        "Remove source priority",
+                      ),
+                    },
+                    templateName: (researchTemplate) =>
+                      researchTemplateText(
+                        `templates.${researchTemplate.id}.name`,
+                        researchTemplate.name,
+                      ),
+                    templateDescription: (researchTemplate) =>
+                      researchTemplateText(
+                        `templates.${researchTemplate.id}.description`,
+                        researchTemplate.description,
+                      ),
+                  }}
+                />
 
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <div className="space-y-1">

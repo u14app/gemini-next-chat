@@ -1,17 +1,32 @@
 import type React from "react";
 
 import type { Source } from "@/types";
+import {
+  projectResearchReport,
+  transformReportProse,
+  type ReportSectionLabels,
+} from "@/lib/research/reportSections";
 
 import type { ResearchEvidenceView } from "../types";
 
-export type WorkbenchTab = "plan" | "evidence" | "report" | "activity";
+export type WorkbenchTab =
+  | "plan"
+  | "evidence"
+  | "claims"
+  | "report"
+  | "supplements"
+  | "questions"
+  | "activity";
 export type EvidenceStance = NonNullable<ResearchEvidenceView["stance"]>;
 export type FollowupMode = "ask" | "continue";
 
 export const WORKBENCH_TABS: WorkbenchTab[] = [
   "plan",
   "evidence",
+  "claims",
   "report",
+  "supplements",
+  "questions",
   "activity",
 ];
 export const EVIDENCE_STANCES: EvidenceStance[] = [
@@ -81,9 +96,11 @@ export function createLocalEvidenceCitations(
       markers.add(`[Source ${evidence.indexOf(item) + 1}]`);
     }
     for (const marker of markers) {
-      linkedMarkdown = linkedMarkdown.replace(
-        new RegExp(`${escapeRegExp(marker)}(?!\\s*\\()`, "gi"),
-        `${marker}(#citation-${index})`,
+      linkedMarkdown = transformReportProse(linkedMarkdown, (prose) =>
+        prose.replace(
+          new RegExp(`${escapeRegExp(marker)}(?!\\s*\\()`, "gi"),
+          `${marker}(#citation-${index})`,
+        ),
       );
     }
     return {
@@ -94,6 +111,38 @@ export function createLocalEvidenceCitations(
     };
   });
   return { markdown: linkedMarkdown, sources };
+}
+
+export interface ResearchReportPresentation {
+  /** The complete, localized document used for downloads and printing. */
+  markdown: string;
+  /** The report body shown above the supplementary material tab. */
+  bodyMarkdown: string;
+  /** Sources, gaps, and other appendices shown in the supplementary tab. */
+  supplementsMarkdown: string;
+  sources: Source[];
+}
+
+/**
+ * Localize section headings, link local citations once against the complete
+ * document, then split it. Keeping citation indexing at the full-document
+ * boundary means each report surface uses the same immutable source list.
+ */
+export function createReportPresentation(
+  markdown: string,
+  evidence: ResearchEvidenceView[],
+  labels: ReportSectionLabels,
+): ResearchReportPresentation {
+  const localized = projectResearchReport(markdown, labels);
+  const cited = createLocalEvidenceCitations(localized.markdown, evidence);
+  const projected = projectResearchReport(cited.markdown, labels);
+  return {
+    // Offline exports retain stable citation markers, not workbench-only anchors.
+    markdown: localized.markdown,
+    bodyMarkdown: stripLeadingMarkdownTitle(projected.bodyMarkdown),
+    supplementsMarkdown: projected.supplementsMarkdown,
+    sources: cited.sources,
+  };
 }
 
 export function formatTokens(value: number): string {

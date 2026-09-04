@@ -1,3 +1,4 @@
+import type { ReportSectionLabels } from "@/lib/research/reportSections";
 import { v7 as uuidv7 } from "uuid";
 
 import {
@@ -11,6 +12,7 @@ import {
   upsertResearchReportRun,
   type ResearchEvidence,
   type ResearchPlanVersion,
+  type ResearchReportAuditSnapshot,
   type ResearchReportRun,
   type ResearchReportVersion,
   type ResearchTask,
@@ -26,8 +28,42 @@ import {
   writeWorkspaceText,
 } from "@/services/workspace/sessionWorkspace";
 import { resolveOPFSBlob } from "@/utils/opfs";
+import { createResearchEvidenceSnapshot } from "@/lib/research/evidenceConversations";
+import { saveEvidenceSnapshot } from "@/services/research/evidenceConversations";
+import { getResearchExtensionRepository } from "@/services/research/extensionRepository";
 
 import { aggregateTaskUsage } from "./usage";
+import { createAbortError, isAbortError } from "./operations";
+
+async function verifyPublishedVersion(
+  taskId: string,
+  report: ResearchReportVersion,
+  persistenceError: string,
+  expectedMarkdown?: string,
+) {
+  const repository = getResearchTaskRepository();
+  const persisted = await repository.get(taskId);
+  if (
+    !repository.getStatus().durable ||
+    !persisted?.reportVersions.some(
+      (version) =>
+        version.id === report.id &&
+        version.version === report.version &&
+        version.researchRunId === report.researchRunId &&
+        version.artifactId === report.artifactId,
+    )
+  ) {
+    throw new Error(persistenceError);
+  }
+  const artifact = await resolveOPFSBlob(report.artifactId);
+  const markdown = artifact ? await artifact.text() : "";
+  if (
+    !markdown ||
+    (expectedMarkdown !== undefined && markdown !== expectedMarkdown)
+  ) {
+    throw new Error(persistenceError);
+  }
+}
 
 export async function readReportMarkdown(
   task: ResearchTask,
@@ -46,13 +82,19 @@ export async function publishResearchReportVersion({
   markdown,
   evidence,
   extraGaps,
+  audit,
   agentRunId,
   noEvidenceGap,
   noKeyFindingsGap,
   incompleteQuestionsGap,
   singleSourceNote,
+  publicationNotice,
+  noEvidenceNotice,
+  auditWarning,
+  snapshotUnavailableWarning,
   signal,
   persistenceError,
+  sectionLabels,
 }: {
   taskId: string;
   plan: ResearchPlanVersion;
@@ -60,15 +102,36 @@ export async function publishResearchReportVersion({
   markdown: string;
   evidence: ResearchEvidence[];
   extraGaps: string[];
+  audit?: ResearchReportAuditSnapshot;
   agentRunId?: string;
   noEvidenceGap: string;
   noKeyFindingsGap: string;
   incompleteQuestionsGap: (count: number) => string;
   singleSourceNote: (count: number, total: number) => string;
+  publicationNotice?: string;
+  noEvidenceNotice?: string;
+  auditWarning?: (count: number) => string;
+  snapshotUnavailableWarning?: string;
   signal?: AbortSignal;
   persistenceError: string;
+  sectionLabels?: ReportSectionLabels;
 }): Promise<string[]> {
   const store = useResearchStore.getState();
+  const assertRunning = () => {
+    signal?.throwIfAborted();
+    const task = useResearchStore.getState().tasksById[taskId];
+    if (!task || task.status === "cancelled" || task.status === "paused") {
+      throw createAbortError();
+    }
+  };
+  assertRunning();
+  const existing = store.tasksById[taskId]?.reportVersions.find(
+    (report) => report.researchRunId === run.id,
+  );
+  if (existing) {
+    await verifyPublishedVersion(taskId, existing, persistenceError);
+    return [...existing.gaps];
+  }
   const normalizedMarkdown = normalizeResearchReportMarkdown(markdown);
   if (!normalizedMarkdown) {
     throw new Error("The model returned an empty report.");
@@ -94,6 +157,14 @@ export async function publishResearchReportVersion({
       ),
   );
   const gaps = [...auditMetadata.gaps, ...extraGaps];
+  const auditIssueCount =
+    (audit?.blocking.length ?? 0) + (audit?.advisory.length ?? 0);
+  if (auditIssueCount > 0) {
+    gaps.push(
+      auditWarning?.(auditIssueCount) ||
+        `${auditIssueCount} source or completeness issues remain. Treat unverified content as provisional.`,
+    );
+  }
   if (reportEvidence.length === 0) {
     gaps.push(noEvidenceGap);
   }
@@ -115,6 +186,10 @@ export async function publishResearchReportVersion({
     run,
     evidence,
     singleSourceNote,
+    sectionLabels,
+    gaps: uniqueGaps,
+    qualityNotice:
+      reportEvidence.length === 0 ? noEvidenceNotice : publicationNotice,
   });
   const publicationMetadata = summarizeResearchReport(publicationMarkdown);
 
@@ -130,7 +205,7 @@ export async function publishResearchReportVersion({
     evidence,
     usage: aggregateTaskUsage(current),
   }));
-  signal?.throwIfAborted();
+  assertRunning();
   if (!getResearchTaskRepository().getStatus().durable) {
     throw new Error(persistenceError);
   }
@@ -185,13 +260,18 @@ export async function publishResearchReportVersion({
     "overwrite",
   );
   if (!written.ok) throw new Error(written.error.message);
-  signal?.throwIfAborted();
+  assertRunning();
   const published = await publishResearchReportArtifact(
     task.sessionId,
     reportPath,
   );
   if (!published.ok) throw new Error(published.error.message);
-  signal?.throwIfAborted();
+  assertRunning();
+  const artifact = await resolveOPFSBlob(published.value.url);
+  if (!artifact || (await artifact.text()) !== publicationMarkdown) {
+    throw new Error(persistenceError);
+  }
+  assertRunning();
   const report: ResearchReportVersion = {
     id: uuidv7(),
     version,
@@ -204,30 +284,100 @@ export async function publishResearchReportVersion({
     researchRunId: run.id,
     coveredStepIds,
     evidenceIds: reportEvidence.map((item) => item.id),
+    evidenceSnapshotStatus: "available",
     diff: {
       addedEvidenceIds,
       changedSourceIds,
       unchangedSourceIds,
     },
+    ...(audit
+      ? {
+          audit: {
+            ...audit,
+            blocking: [...audit.blocking],
+            advisory: [...audit.advisory],
+          },
+        }
+      : {}),
     ...(agentRunId ? { agentRunId } : {}),
     kind: task.pendingReportKind,
   };
-  await store.updateTask(taskId, (current) => {
-    const finishedAt = Date.now();
-    const status = uniqueGaps.length > 0 ? "partial_completed" : "completed";
-    const completedRun = finalizeResearchReportRun(run, status, finishedAt);
-    const withReport = {
-      ...upsertResearchReportRun(current, completedRun),
-      evidence,
-      reportVersions: [...current.reportVersions, report],
-      activeReportVersion: version,
-      usage: aggregateTaskUsage(current),
-      checkpoint: undefined,
-    };
-    return transitionResearchTask(withReport, status, { now: finishedAt });
-  });
-  if (!getResearchTaskRepository().getStatus().durable) {
-    throw new Error(persistenceError);
+  try {
+    try {
+      await saveEvidenceSnapshot(
+        createResearchEvidenceSnapshot({
+          task: {
+            ...task,
+            evidence,
+            reportRuns: [
+              ...task.reportRuns.filter((item) => item.id !== run.id),
+              run,
+            ],
+          },
+          report,
+          markdown: publicationMarkdown,
+        }),
+      );
+    } catch (error) {
+      if (isAbortError(error) || signal?.aborted) throw error;
+      report.evidenceSnapshotStatus = "unavailable";
+      if (snapshotUnavailableWarning) {
+        // This is a Q&A availability notice; the immutable report body is unchanged.
+        report.gaps = [...report.gaps, snapshotUnavailableWarning];
+      }
+      logDevError("Research report saved without an evidence snapshot", error);
+    }
+    assertRunning();
+    await store.updateTask(taskId, (current) => {
+      assertRunning();
+      if (
+        current.reportVersions.some(
+          (version) => version.researchRunId === run.id,
+        )
+      ) {
+        throw new Error("This research run already has a published report.");
+      }
+      const finishedAt = Date.now();
+      const status = report.gaps.length > 0 ? "partial_completed" : "completed";
+      const completedRun = finalizeResearchReportRun(run, status, finishedAt);
+      const withReport = {
+        ...upsertResearchReportRun(current, completedRun),
+        evidence,
+        reportVersions: [...current.reportVersions, report],
+        activeReportVersion: version,
+        usage: aggregateTaskUsage(current),
+        checkpoint: undefined,
+      };
+      return transitionResearchTask(withReport, status, { now: finishedAt });
+    });
+    await verifyPublishedVersion(
+      taskId,
+      report,
+      persistenceError,
+      publicationMarkdown,
+    );
+  } catch (error) {
+    // The snapshot precedes the core report pointer. Remove only a proven
+    // unpublished snapshot; a failed read must never erase a published version.
+    try {
+      const repository = getResearchTaskRepository();
+      const persisted = await repository.get(taskId);
+      if (
+        repository.getStatus().durable &&
+        !persisted?.reportVersions.some((item) => item.id === report.id)
+      ) {
+        await getResearchExtensionRepository().remove(
+          "evidence_snapshot",
+          report.id,
+        );
+      }
+    } catch (cleanupError) {
+      logDevError(
+        "Failed to remove unpublished evidence snapshot",
+        cleanupError,
+      );
+    }
+    throw error;
   }
   await deleteWorkspaceFile(task.sessionId, reportPath).catch((error) => {
     logDevError(
@@ -235,5 +385,5 @@ export async function publishResearchReportVersion({
       error,
     );
   });
-  return uniqueGaps;
+  return [...report.gaps];
 }

@@ -31,6 +31,14 @@ import Sync from "./en/Sync.json";
 import Shortcuts from "./en/Shortcuts.json";
 import Research from "./en/Research.json";
 
+import ResearchTemplates from "./en/ResearchTemplates.json";
+
+import ResearchSources from "./en/ResearchSources.json";
+
+import ResearchSteering from "./en/ResearchSteering.json";
+
+import EvidenceQuestions from "./en/EvidenceQuestions.json";
+
 const messages = {
   Common,
   AccessPassword,
@@ -63,6 +71,10 @@ const messages = {
   GlobalSearch,
   Sync,
   Shortcuts,
+  ResearchTemplates,
+  ResearchSources,
+  ResearchSteering,
+  EvidenceQuestions,
   Research,
 };
 

@@ -11,15 +11,21 @@ import ResearchTaskCard from "./ResearchTaskCard";
 import ResearchWorkbench from "./workbench";
 import { StatusLabel } from "./ui";
 import type { ResearchTaskViewModel } from "./types";
-import { isActiveResearchStatus } from "@/lib/research";
+import {
+  getResearchRunResumeDecision,
+  isActiveResearchStatus,
+} from "@/lib/research";
 import { openResearchTask } from "@/lib/research/navigation";
-import { selectGlobalActiveResearchTaskId } from "@/lib/research/pendingTask";
+import { selectGlobalResearchAttentionTaskId } from "@/lib/research/pendingTask";
 import { useChatStore } from "@/store/core/chatStore";
+import { useAgentRunStore } from "@/store/core/agentRunStore";
 import { useResearchStore } from "@/store/core/researchStore";
 
 import { useResearchTaskViewModel } from "@/hooks/research/useResearchTaskViewModel";
 import { useTaskActions } from "@/hooks/research/useTaskActions";
 import { useResearchRuntime } from "./ResearchRuntimeProvider";
+import { createReportSectionLabels } from "@/lib/research/reportSections";
+import { createReportPresentation } from "./workbench/workbenchUtils";
 
 export function ConnectedResearchTaskCard({
   taskId,
@@ -86,12 +92,22 @@ export function ConnectedResearchGlobalBar() {
   const activeTaskId = useResearchStore((state) => state.activeTaskId);
   const tasksById = useResearchStore((state) => state.tasksById);
   const visibleTaskId = useMemo(
-    () => selectGlobalActiveResearchTaskId({ tasksById, activeTaskId }),
+    () => selectGlobalResearchAttentionTaskId({ tasksById, activeTaskId }),
     [activeTaskId, tasksById],
   );
-  const { viewModel } = useResearchTaskViewModel(visibleTaskId);
+  const { task, viewModel } = useResearchTaskViewModel(visibleTaskId);
+  const runsById = useAgentRunStore((state) => state.runsById);
   const runtime = useResearchRuntime();
   if (!visibleTaskId || !viewModel) return null;
+  const resumeDecision = task
+    ? getResearchRunResumeDecision(task, runsById)
+    : { action: "unavailable" as const };
+  if (
+    viewModel.status === "paused" &&
+    resumeDecision.action === "unavailable"
+  ) {
+    return null;
+  }
   return (
     <ResearchGlobalBar
       task={viewModel}
@@ -99,6 +115,11 @@ export function ConnectedResearchGlobalBar() {
       onPause={
         isActiveResearchStatus(viewModel.status)
           ? () => void runtime.pauseTask(visibleTaskId)
+          : undefined
+      }
+      onResume={
+        viewModel.status === "paused"
+          ? () => void runtime.resumeTask(visibleTaskId)
           : undefined
       }
     />
@@ -269,12 +290,12 @@ export function ConnectedResearchWorkbench({
 
   const findReport = (versionId: string) =>
     viewModel.reportVersions.find((report) => report.id === versionId);
+  const reportLabels = createReportSectionLabels((key) => t(key));
   const buildExportMarkdown = (
     report: ResearchTaskViewModel["reportVersions"][number],
-  ) => {
-    const body = report.markdown.replace(/^#\s+.+(?:\r?\n|$)/, "").trim();
-    return [`# ${report.title}`, body].filter(Boolean).join("\n\n");
-  };
+  ) =>
+    createReportPresentation(report.markdown, viewModel.evidence, reportLabels)
+      .markdown;
   const downloadMarkdown = (versionId: string) => {
     const report = findReport(versionId);
     if (!report) return;
@@ -306,9 +327,6 @@ export function ConnectedResearchWorkbench({
             });
           }
         }}
-        onAskEvidence={(question) =>
-          runtime.askExistingEvidence(taskId, question)
-        }
         onContinueResearch={(instruction) =>
           runtime.continueResearch(taskId, instruction)
         }

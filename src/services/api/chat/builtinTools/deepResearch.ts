@@ -219,6 +219,12 @@ function toTaskStatus(task: ResearchTask) {
                 : {}),
               includes: [...plan.scope.includes],
               excludes: [...plan.scope.excludes],
+              ...(plan.scope.preferredDomains
+                ? { preferredDomains: [...plan.scope.preferredDomains] }
+                : {}),
+              ...(plan.scope.excludedDomains
+                ? { excludedDomains: [...plan.scope.excludedDomains] }
+                : {}),
               allowedSourceTypes: [...plan.scope.allowedSourceTypes],
             },
             assumptions: [...plan.assumptions],
@@ -286,7 +292,7 @@ export function createDeepResearchBindings(): BuiltinToolBinding[] {
         function: {
           name: "start_deep_research",
           description:
-            "Create a local Deep Research task and prepare a plan for explicit user approval. Planning may perform bounded public search-summary reconnaissance, but it does not fetch source bodies or start approved research. After calling it, stop source work and direct the user to review the plan.",
+            "Create a local Deep Research task and prepare a plan for explicit user approval. Planning first uses model knowledge; only unclear subjects may trigger bounded selected-knowledge lookup followed by public search summaries. Planning does not start approved research. After calling it, stop source work and direct the user to review the plan.",
           parameters: {
             type: "object",
             additionalProperties: false,
@@ -663,7 +669,7 @@ export function createDeepResearchBindings(): BuiltinToolBinding[] {
         function: {
           name: "adjust_research_plan",
           description:
-            "Prepare a new version of a Deep Research plan from a natural-language instruction. Planning may perform bounded public search-summary reconnaissance, but approved research remains blocked until the user explicitly approves the new plan.",
+            "Prepare a new version of a Deep Research plan from a natural-language instruction. Planning first uses model knowledge and looks up selected knowledge, then public search summaries, only for unclear subjects. Approved research remains blocked until the user explicitly approves the new plan.",
           parameters: {
             type: "object",
             additionalProperties: false,

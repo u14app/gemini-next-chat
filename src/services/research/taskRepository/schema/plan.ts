@@ -27,6 +27,8 @@ export const planSchema = z
           .optional(),
         includes: z.array(z.string().min(1).max(1_000)).max(20),
         excludes: z.array(z.string().min(1).max(1_000)).max(20),
+        preferredDomains: z.array(z.string().min(1).max(253)).max(8).optional(),
+        excludedDomains: z.array(z.string().min(1).max(253)).max(8).optional(),
         allowedSourceTypes: z.array(sourceTypeSchema).min(1).max(6),
       })
       .strict(),

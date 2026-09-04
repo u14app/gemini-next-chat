@@ -14,10 +14,12 @@ import {
   validateResearchPlanHostContract,
   type ResearchPlanVersion,
 } from "@/lib/research";
+import { type ResearchTemplate } from "@/lib/research/templates";
 import { useResearchStore } from "@/store/core/researchStore";
 import { streamChatResponse } from "@/services/api/chatService";
 import type { BuiltinResearchQueryBudget } from "@/services/api/chat/builtinTools";
 import { getResearchTaskRepository } from "@/services/research";
+import { freezeResearchTaskTemplate } from "@/services/research/templates";
 import { AgentRunLeaseConflictError } from "@/services/agent/runLease";
 
 import type {
@@ -25,8 +27,28 @@ import type {
   ResearchTranslate,
 } from "./executionContext";
 import { isAbortError } from "./operations";
-import { createSourceSnapshot } from "./sourceSnapshot";
+import {
+  buildResearchExecutionSourceContext,
+  createSourceSnapshot,
+  loadSessionMessages,
+} from "./sourceSnapshot";
+import {
+  RESEARCH_PLANNING_SYSTEM_INSTRUCTION,
+  type ResearchPlanningStage,
+} from "../prompts/planPrompts";
+import {
+  parseResearchPlanningResponse,
+  type ResearchPlanningContextRequest,
+} from "../prompts/planningResponse";
+import {
+  getToolResultData,
+  getToolResultError,
+  isRecord,
+} from "../toolCallInsights";
+import type { BuiltinKnowledgeScope } from "@/services/api/chat/builtinTools";
 import { resolveTaskContext } from "./taskContext";
+import { RESEARCH_RECON_LIMITS } from "../orchestration/strategy";
+import { createQuerySignal } from "@/services/api/chat/builtinTools/researchQueryBudget";
 
 /**
  * Extra closed-book model rounds spent repairing a plan the host could not fix
@@ -35,7 +57,7 @@ import { resolveTaskContext } from "./taskContext";
 const PLAN_REPAIR_ATTEMPTS = 2;
 
 /**
- * Runs bounded reconnaissance, drafts a plan, and repairs it until it satisfies
+ * Drafts closed-book first, looks up only unresolved concepts, and repairs until
  * the host contract or the repair budget runs out.
  */
 export async function prepareResearchPlan({
@@ -46,6 +68,7 @@ export async function prepareResearchPlan({
   toolConfirmationController,
   t,
   localizedRuntimeError,
+  locale,
   onError,
   onNotice,
 }: {
@@ -56,6 +79,7 @@ export async function prepareResearchPlan({
   toolConfirmationController?: ToolConfirmationController;
   t: ResearchTranslate;
   localizedRuntimeError: ResearchRuntimeErrorText;
+  locale?: string;
   onError?: (message: string) => void;
   onNotice?: (message: string) => void;
 }) {
@@ -66,6 +90,16 @@ export async function prepareResearchPlan({
     const { model, chatConfig, effective, settings } = resolveTaskContext(
       initial,
       requestModel,
+    );
+    const frozenTemplate = await freezeResearchTaskTemplate(
+      taskId,
+      effective.researchTemplate,
+      Date.now(),
+      locale,
+    );
+    const template: ResearchTemplate | null = frozenTemplate.template;
+    const preserveInitialTemplateContract = Boolean(
+      template && initial.planVersions.length === 0 && !adjustment?.trim(),
     );
     const provisionalSnapshot = await createSourceSnapshot(
       initial,
@@ -101,84 +135,234 @@ export async function prepareResearchPlan({
       effective.searchCompatibility.mode === "external";
     const reconStartedAt = Date.now();
     const executedQueries: string[] = [];
+    const knowledgeQueries: string[] = [];
     let planningToolCalls: ToolCall[] = [];
-    const reconQueryBudget: BuiltinResearchQueryBudget = {
-      remainingQueries: 2,
-      maxResultsPerQuery: 5,
-      seenQueries: new Set<string>(),
-      deadlineAt: reconStartedAt + 30_000,
-      onQueriesExecuted: (queries) => executedQueries.push(...queries),
-    };
+    let planningContext = "";
+    let lookupFailed = false;
+    let contextRequest: ResearchPlanningContextRequest | undefined;
+    let knowledgeScope: BuiltinKnowledgeScope | undefined;
     const reconAdjustment = adjustment?.trim() || undefined;
-    let candidateContent = "";
-    candidateContent = await streamChatResponse(
-      initial.sessionId,
-      model,
-      [],
-      buildResearchPlanPrompt({
-        task: initial,
-        adjustment: reconAdjustment,
-        reconnaissanceAllowed: reconEnabled,
-        allowedSourceTypes,
-        strategy,
-      }),
-      [],
-      {
-        ...chatConfig,
-        chatMode: "research",
-        useAgentMode: false,
-        useDeepResearch: true,
-        useSearch: reconEnabled,
-        useReasoning: false,
-      },
-      (text) => {
-        candidateContent = text;
-      },
-      [
-        effective.systemInstruction,
-        reconEnabled
-          ? "This is bounded pre-approval reconnaissance. Only public web search summaries are allowed: at most two queries, five results per query, and thirty seconds total. Do not fetch source bodies. Reconnaissance is audit metadata, not report evidence."
-          : "Public reconnaissance is unavailable. Generate the plan with source feasibility explicitly treated as unverified.",
-      ]
-        .filter(Boolean)
-        .join("\n\n"),
-      undefined,
-      (toolCalls) => {
-        planningToolCalls = toolCalls;
-      },
-      undefined,
-      undefined,
-      controller.signal,
-      [],
-      undefined,
-      undefined,
-      toolConfirmationController,
-      {
-        executionWorkflow: { kind: "research", phase: "plan" },
-        allowedToolIds: reconEnabled ? ["web_search"] : [],
-        enforceAllowedToolIds: true,
-        allowedToolEffects: reconEnabled ? ["network_read"] : ["local_read"],
-        approvalMode: effective.approvalMode,
-        researchQueryBudget: reconQueryBudget,
-        agentBudget: {
-          maxToolRounds: Math.min(3, initial.budget.maxToolRounds),
-          maxToolCalls: Math.min(2, initial.budget.maxToolCalls),
-          maxDurationMs: Math.min(
-            10 * 60 * 1_000,
-            initial.budget.maxDurationMs,
-          ),
-          ...(initial.budget.maxTotalTokens
-            ? { maxTotalTokens: initial.budget.maxTotalTokens }
-            : {}),
-        },
-        agentRun: {
-          id: reconRunId,
-          userMessageId: initial.userMessageId,
-          modelMessageId: initial.cardMessageId,
-        },
-        abortAgentRunAsInterrupted: true,
-      },
-    );
+
+    const requestPlan = async (stage: ResearchPlanningStage) => {
+      controller.signal.throwIfAborted();
+      const lookup = stage === "knowledge" || stage === "web";
+      const runId = stage === "initial" ? reconRunId : uuidv7();
+      if (stage !== "initial") {
+        await store.updateTask(taskId, (current) => ({
+          ...current,
+          agentRunIds: [...current.agentRunIds, runId],
+        }));
+      }
+      controller.signal.throwIfAborted();
+      const deadlineAt = lookup
+        ? Date.now() +
+          (stage === "web"
+            ? RESEARCH_RECON_LIMITS.timeoutMs
+            : RESEARCH_RECON_LIMITS.knowledgeTimeoutMs)
+        : undefined;
+      const lookupSignal = createQuerySignal(controller.signal, deadlineAt);
+      const queryBudget: BuiltinResearchQueryBudget | undefined = lookup
+        ? {
+            remainingQueries: 2,
+            maxResultsPerQuery: 5,
+            seenQueries: new Set<string>(),
+            deadlineAt,
+            ...(stage === "web"
+              ? { allowedQueries: new Set(contextRequest!.queries) }
+              : {}),
+            onQueriesExecuted: (queries) => {
+              (stage === "knowledge" ? knowledgeQueries : executedQueries).push(
+                ...queries,
+              );
+            },
+          }
+        : undefined;
+      let content = "";
+      let roundToolCalls: ToolCall[] = [];
+      const priorToolCalls = planningToolCalls;
+      try {
+        content = await streamChatResponse(
+          initial.sessionId,
+          model,
+          [],
+          buildResearchPlanPrompt({
+            task: initial,
+            adjustment: reconAdjustment,
+            stage,
+            contextRequest,
+            planningContext,
+            allowedSourceTypes,
+            strategy,
+            template,
+            preserveInitialContract: preserveInitialTemplateContract,
+          }),
+          [],
+          {
+            ...chatConfig,
+            chatMode: "research",
+            useAgentMode: false,
+            useDeepResearch: true,
+            useSearch: stage === "web",
+            useReasoning: false,
+          },
+          (text) => {
+            content = text;
+          },
+          [effective.systemInstruction, RESEARCH_PLANNING_SYSTEM_INSTRUCTION]
+            .filter(Boolean)
+            .join("\n\n"),
+          undefined,
+          (toolCalls) => {
+            roundToolCalls = toolCalls;
+            planningToolCalls = [...priorToolCalls, ...toolCalls];
+          },
+          undefined,
+          undefined,
+          lookupSignal.signal,
+          [],
+          undefined,
+          undefined,
+          toolConfirmationController,
+          {
+            executionWorkflow: { kind: "research", phase: "plan" },
+            disableTools: !lookup,
+            disableImageGeneration: true,
+            allowedToolIds:
+              stage === "knowledge"
+                ? ["search_knowledge"]
+                : stage === "web"
+                  ? ["web_search"]
+                  : [],
+            enforceAllowedToolIds: true,
+            allowedToolEffects:
+              stage === "web" ? ["network_read"] : ["local_read"],
+            approvalMode: effective.approvalMode,
+            researchQueryBudget: queryBudget,
+            ...(stage === "knowledge" ? { knowledgeScope } : {}),
+            agentBudget: {
+              maxToolRounds: Math.min(3, initial.budget.maxToolRounds),
+              maxToolCalls: Math.min(2, initial.budget.maxToolCalls),
+              maxDurationMs: Math.min(
+                10 * 60 * 1_000,
+                initial.budget.maxDurationMs,
+              ),
+              ...(initial.budget.maxTotalTokens
+                ? { maxTotalTokens: initial.budget.maxTotalTokens }
+                : {}),
+            },
+            agentRun: {
+              id: runId,
+              userMessageId: initial.userMessageId,
+              modelMessageId: initial.cardMessageId,
+            },
+            abortAgentRunAsInterrupted: true,
+          },
+        );
+        controller.signal.throwIfAborted();
+        lookupSignal.signal?.throwIfAborted();
+        return content;
+      } catch (error) {
+        const lookupTimedOut =
+          lookupSignal.signal?.aborted &&
+          lookupSignal.signal.reason instanceof Error &&
+          lookupSignal.signal.reason.name === "TimeoutError";
+        if (
+          !lookup ||
+          (isAbortError(error) && !lookupTimedOut) ||
+          controller.signal.aborted ||
+          error instanceof AgentRunLeaseConflictError
+        )
+          throw error;
+        // A failed optional lookup cannot turn a recoverable plan into a failed task.
+        lookupFailed = true;
+        planningContext += `\n${stage} lookup could not finish. Plan using explicit assumptions.`;
+        return parseResearchPlanningResponse(content)?.kind === "plan"
+          ? content
+          : JSON.stringify(contextRequest);
+      } finally {
+        lookupSignal.cleanup();
+        if (lookup) {
+          lookupFailed ||= roundToolCalls.some(
+            (call) =>
+              call.status === "error" || getToolResultError(call) !== null,
+          );
+          const results = roundToolCalls.slice(0, 2).map((call) => {
+            const result = getToolResultData(call);
+            const sources = Array.isArray(result?.sources)
+              ? result.sources
+              : [];
+            return {
+              tool: call.name,
+              error: getToolResultError(call)?.message,
+              sources: sources
+                .filter(isRecord)
+                .slice(0, 5)
+                .map((source) => ({
+                  title:
+                    typeof source.title === "string"
+                      ? source.title.slice(0, 500)
+                      : "",
+                  content:
+                    typeof source.content === "string"
+                      ? source.content.slice(0, 2_000)
+                      : "",
+                })),
+            };
+          });
+          planningContext =
+            `${planningContext}\n${JSON.stringify({ stage, results })}`.slice(
+              0,
+              24_000,
+            );
+        }
+      }
+    };
+
+    let candidateContent = await requestPlan("initial");
+    let response = parseResearchPlanningResponse(candidateContent);
+    const contextRequested = response?.kind === "needs_context";
+    if (response?.kind === "needs_context") {
+      // This immutable request predates all private knowledge. Later model text
+      // cannot supply new public queries through a needs_context response.
+      contextRequest = { ...response, queries: [...response.queries] };
+      if (
+        provisionalSnapshot.knowledgeCollectionIds.length > 0 &&
+        provisionalSnapshot.toolIds.includes("search_knowledge")
+      ) {
+        try {
+          const messages = await loadSessionMessages(initial.sessionId);
+          const sourceContext = buildResearchExecutionSourceContext(
+            provisionalSnapshot,
+            messages.find((message) => message.id === initial.userMessageId)
+              ?.attachments || [],
+          );
+          knowledgeScope = {
+            attachments: sourceContext.approvedKnowledgeAttachments,
+            collections: sourceContext.collections,
+            ragConfig: { ...settings.rag },
+          };
+        } catch (error) {
+          if (isAbortError(error) || controller.signal.aborted) throw error;
+          lookupFailed = true;
+          planningContext +=
+            "\nSelected knowledge is unavailable. State the limitation in the plan assumptions.";
+        }
+        if (knowledgeScope) {
+          candidateContent = await requestPlan("knowledge");
+          response = parseResearchPlanningResponse(candidateContent);
+        }
+      }
+      if (response?.kind === "needs_context" && reconEnabled) {
+        candidateContent = await requestPlan("web");
+        response = parseResearchPlanningResponse(candidateContent);
+      }
+      if (response?.kind === "needs_context") {
+        candidateContent = await requestPlan("final");
+        response = parseResearchPlanningResponse(candidateContent);
+      }
+    }
+    if (response?.kind === "plan")
+      candidateContent = JSON.stringify(response.plan);
     controller.signal.throwIfAborted();
     const reconCompletedAt = Date.now();
 
@@ -194,6 +378,8 @@ export async function prepareResearchPlan({
         plan: result.data,
         strategy,
         allowedSourceTypes,
+        template,
+        preserveInitialContract: preserveInitialTemplateContract,
       });
       const issues = validateResearchPlanHostContract({
         plan,
@@ -218,9 +404,12 @@ export async function prepareResearchPlan({
         buildResearchPlanRepairPrompt({
           task: initial,
           invalidOutput: attemptContent,
+          planningContext,
           issues: evaluated.issues,
           allowedSourceTypes,
           strategy,
+          template,
+          preserveInitialContract: preserveInitialTemplateContract,
         }),
         [],
         {
@@ -246,6 +435,7 @@ export async function prepareResearchPlan({
         undefined,
         {
           disableTools: true,
+          disableImageGeneration: true,
           agentRun: {
             id: attempt === 0 ? criticRunId : uuidv7(),
             userMessageId: initial.userMessageId,
@@ -280,6 +470,9 @@ export async function prepareResearchPlan({
 
     const recon = buildResearchReconSnapshot({
       enabled: reconEnabled,
+      requested: contextRequested,
+      failed: lookupFailed,
+      knowledgeQueries,
       providerId: settings.search.provider,
       startedAt: reconStartedAt,
       completedAt: reconCompletedAt,

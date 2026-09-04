@@ -62,7 +62,8 @@ describe("Deep Research scope expansion composition", () => {
     expect(legacyBranch).toContain(
       'transitionResearchTask(withRun, "researching"',
     );
-    expect(legacyBranch).toContain("launchResearch(taskId)");
+    expect(dispatch).toContain("launchResearch(taskId, lease)");
+    expect(legacyBranch).toContain("return true");
     expect(legacyBranch).not.toContain("preparePlan");
   });
 });

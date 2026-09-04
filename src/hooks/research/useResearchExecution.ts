@@ -4,14 +4,8 @@ import type {
   AgentUserInputController,
   ToolConfirmationController,
 } from "@/types";
-import {
-  finalizeResearchReportRun,
-  getActiveResearchReportRun,
-  isTerminalResearchStatus,
-  transitionResearchTask,
-  upsertResearchReportRun,
-} from "@/lib/research";
-import { useResearchStore } from "@/store/core/researchStore";
+import type { ResearchTaskExecutionLease } from "@/services/research/taskExecutionLock";
+import { logDevError } from "@/lib/utils/devLogger";
 
 import { executeResearchRun } from "@/lib/research/runtime/executeResearch";
 import type {
@@ -23,11 +17,10 @@ import type {
   RunningOperation,
 } from "@/lib/research/runtime/operations";
 import type { ResearchDependencyText } from "@/lib/research/runtime/taskContext";
-import { aggregateTaskUsage } from "@/lib/research/runtime/usage";
 
 /**
- * `executeResearch` awaits the run; `launchResearch` fires it off and owns the
- * only place an unhandled execution failure is turned into a failed task.
+ * Execution keeps the caller's explicit lease through the full run. Lifecycle
+ * actions decide whether their UI caller waits for completion or only startup.
  */
 export function useResearchExecution({
   runOperation,
@@ -51,10 +44,11 @@ export function useResearchExecution({
   onNotice?: (message: string) => void;
 }) {
   const executeResearch = useCallback(
-    async (taskId: string) => {
+    async (taskId: string, lease?: ResearchTaskExecutionLease) => {
       await runOperation(taskId, "research", (controller) =>
         executeResearchRun({
           taskId,
+          lease,
           controller,
           operationsRef,
           userInputController,
@@ -81,41 +75,17 @@ export function useResearchExecution({
   );
 
   const launchResearch = useCallback(
-    (taskId: string) => {
-      void executeResearch(taskId).catch(async (error) => {
-        const store = useResearchStore.getState();
-        const task = store.tasksById[taskId];
-        if (
-          !task ||
-          task.status === "paused" ||
-          isTerminalResearchStatus(task.status)
-        ) {
-          return;
-        }
-        const failedAt = Date.now();
-        await store.updateTask(taskId, (current) => {
-          const activeRun = getActiveResearchReportRun(current);
-          const withRun = activeRun
-            ? upsertResearchReportRun(
-                current,
-                finalizeResearchReportRun(activeRun, "failed", failedAt),
-              )
-            : current;
-          return {
-            ...transitionResearchTask(withRun, "failed", { now: failedAt }),
-            usage: aggregateTaskUsage(withRun),
-            error: {
-              code: "RESEARCH_EXECUTION_FAILED",
-              message: localizedRuntimeError(error, "executionFallback"),
-              recoverable: true,
-            },
-          };
-        });
-        store.setActiveTask(null);
+    async (taskId: string, lease?: ResearchTaskExecutionLease) => {
+      try {
+        await executeResearch(taskId, lease);
+      } catch (error) {
+        // Failures inside execution are persisted while its lease is held.
+        // A lock failure must never write a stale local task after release.
+        logDevError("Research execution could not start", error);
         onError?.(t("runtime.error.report"));
-      });
+      }
     },
-    [executeResearch, localizedRuntimeError, onError, t],
+    [executeResearch, onError, t],
   );
 
   return { executeResearch, launchResearch };

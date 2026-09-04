@@ -1,6 +1,7 @@
 import type { LearningPacket } from "../types";
 import { formatZodIssues, parseJsonObjects } from "./json";
 import { wavePacketSchema, waveEnvelopeSchema } from "./schemas";
+import { createResearchWaveSourceReferenceResolver } from "./waveAliases";
 import type {
   ParsedResearchWavePackets,
   ResearchWaveAliasContext,
@@ -26,6 +27,70 @@ export function getResearchClaimSignature(
   claimText: string,
 ): string {
   return claimText.normalize("NFKC").trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+function normalizePacketSourceReferences(
+  packet: unknown,
+  resolve: ReturnType<typeof createResearchWaveSourceReferenceResolver>,
+): { packet: unknown; issues: string[] } {
+  const issues: string[] = [];
+  const isRecord = (value: unknown): value is Record<string, unknown> =>
+    Boolean(value && typeof value === "object" && !Array.isArray(value));
+  const reference = (value: unknown, path: string): unknown => {
+    if (typeof value !== "string") return value;
+    const resolved = resolve(value);
+    if ("key" in resolved) return resolved.key;
+    issues.push(`${path}: ${resolved.error}`);
+    return value;
+  };
+  if (!isRecord(packet)) return { packet, issues };
+  return {
+    packet: {
+      ...packet,
+      ...(Array.isArray(packet.learnings)
+        ? {
+            learnings: packet.learnings.map((learning, index) =>
+              isRecord(learning) && Array.isArray(learning.sourceKeys)
+                ? {
+                    ...learning,
+                    sourceKeys: learning.sourceKeys.map((value, sourceIndex) =>
+                      reference(
+                        value,
+                        `learnings.${index}.sourceKeys.${sourceIndex}`,
+                      ),
+                    ),
+                  }
+                : learning,
+            ),
+          }
+        : {}),
+      ...(Array.isArray(packet.sourceAssessments)
+        ? {
+            sourceAssessments: packet.sourceAssessments.map(
+              (assessment, index) =>
+                isRecord(assessment)
+                  ? {
+                      ...assessment,
+                      sourceKey: reference(
+                        assessment.sourceKey,
+                        `sourceAssessments.${index}.sourceKey`,
+                      ),
+                      ...(assessment.mirrorOfSourceKey != null
+                        ? {
+                            mirrorOfSourceKey: reference(
+                              assessment.mirrorOfSourceKey,
+                              `sourceAssessments.${index}.mirrorOfSourceKey`,
+                            ),
+                          }
+                        : {}),
+                    }
+                  : assessment,
+            ),
+          }
+        : {}),
+    },
+    issues,
+  };
 }
 
 export function parseResearchWavePackets(
@@ -69,6 +134,9 @@ export function parseResearchWavePackets(
   const sourceByKey = new Map(
     options.aliases.sources.map((source) => [source.key, source]),
   );
+  const resolveSourceReference = createResearchWaveSourceReferenceResolver(
+    options.aliases.sources,
+  );
   const issues: string[] = [];
   const attemptedNodeKeys = new Set<string>();
   const packetsByNodeKey = new Map<string, LearningPacket>();
@@ -88,7 +156,17 @@ export function parseResearchWavePackets(
     if (inferredNodeKey && requestedNodeKeySet.has(inferredNodeKey)) {
       attemptedNodeKeys.add(inferredNodeKey);
     }
-    const parsedPacket = wavePacketSchema.safeParse(rawPacket);
+    const normalized = normalizePacketSourceReferences(
+      rawPacket,
+      resolveSourceReference,
+    );
+    if (normalized.issues.length > 0) {
+      issues.push(
+        ...normalized.issues.map((issue) => `packets.${packetIndex}.${issue}`),
+      );
+      continue;
+    }
+    const parsedPacket = wavePacketSchema.safeParse(normalized.packet);
     if (!parsedPacket.success) {
       issues.push(
         ...formatZodIssues(parsedPacket.error).map(

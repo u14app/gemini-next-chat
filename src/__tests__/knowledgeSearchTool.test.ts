@@ -52,6 +52,47 @@ describe("search_knowledge built-in", () => {
     mocks.retrieveKnowledgeSources.mockResolvedValue({ sources: [] });
   });
 
+  it("bounds planning queries and passages without charging the research source budget", async () => {
+    mocks.retrieveKnowledgeSources.mockResolvedValue({
+      sources: Array.from({ length: 10 }, (_, i) => ({
+        title: `Note ${i}`,
+        content: "Concept",
+        url: `knowledge://collection-1/${i}`,
+      })),
+    });
+    const queryBudget = { remainingQueries: 2, maxResultsPerQuery: 5 };
+    const binding = createKnowledgeSearchBinding({ queryBudget });
+    const result = await binding.execute(
+      { query: "unknown concept" },
+      createContext(),
+    );
+    expect((result as { sources: unknown[] }).sources).toHaveLength(5);
+    expect(mocks.retrieveKnowledgeSources.mock.calls[0][0].ragConfig.topK).toBe(
+      5,
+    );
+    await binding.execute({ query: "second concept" }, createContext());
+    await expect(
+      binding.execute({ query: "third concept" }, createContext()),
+    ).resolves.toMatchObject({
+      error: { code: "RESEARCH_QUERY_BUDGET_EXHAUSTED" },
+    });
+    expect(mocks.retrieveKnowledgeSources).toHaveBeenCalledTimes(2);
+  });
+
+  it("stops an expired planning lookup before reading the knowledge store", async () => {
+    const binding = createKnowledgeSearchBinding({
+      queryBudget: {
+        remainingQueries: 2,
+        maxResultsPerQuery: 5,
+        deadlineAt: Date.now() - 1,
+      },
+    });
+    await expect(
+      binding.execute({ query: "concept" }, createContext()),
+    ).resolves.toMatchObject({ error: { code: "RESEARCH_RECON_TIMEOUT" } });
+    expect(mocks.retrieveKnowledgeSources).not.toHaveBeenCalled();
+  });
+
   it("intersects collection_ids without widening a file-only scope", async () => {
     const binding = createKnowledgeSearchBinding();
 

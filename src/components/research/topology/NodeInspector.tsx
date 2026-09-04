@@ -7,6 +7,7 @@ import { useTranslations } from "next-intl";
 import { InlineStatus } from "@/components/ui/primitives";
 
 import type { ResearchNodeView } from "../types";
+import { ResearchNodeSteering } from "../ui/ResearchNodeSteering";
 
 import { PlanList, RunStatusIcon, StopReasonText } from "./primitives";
 
@@ -14,10 +15,12 @@ export function NodeInspector({
   node,
   parent,
   evidenceTitles,
+  taskId,
 }: {
   node: ResearchNodeView | undefined;
   parent: ResearchNodeView | undefined;
   evidenceTitles: string[];
+  taskId: string;
 }) {
   const t = useTranslations("Research");
   if (!node) {
@@ -52,6 +55,8 @@ export function NodeInspector({
           </h3>
         </div>
       </div>
+
+      <ResearchNodeSteering key={node.id} taskId={taskId} nodeId={node.id} />
 
       <dl className="mt-4 grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-border bg-border text-xs">
         <div className="bg-background px-3 py-2.5">

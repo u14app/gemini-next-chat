@@ -1,0 +1,21 @@
+{
+  "arxivTitle": "arXiv",
+  "arxivDescription": "检索预印本，读取指定版本的摘要和文献记录。",
+  "pubmedTitle": "PubMed",
+  "pubmedDescription": "检索生物医学文献，读取摘要和出版记录。",
+  "epo-opsTitle": "EPO OPS",
+  "epo-opsDescription": "检索全球专利，读取公开书目和可用摘要。",
+  "sec-edgarTitle": "SEC EDGAR",
+  "sec-edgarDescription": "按公司名、股票代码或 CIK 检索申报，读取主要申报文件。",
+  "clientId": "客户端 ID",
+  "clientSecret": "客户端密钥",
+  "epoCredentialsHelp": "填写 EPO OPS 应用的两项凭据，系统会将它们整体加密保存。",
+  "credentialsSaved": "凭据已保存，可按需启用插件。",
+  "saveFailed": "无法保存凭据，请重试。",
+  "save": "保存凭据",
+  "saving": "正在保存…",
+  "clear": "清除凭据",
+  "secContact": "机构名称和联系邮箱",
+  "secContactPlaceholder": "机构名称 contact@example.com",
+  "fixedEndpoints": "使用固定的官方地址。检索结果仅供发现来源，读取文档后才可作为证据。"
+}

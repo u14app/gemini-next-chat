@@ -12,6 +12,10 @@ export interface ResearchViewModelText {
   toolRunningTitle: (tool: string) => string;
   toolCommittedTitle: (tool: string) => string;
   toolFailedTitle: (tool: string) => string;
+  toolSkippedTitle: (tool: string) => string;
+  duplicateSkippedDetail: string;
+  toolEffectUnknownTitle: (tool: string) => string;
+  toolInterruptedTitle: (tool: string) => string;
   toolSourceDetail: (source: string) => string;
   internalToolResultSource: string;
   toolSafeDetail: string;
@@ -37,10 +41,15 @@ export const DEFAULT_TEXT: ResearchViewModelText = {
   toolRunningTitle: (tool) => `Using ${tool}`,
   toolCommittedTitle: (tool) => `Completed ${tool}`,
   toolFailedTitle: (tool) => `${tool} did not complete`,
+  toolSkippedTitle: (tool) => `${tool}: duplicate query skipped`,
+  duplicateSkippedDetail:
+    "This query was already submitted. No additional search request was sent.",
+  toolEffectUnknownTitle: (tool) => `${tool} result could not be confirmed`,
+  toolInterruptedTitle: (tool) => `${tool} was interrupted`,
   toolSourceDetail: (source) => `Read-only source: ${source}`,
   internalToolResultSource: "Internal tool result",
   toolSafeDetail: "Read-only operation; raw arguments and results are hidden.",
-  degradedWaveTitle: (wave) => `Wave ${wave} archived with evidence gaps`,
+  degradedWaveTitle: (wave) => `Round ${wave} archived with evidence gaps`,
   degradedWaveDetail: (count) =>
     `${count} research nodes produced no valid learning packet. Preserved evidence remains available and the report will continue with explicit gaps.`,
   scopeExpansionTitle: "Research scope expanded automatically",

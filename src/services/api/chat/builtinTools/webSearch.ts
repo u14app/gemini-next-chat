@@ -4,12 +4,31 @@ import {
   normalizeSearchSources,
 } from "@/lib/search/results";
 import { getToolArgumentSensitivity } from "@/lib/plugin/risk";
+import {
+  normalizeResearchDate,
+  normalizeResearchDomain,
+  type ResearchSearchPolicy,
+} from "@/lib/research/searchPolicy";
 import { createEvidenceSource } from "@/lib/agent/evidence";
-import { mapWithConcurrency } from "@/lib/utils/concurrency";
-import { createSearchProvider } from "@/services/api/searchService";
+import {
+  mapSettledWithConcurrency,
+  mapWithConcurrency,
+} from "@/lib/utils/concurrency";
+import { describeSearchFailure } from "@/lib/search/errors";
+import {
+  createSearchProvider,
+  type SearchOptions,
+} from "@/services/api/searchService";
 import type { SearchTimeRange } from "@/types";
 
 import type { BuiltinResearchQueryBudget, BuiltinToolBinding } from "./types";
+
+import {
+  consumeResearchQueries,
+  queryBudgetError,
+  createQuerySignal,
+  errorResult,
+} from "./researchQueryBudget";
 
 const WEB_SEARCH_QUERY_MAX_CHARS = 4_000;
 
@@ -17,86 +36,17 @@ interface ResearchSearchBindingOptions {
   queryBudget?: BuiltinResearchQueryBudget;
 }
 
-function consumeResearchQueries(
-  budget: BuiltinResearchQueryBudget | undefined,
-  queries: string[],
-): "ok" | "exhausted" | "duplicate" | "timed_out" {
-  if (!budget) return "ok";
-  if (budget.deadlineAt !== undefined && Date.now() >= budget.deadlineAt) {
-    return "timed_out";
-  }
-  const normalized = queries.map((query) =>
-    query.normalize("NFKC").trim().replace(/\s+/g, " ").toLowerCase(),
-  );
-  const unique = new Set(normalized);
-  if (
-    unique.size !== normalized.length ||
-    normalized.some((query) => budget.seenQueries?.has(query))
-  ) {
-    return "duplicate";
-  }
-  if (queries.length > budget.remainingQueries) return "exhausted";
-  budget.remainingQueries -= queries.length;
-  normalized.forEach((query) => budget.seenQueries?.add(query));
-  budget.onQueriesExecuted?.([...queries]);
-  return "ok";
-}
-
-function queryBudgetError(
-  result: Exclude<ReturnType<typeof consumeResearchQueries>, "ok">,
+function search(
+  options: SearchOptions,
+  signal: AbortSignal | undefined,
+  queryBudget: BuiltinResearchQueryBudget | undefined,
 ) {
-  if (result === "duplicate") {
-    return errorResult(
-      "RESEARCH_QUERY_DUPLICATE",
-      "The normalized research query was already executed in this run.",
-    );
-  }
-  if (result === "timed_out") {
-    return errorResult(
-      "RESEARCH_RECON_TIMEOUT",
-      "The pre-approval reconnaissance deadline has elapsed.",
-    );
-  }
-  return errorResult(
-    "RESEARCH_QUERY_BUDGET_EXHAUSTED",
-    "The approved research query budget is exhausted.",
-  );
-}
-
-function createQuerySignal(
-  parentSignal: AbortSignal | undefined,
-  deadlineAt: number | undefined,
-): { signal: AbortSignal | undefined; cleanup: () => void } {
-  if (deadlineAt === undefined) {
-    return { signal: parentSignal, cleanup: () => undefined };
-  }
-  const controller = new AbortController();
-  const forwardAbort = () => controller.abort(parentSignal?.reason);
-  if (parentSignal?.aborted) forwardAbort();
-  else parentSignal?.addEventListener("abort", forwardAbort, { once: true });
-  const timeoutId = setTimeout(
-    () =>
-      controller.abort(new DOMException("Recon timed out.", "TimeoutError")),
-    Math.max(0, deadlineAt - Date.now()),
-  );
-  return {
-    signal: controller.signal,
-    cleanup: () => {
-      clearTimeout(timeoutId);
-      parentSignal?.removeEventListener("abort", forwardAbort);
-    },
-  };
-}
-
-function errorResult(code: string, message: string) {
-  return {
-    ok: false as const,
-    error: {
-      code,
-      message,
-      recoverable: true,
-    },
-  };
+  return queryBudget
+    ? createSearchProvider(options, signal, {
+        purpose: "research",
+        deadlineAt: queryBudget.deadlineAt,
+      })
+    : createSearchProvider(options, signal);
 }
 
 export function createWebSearchBinding(
@@ -164,6 +114,16 @@ export function createWebSearchBinding(
           "web_search requires a non-empty query.",
         );
       }
+      const scopedFilters = applyApprovedSearchPolicy(
+        { domains: [] },
+        options.queryBudget?.searchPolicy,
+      );
+      if (!scopedFilters.ok) {
+        return errorResult(
+          "RESEARCH_SEARCH_SCOPE_CONFLICT",
+          "The requested web search conflicts with the approved research scope.",
+        );
+      }
       const budgetResult = consumeResearchQueries(options.queryBudget, [query]);
       if (budgetResult !== "ok") return queryBudgetError(budgetResult);
 
@@ -188,18 +148,29 @@ export function createWebSearchBinding(
         options.queryBudget?.deadlineAt,
       );
       try {
-        const result = await createSearchProvider(
-          { query, maxResults },
+        const effectiveQuery = buildFilteredQuery(query, scopedFilters);
+        const result = await search(
+          { query: effectiveQuery, maxResults },
           querySignal.signal,
+          options.queryBudget,
         );
         context.signal?.throwIfAborted();
         const sources = await Promise.all(
-          normalizeSearchSources(result.sources, {
-            maxSources: Math.min(
-              maxResults ?? SEARCH_RESULT_LIMITS.maxSources,
-              SEARCH_RESULT_LIMITS.maxSources,
+          normalizeSearchSources(
+            result.sources.filter((source) =>
+              isAllowedSearchResult(
+                source,
+                scopedFilters.domains,
+                scopedFilters.excludedDomains,
+              ),
             ),
-          }).map((source) =>
+            {
+              maxSources: Math.min(
+                maxResults ?? SEARCH_RESULT_LIMITS.maxSources,
+                SEARCH_RESULT_LIMITS.maxSources,
+              ),
+            },
+          ).map((source) =>
             createEvidenceSource(source, { kind: "search", query }),
           ),
         );
@@ -218,7 +189,7 @@ export function createWebSearchBinding(
           querySignal.signal.reason instanceof Error &&
           querySignal.signal.reason.name === "TimeoutError";
         if (timedOut) {
-          const message = "The pre-approval reconnaissance timed out.";
+          const message = "The research search deadline elapsed.";
           context.emit.search?.({ phase: "error", message });
           return errorResult("RESEARCH_RECON_TIMEOUT", message);
         }
@@ -230,15 +201,9 @@ export function createWebSearchBinding(
           if (context.signal?.aborted) context.signal.throwIfAborted();
           throw error;
         }
-        const message =
-          error instanceof Error && error.message
-            ? error.message
-            : "Web search failed.";
-        context.emit.search?.({ phase: "error", message });
-        if (error instanceof Error && error.name === "TimeoutError") {
-          return errorResult("RESEARCH_RECON_TIMEOUT", message);
-        }
-        return errorResult("WEB_SEARCH_FAILED", message);
+        const failure = describeSearchFailure(error);
+        context.emit.search?.({ phase: "error", message: failure.message });
+        return { ok: false, error: failure };
       } finally {
         querySignal.cleanup();
       }
@@ -258,15 +223,108 @@ function readStringList(value: unknown, maxItems: number, maxChars: number) {
   ].slice(0, maxItems);
 }
 
+function isSameOrSubdomain(domain: string, parent: string): boolean {
+  return domain === parent || domain.endsWith(`.${parent}`);
+}
+
+function isAllowedSearchResult(
+  source: { url?: string },
+  domains: readonly string[],
+  excludedDomains: readonly string[],
+): boolean {
+  if (domains.length === 0 && excludedDomains.length === 0) return true;
+  if (!source.url) return false;
+  try {
+    const hostname = new URL(source.url).hostname.toLowerCase();
+    if (
+      excludedDomains.some((excluded) => isSameOrSubdomain(hostname, excluded))
+    ) {
+      return false;
+    }
+    return (
+      domains.length === 0 ||
+      domains.some((domain) => isSameOrSubdomain(hostname, domain))
+    );
+  } catch {
+    return false;
+  }
+}
+
+function applyApprovedSearchPolicy(
+  requested: {
+    domains: string[];
+    dateFrom?: string;
+    dateTo?: string;
+  },
+  policy: ResearchSearchPolicy | undefined,
+):
+  | {
+      ok: true;
+      domains: string[];
+      excludedDomains: string[];
+      dateFrom?: string;
+      dateTo?: string;
+    }
+  | { ok: false } {
+  if (!policy) {
+    return { ok: true, ...requested, excludedDomains: [] };
+  }
+  const requestedDomains = requested.domains.flatMap((value) => {
+    const domain = normalizeResearchDomain(value);
+    return domain ? [domain] : [];
+  });
+  const domains = (
+    policy.preferredDomains.length > 0
+      ? requestedDomains.length > 0
+        ? requestedDomains.filter((domain) =>
+            policy.preferredDomains.some((preferred) =>
+              isSameOrSubdomain(domain, preferred),
+            ),
+          )
+        : policy.preferredDomains
+      : requestedDomains
+  ).filter(
+    (domain) =>
+      !policy.excludedDomains.some((excluded) =>
+        isSameOrSubdomain(domain, excluded),
+      ),
+  );
+  if (policy.preferredDomains.length > 0 && domains.length === 0) {
+    return { ok: false };
+  }
+  const dateFrom =
+    policy.dateFrom && requested.dateFrom
+      ? policy.dateFrom > requested.dateFrom
+        ? policy.dateFrom
+        : requested.dateFrom
+      : policy.dateFrom || requested.dateFrom;
+  const dateTo =
+    policy.dateTo && requested.dateTo
+      ? policy.dateTo < requested.dateTo
+        ? policy.dateTo
+        : requested.dateTo
+      : policy.dateTo || requested.dateTo;
+  if (dateFrom && dateTo && dateFrom > dateTo) return { ok: false };
+  return {
+    ok: true,
+    domains: Array.from(new Set(domains)).slice(0, 8),
+    excludedDomains: [...policy.excludedDomains],
+    ...(dateFrom ? { dateFrom } : {}),
+    ...(dateTo ? { dateTo } : {}),
+  };
+}
+
 function buildFilteredQuery(
   query: string,
   {
     domains,
+    excludedDomains,
     language,
     dateFrom,
     dateTo,
   }: {
     domains: string[];
+    excludedDomains?: string[];
     language?: string;
     dateFrom?: string;
     dateTo?: string;
@@ -275,6 +333,9 @@ function buildFilteredQuery(
   const domainFilter = domains.length
     ? ` (${domains.map((domain) => `site:${domain}`).join(" OR ")})`
     : "";
+  const excludedDomainFilter = excludedDomains?.length
+    ? ` ${excludedDomains.map((domain) => `-site:${domain}`).join(" ")}`
+    : "";
   const dateFilter = [
     dateFrom ? `after:${dateFrom}` : "",
     dateTo ? `before:${dateTo}` : "",
@@ -282,10 +343,12 @@ function buildFilteredQuery(
     .filter(Boolean)
     .join(" ");
   const languageFilter = language ? ` language:${language}` : "";
-  return `${query}${domainFilter}${dateFilter ? ` ${dateFilter}` : ""}${languageFilter}`.slice(
+  const filterSuffix = `${domainFilter}${excludedDomainFilter}${dateFilter ? ` ${dateFilter}` : ""}${languageFilter}`;
+  const queryLimit = Math.max(
     0,
-    WEB_SEARCH_QUERY_MAX_CHARS,
+    WEB_SEARCH_QUERY_MAX_CHARS - filterSuffix.length,
   );
+  return `${query.slice(0, queryLimit)}${filterSuffix}`;
 }
 
 /** V2 search while retaining web_search as a compatibility alias. */
@@ -371,27 +434,45 @@ export function createSearchWebV2Binding(
           "search_web requires between one and four non-empty queries.",
         );
       }
-      const budgetResult = consumeResearchQueries(options.queryBudget, queries);
-      if (budgetResult !== "ok") return queryBudgetError(budgetResult);
-      const domains = readStringList(input.domains, 8, 253).filter((domain) =>
-        /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/i.test(
-          domain,
-        ),
+      const requestedDomains = readStringList(input.domains, 8, 253).filter(
+        (domain) => normalizeResearchDomain(domain),
       );
       const language =
         typeof input.language === "string" && input.language.trim()
           ? input.language.trim().slice(0, 20)
           : undefined;
-      const dateFrom =
-        typeof input.date_from === "string" ? input.date_from : undefined;
-      const dateTo =
-        typeof input.date_to === "string" ? input.date_to : undefined;
+      const requestedDateFrom = normalizeResearchDate(
+        typeof input.date_from === "string" ? input.date_from : undefined,
+      );
+      const requestedDateTo = normalizeResearchDate(
+        typeof input.date_to === "string" ? input.date_to : undefined,
+      );
+      const scopedFilters = applyApprovedSearchPolicy(
+        {
+          domains: requestedDomains,
+          ...(requestedDateFrom ? { dateFrom: requestedDateFrom } : {}),
+          ...(requestedDateTo ? { dateTo: requestedDateTo } : {}),
+        },
+        options.queryBudget?.searchPolicy,
+      );
+      if (!scopedFilters.ok) {
+        return errorResult(
+          "RESEARCH_SEARCH_SCOPE_CONFLICT",
+          "The requested web search conflicts with the approved research scope.",
+        );
+      }
+      const budgetResult = consumeResearchQueries(options.queryBudget, queries);
+      if (budgetResult !== "ok") return queryBudgetError(budgetResult);
+      const { domains, excludedDomains, dateFrom, dateTo } = scopedFilters;
       const mode = input.mode === "news" ? "news" : "web";
-      const timeRange = ["any", "day", "week", "month", "year"].includes(
-        String(input.time_range),
-      )
-        ? (input.time_range as SearchTimeRange)
-        : undefined;
+      const timeRange =
+        dateFrom || dateTo
+          ? undefined
+          : ["any", "day", "week", "month", "year"].includes(
+                String(input.time_range),
+              )
+            ? (input.time_range as SearchTimeRange)
+            : undefined;
       const maxResults = Number.isInteger(input.max_results_per_query)
         ? Math.min(
             options.queryBudget?.maxResultsPerQuery ??
@@ -410,14 +491,15 @@ export function createSearchWebV2Binding(
         options.queryBudget?.deadlineAt,
       );
       try {
-        const batches = await mapWithConcurrency(queries, 3, async (query) => {
+        const runQuery = async (query: string) => {
           const effectiveQuery = buildFilteredQuery(query, {
             domains,
+            excludedDomains,
             language,
             dateFrom,
             dateTo,
           });
-          const result = await createSearchProvider(
+          const result = await search(
             {
               query: effectiveQuery,
               scope: mode === "news" ? "news" : undefined,
@@ -425,13 +507,19 @@ export function createSearchWebV2Binding(
               timeRange,
             },
             querySignal.signal,
+            options.queryBudget,
           );
-          const normalized = normalizeSearchSources(result.sources, {
-            maxSources: Math.min(
-              maxResults ?? SEARCH_RESULT_LIMITS.maxSources,
-              SEARCH_RESULT_LIMITS.maxSources,
+          const normalized = normalizeSearchSources(
+            result.sources.filter((source) =>
+              isAllowedSearchResult(source, domains, excludedDomains),
             ),
-          });
+            {
+              maxSources: Math.min(
+                maxResults ?? SEARCH_RESULT_LIMITS.maxSources,
+                SEARCH_RESULT_LIMITS.maxSources,
+              ),
+            },
+          );
           return {
             query,
             sources: await Promise.all(
@@ -447,7 +535,42 @@ export function createSearchWebV2Binding(
               SEARCH_RESULT_LIMITS.maxImages,
             ),
           };
-        });
+        };
+        const settled = options.queryBudget
+          ? await mapSettledWithConcurrency(queries, 4, runQuery)
+          : (await mapWithConcurrency(queries, 3, runQuery)).map((value) => ({
+              status: "fulfilled" as const,
+              value,
+            }));
+        // A deadline may end a later query after an earlier one succeeded.
+        // Preserve those results; explicit user cancellation still aborts all.
+        const stageTimedOut =
+          options.queryBudget &&
+          context.signal?.aborted &&
+          context.signal.reason instanceof Error &&
+          context.signal.reason.name === "TimeoutError";
+        if (!stageTimedOut) context.signal?.throwIfAborted();
+        const batches = settled.flatMap((result) =>
+          result.status === "fulfilled" ? [result.value] : [],
+        );
+        const results = settled.map((result, index) =>
+          result.status === "fulfilled"
+            ? {
+                query: queries[index],
+                status: "completed" as const,
+                sourceCount: result.value.sources.length,
+              }
+            : {
+                query: queries[index],
+                status: "failed" as const,
+                error: describeSearchFailure(result.reason),
+              },
+        );
+        const failedCount = settled.length - batches.length;
+        if (batches.length === 0) {
+          const failed = settled.find((result) => result.status === "rejected");
+          throw failed?.reason ?? new Error("Web search failed.");
+        }
         const sources = [
           ...new Map(
             batches
@@ -468,14 +591,20 @@ export function createSearchWebV2Binding(
           mode,
           sources,
           images,
+          ...(failedCount > 0 ? { partial: true, failedCount, results } : {}),
           filters: {
             domains,
+            excludedDomains,
             language,
             dateFrom,
             dateTo,
             timeRange,
             appliedAs:
-              domains.length || language || dateFrom || dateTo
+              domains.length ||
+              excludedDomains.length ||
+              language ||
+              dateFrom ||
+              dateTo
                 ? "query_operators"
                 : timeRange
                   ? "provider_time_range"
@@ -488,7 +617,7 @@ export function createSearchWebV2Binding(
           querySignal.signal.reason instanceof Error &&
           querySignal.signal.reason.name === "TimeoutError";
         if (timedOut) {
-          const message = "The pre-approval reconnaissance timed out.";
+          const message = "The research search deadline elapsed.";
           context.emit.search?.({ phase: "error", message });
           return errorResult("RESEARCH_RECON_TIMEOUT", message);
         }
@@ -499,13 +628,9 @@ export function createSearchWebV2Binding(
           context.emit.search?.({ phase: "cancel" });
           throw error;
         }
-        const message =
-          error instanceof Error ? error.message : "Web search failed.";
-        context.emit.search?.({ phase: "error", message });
-        if (error instanceof Error && error.name === "TimeoutError") {
-          return errorResult("RESEARCH_RECON_TIMEOUT", message);
-        }
-        return errorResult("WEB_SEARCH_FAILED", message);
+        const failure = describeSearchFailure(error);
+        context.emit.search?.({ phase: "error", message: failure.message });
+        return { ok: false, error: failure };
       } finally {
         querySignal.cleanup();
       }

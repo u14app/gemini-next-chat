@@ -6,6 +6,7 @@ import type {
   ResearchEvidence,
   ResearchReportRun,
 } from "../types";
+import { areResearchQueriesSimilar } from "./strategy";
 
 function evidencePublisherIdentity(
   evidence: ResearchEvidence,
@@ -47,6 +48,33 @@ function evidencePublisherIdentity(
   }
 }
 
+function normalizedTitleTerms(value: string | undefined): Set<string> {
+  if (!value) return new Set();
+  return new Set(
+    value
+      .normalize("NFKC")
+      .toLowerCase()
+      .match(/[\p{L}\p{N}]+/gu) ?? [],
+  );
+}
+
+function probableSyndicatedCopy(
+  left: ResearchEvidence,
+  right: ResearchEvidence,
+): boolean {
+  const leftTerms = normalizedTitleTerms(left.title);
+  const rightTerms = normalizedTitleTerms(right.title);
+  const leftLength = Array.from(left.title?.replace(/\s+/g, "") ?? "").length;
+  const rightLength = Array.from(right.title?.replace(/\s+/g, "") ?? "").length;
+  if (
+    (leftTerms.size < 4 || rightTerms.size < 4) &&
+    (leftLength < 12 || rightLength < 12)
+  ) {
+    return false;
+  }
+  return areResearchQueriesSimilar(left.title ?? "", right.title ?? "");
+}
+
 export interface ResearchClaimVerification {
   status: ResearchClaimVerificationStatus;
   independentPublisherCount: number;
@@ -72,11 +100,21 @@ export function evaluateResearchClaimVerification(
     });
   const supporting = available(claim.supportingEvidenceIds);
   const contradicting = available(claim.contradictingEvidenceIds);
-  const uniqueSupporting = [
-    ...new Map(
-      supporting.map((item) => [item.contentHash, item] as const),
-    ).values(),
-  ];
+  const uniqueSupporting: ResearchEvidence[] = [];
+  for (const item of supporting) {
+    if (
+      uniqueSupporting.some(
+        (existing) =>
+          existing.contentHash === item.contentHash ||
+          evidencePublisherIdentity(existing, evidenceBySourceId) ===
+            evidencePublisherIdentity(item, evidenceBySourceId) ||
+          probableSyndicatedCopy(existing, item),
+      )
+    ) {
+      continue;
+    }
+    uniqueSupporting.push(item);
+  }
   const publishers = new Set(
     uniqueSupporting.map((item) =>
       evidencePublisherIdentity(item, evidenceBySourceId),
@@ -89,8 +127,9 @@ export function evaluateResearchClaimVerification(
     status = "unsupported";
   } else if (
     claim.importance === "background" ||
-    supporting.some((item) => item.authority === "primary") ||
-    publishers >= 2
+    uniqueSupporting.some(
+      (item) => item.authority === "primary" && !item.mirrorOfSourceId,
+    )
   ) {
     status = "verified";
   } else {

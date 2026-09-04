@@ -1,8 +1,47 @@
-import type { ResearchActivityView } from "../types";
+import type { ResearchActivityStatus, ResearchActivityView } from "../types";
 import type { AgentRun } from "@/lib/agent";
 import type { ResearchTask } from "@/lib/research";
 
 import type { ResearchViewModelText } from "./text";
+
+const RUNNING_TASK_STATUSES = new Set<ResearchTask["status"]>([
+  "clarifying",
+  "researching",
+  "verifying",
+  "synthesizing",
+]);
+const LIVE_RUN_STATUSES = new Set<AgentRun["status"]>([
+  "running",
+  "awaiting_input",
+  "awaiting_approval",
+]);
+
+function getToolActivityStatus(
+  status: "prepared" | "running" | "committed" | "failed" | "effect_unknown",
+  taskStatus: ResearchTask["status"],
+  runStatus: AgentRun["status"],
+): ResearchActivityStatus {
+  // A persisted prepared/running record is not proof that work is still live.
+  // Once the task is paused, cancelled, failed, or completed, show the
+  // interruption explicitly so the timeline cannot imply a live operation.
+  if (
+    (status === "prepared" || status === "running") &&
+    (!RUNNING_TASK_STATUSES.has(taskStatus) ||
+      !LIVE_RUN_STATUSES.has(runStatus))
+  ) {
+    return "interrupted";
+  }
+  return status;
+}
+
+function getTaskActivityStatus(
+  status: ResearchTask["status"],
+): ResearchActivityStatus {
+  if (status === "failed") return "failed";
+  if (status === "paused" || status === "cancelled") return "interrupted";
+  if (RUNNING_TASK_STATUSES.has(status)) return "info";
+  return "completed";
+}
 
 export function buildActivities(
   task: ResearchTask,
@@ -16,19 +55,27 @@ export function buildActivities(
       const source = run.evidence.find(
         (item) => item.toolCallId === execution.callId,
       );
-      const failed =
-        execution.status === "failed" || execution.status === "effect_unknown";
-      const committed = execution.status === "committed";
+      const status = getToolActivityStatus(
+        execution.status,
+        task.status,
+        run.status,
+      );
       return {
         id: execution.id,
         createdAt:
           execution.endedAt || execution.startedAt || execution.preparedAt,
         phase: "researching",
-        title: failed
-          ? text.toolFailedTitle(execution.toolName)
-          : committed
+        status,
+        title:
+          status === "committed"
             ? text.toolCommittedTitle(execution.toolName)
-            : text.toolRunningTitle(execution.toolName),
+            : status === "failed"
+              ? text.toolFailedTitle(execution.toolName)
+              : status === "effect_unknown"
+                ? text.toolEffectUnknownTitle(execution.toolName)
+                : status === "interrupted"
+                  ? text.toolInterruptedTitle(execution.toolName)
+                  : text.toolRunningTitle(execution.toolName),
         detail: source
           ? text.toolSourceDetail(
               source.url.startsWith("workspace:///tool-results/")
@@ -51,6 +98,7 @@ export function buildActivities(
           createdAt:
             wave.completedAt ?? wave.startedAt ?? run.endedAt ?? run.startedAt,
           phase: "researching",
+          status: "completed",
           title: text.degradedWaveTitle(wave.index),
           detail: text.degradedWaveDetail(degradedNodeIds.length),
           tone: "warning",
@@ -63,6 +111,7 @@ export function buildActivities(
       id: event.id,
       createdAt: event.at,
       phase: "researching",
+      status: "completed",
       title: text.scopeExpansionTitle,
       detail: [
         event.scheduledFollowUpIds.length > 0
@@ -86,6 +135,7 @@ export function buildActivities(
       id: `${task.id}-created`,
       createdAt: task.createdAt,
       phase: "draft",
+      status: "completed",
       title: text.taskCreatedTitle,
       detail: text.taskCreatedDetail,
     },
@@ -93,6 +143,7 @@ export function buildActivities(
       id: plan.id,
       createdAt: plan.createdAt,
       phase: "plan_ready" as const,
+      status: "completed" as const,
       title: text.planPreparedTitle(plan.version),
       detail: plan.adjustment
         ? text.planAdjustedDetail
@@ -105,6 +156,7 @@ export function buildActivities(
       id: report.id,
       createdAt: report.createdAt,
       phase: task.status,
+      status: "completed" as const,
       title: text.reportPublishedTitle(report.version),
       detail: text.reportKind[report.kind],
     })),
@@ -119,6 +171,7 @@ export function buildActivities(
       id: `${task.id}-${task.status}-${task.updatedAt}`,
       createdAt: task.updatedAt,
       phase: task.status,
+      status: getTaskActivityStatus(task.status),
       title: task.error?.message || text.statusTitle(task.status),
     });
   }

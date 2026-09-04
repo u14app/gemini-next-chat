@@ -28,6 +28,7 @@ import {
   createFetchUrlBinding,
   createFetchUrlsBinding,
 } from "../services/api/chat/builtinTools/fetchUrl";
+import { normalizeToolResultEnvelope } from "@/lib/agent/toolResult";
 
 const SESSION = "0192f0a1-1111-7000-8000-abcdefabcdef";
 const ROOT = `chat/workspace/${SESSION}`;
@@ -141,6 +142,32 @@ describe("fetch_urls evidence batch", () => {
     mocks.listOPFSDirectory.mockResolvedValue([]);
     mocks.statOPFSFileSize.mockResolvedValue(null);
     mocks.writeToOPFS.mockResolvedValue(undefined);
+  });
+
+  it("reports an all-failed batch as a failure with the upstream reason and keeps attempt accounting", async () => {
+    mocks.signedApiFetch.mockResolvedValue({
+      ok: false,
+      status: 502,
+      json: async () => ({ error: "The page responded with HTTP 429." }),
+    });
+    const sourceBudget = { remainingSourceBodies: 2 };
+    const result = await createFetchUrlsBinding({ sourceBudget }).execute(
+      { urls: ["https://example.test/one", "https://example.test/two"] },
+      context(),
+    );
+    const envelope = normalizeToolResultEnvelope(result, {
+      trust: "external_untrusted",
+      provenance: { origin: "builtin", toolName: "fetch_urls" },
+    });
+    expect(envelope).toMatchObject({
+      ok: false,
+      error: {
+        code: "FETCH_URLS_FAILED",
+        message: expect.stringContaining("429"),
+      },
+    });
+    expect(result).toMatchObject({ sourceCount: 0, failedCount: 2 });
+    expect(sourceBudget.remainingSourceBodies).toBe(0);
   });
 
   it("returns per-source Evidence and keeps partial failures bounded", async () => {

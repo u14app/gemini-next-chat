@@ -12,6 +12,7 @@ import {
   getResearchTaskRepository,
   registerResearchToolEmitters,
 } from "@/services/research";
+import { freezeResearchTaskTemplate } from "@/services/research/templates";
 
 import type { ResearchTranslate } from "@/lib/research/runtime/executionContext";
 import { resolveTaskContext } from "@/lib/research/runtime/taskContext";
@@ -26,6 +27,7 @@ export function useResearchToolBridge({
   claimActiveSlot,
   confirmPlan,
   preparePlan,
+  locale,
   t,
 }: {
   adjustPlan: (taskId: string, instruction: string) => Promise<void>;
@@ -36,6 +38,7 @@ export function useResearchToolBridge({
     adjustment?: string,
     requestModel?: string,
   ) => Promise<void>;
+  locale?: string;
   t: ResearchTranslate;
 }) {
   useEffect(() => {
@@ -66,13 +69,19 @@ export function useResearchToolBridge({
           },
           context.model,
         );
+        const effectiveStrategy = session.config?.researchStrategy
+          ? requestedStrategy
+          : resolveResearchStrategy(
+              budgetPreset,
+              draftContext.effective.researchTemplate?.strategy,
+            );
         const task = createResearchTask({
           sessionId: context.sessionId,
           userMessageId: context.userMessageId,
           cardMessageId: context.modelMessageId,
           goal: args.query,
           budgetPreset,
-          requestedStrategy,
+          requestedStrategy: effectiveStrategy,
           profileBudget: draftContext.effective.agentBudget,
         });
         const withRun = context.agentRunId
@@ -84,6 +93,25 @@ export function useResearchToolBridge({
             ...transitionResearchTask(withRun, "failed"),
             error: {
               code: "RESEARCH_PERSISTENCE_UNAVAILABLE",
+              message: t("runtime.error.persistence"),
+              recoverable: true,
+            },
+          };
+          await useResearchStore.getState().upsertTask(failed);
+          return { taskId: failed.id, status: failed.status };
+        }
+        try {
+          await freezeResearchTaskTemplate(
+            withRun.id,
+            draftContext.effective.researchTemplate,
+            Date.now(),
+            locale,
+          );
+        } catch {
+          const failed = {
+            ...transitionResearchTask(withRun, "failed"),
+            error: {
+              code: "RESEARCH_TEMPLATE_PERSISTENCE_UNAVAILABLE",
               message: t("runtime.error.persistence"),
               recoverable: true,
             },
@@ -124,5 +152,5 @@ export function useResearchToolBridge({
       },
     });
     return dispose;
-  }, [adjustPlan, claimActiveSlot, confirmPlan, preparePlan, t]);
+  }, [adjustPlan, claimActiveSlot, confirmPlan, locale, preparePlan, t]);
 }

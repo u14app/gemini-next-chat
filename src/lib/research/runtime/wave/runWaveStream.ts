@@ -1,3 +1,4 @@
+import { getFrozenResearchSourceContracts } from "@/lib/plugin/researchSources/contracts";
 import { type ResearchReportRun } from "@/lib/research";
 import { streamChatResponse } from "@/services/api/chatService";
 
@@ -81,6 +82,10 @@ export async function runWaveStream(
       allowedToolEffects: ["local_read", "network_read"],
       approvalMode: snapshot.approvalMode,
       researchQueryBudget: wave.queryBudget,
+      researchSourceContracts: await getFrozenResearchSourceContracts(
+        ctx.taskId,
+        snapshot,
+      ),
       researchSourceBudget: wave.sourceBudget,
       agentBudget: {
         ...availableBudget,

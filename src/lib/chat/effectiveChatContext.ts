@@ -14,6 +14,10 @@ import type {
   AgentRunBudget,
   AgentMemoryScope,
 } from "@/types";
+import {
+  resolveResearchTemplate,
+  type ResearchTemplate,
+} from "../research/templates";
 import type { SkillCatalogEntry } from "../skills/types";
 import {
   isPluginAuthRequired,
@@ -74,6 +78,8 @@ export interface EffectiveChatContext {
   approvalMode: AgentApprovalMode;
   agentBudget?: AgentRunBudget;
   agentProfileId?: string;
+  /** Resolved Research template. null is an explicit disable from a higher layer. */
+  researchTemplate?: ResearchTemplate | null;
   memoryScopes: AgentMemoryScope[];
   memoryScopeIds: {
     workspace?: string;
@@ -303,6 +309,12 @@ export function resolveEffectiveChatContext(
       },
     },
   );
+  const researchTemplate = resolveResearchTemplate(
+    workspace?.researchTemplate,
+    workspace?.agentProfile?.researchTemplate,
+    session?.config?.agentProfile?.researchTemplate,
+    session?.config?.researchTemplate,
+  );
   const profilePluginIds = resolvedAgentProfile.capabilities.pluginIds || [];
   const hasAgentProfileLayer = Boolean(
     session?.config?.agentProfile || workspace?.agentProfile,
@@ -403,6 +415,7 @@ export function resolveEffectiveChatContext(
     approvalMode: resolvedAgentProfile.runtime.approvalMode,
     agentBudget: resolvedAgentProfile.runtime.budget,
     agentProfileId: session?.config?.agentProfileId,
+    ...(researchTemplate !== undefined ? { researchTemplate } : {}),
     memoryScopes: resolvedAgentProfile.capabilities.memoryScopes || ["global"],
     memoryScopeIds: {
       ...(session?.workspaceId ? { workspace: session.workspaceId } : {}),

@@ -70,6 +70,12 @@ export function clonePlan(plan: ResearchPlanVersion): ResearchPlanVersion {
         : {}),
       includes: [...plan.scope.includes],
       excludes: [...plan.scope.excludes],
+      ...(plan.scope.preferredDomains
+        ? { preferredDomains: [...plan.scope.preferredDomains] }
+        : {}),
+      ...(plan.scope.excludedDomains
+        ? { excludedDomains: [...plan.scope.excludedDomains] }
+        : {}),
       allowedSourceTypes: [...plan.scope.allowedSourceTypes],
     },
     assumptions: [...plan.assumptions],
@@ -86,6 +92,14 @@ export function clonePlan(plan: ResearchPlanVersion): ResearchPlanVersion {
         domains: [...query.domains],
         ...(query.error ? { error: redactText(query.error) } : {}),
       })),
+      ...(plan.recon.knowledgeQueries
+        ? {
+            knowledgeQueries: plan.recon.knowledgeQueries.map((query) => ({
+              ...query,
+              ...(query.error ? { error: redactText(query.error) } : {}),
+            })),
+          }
+        : {}),
     },
     steps: plan.steps.map((step) => ({
       ...step,

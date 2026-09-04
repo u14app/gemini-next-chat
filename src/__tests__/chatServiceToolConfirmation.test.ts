@@ -389,6 +389,46 @@ describe("chat service tool execution", () => {
     vi.mocked(createSearchProvider).mockReset();
   });
 
+  it("keeps evidence answers text-only on an image-capable model", async () => {
+    mocks.supportsImageGeneration.mockReturnValue(true);
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(async () =>
+        sseResponse([
+          { type: "content", content: "Only the saved evidence is available." },
+          { type: "done" },
+        ]),
+      );
+    const { streamChatResponse } = await import("../services/api/chatService");
+    await streamChatResponse(
+      "session-1",
+      "openai:gpt-test",
+      [],
+      "Draw the finding in the saved report.",
+      [],
+      { chatMode: "chat", useSearch: false },
+      () => {},
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      [],
+      undefined,
+      undefined,
+      undefined,
+      { disableTools: true, disableImageGeneration: true },
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const payload = JSON.parse(
+      String((fetchMock.mock.calls[0]?.[1] as RequestInit).body),
+    );
+    expect(payload.enableImageGeneration).toBe(false);
+    expect(payload.tools).toEqual([]);
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("/api/chat");
+  });
+
   it("sends responseFormat only for an explicitly constrained internal round", async () => {
     const requestBodies: any[] = [];
     vi.spyOn(globalThis, "fetch").mockImplementation(async (_url, init) => {

@@ -5,6 +5,7 @@ import type { MessageOutputBlock, SessionMessageTree } from "@/types";
 import { useResearchStore } from "@/store/core/researchStore";
 
 import { getResearchTaskRepository } from "./runtime";
+import { cloneResearchExtensions } from "./extensionLifecycle";
 
 export interface PreparedResearchTaskSnapshots {
   tasks: ResearchTask[];
@@ -191,6 +192,12 @@ function cloneResearchTask(
           : undefined,
         includes: [...plan.scope.includes],
         excludes: [...plan.scope.excludes],
+        ...(plan.scope.preferredDomains
+          ? { preferredDomains: [...plan.scope.preferredDomains] }
+          : {}),
+        ...(plan.scope.excludedDomains
+          ? { excludedDomains: [...plan.scope.excludedDomains] }
+          : {}),
         allowedSourceTypes: [...plan.scope.allowedSourceTypes],
       },
       assumptions: [...plan.assumptions],
@@ -255,6 +262,15 @@ function cloneResearchTask(
             },
           }
         : {}),
+      ...(report.audit
+        ? {
+            audit: {
+              ...report.audit,
+              blocking: [...report.audit.blocking],
+              advisory: [...report.audit.advisory],
+            },
+          }
+        : {}),
     })),
     agentRunIds: [],
     executionRunIds: [],
@@ -280,6 +296,7 @@ export async function duplicateResearchTaskSnapshots({
       await useResearchStore.getState().upsertTask(cloned);
       taskIdMap.set(task.id, cloned.id);
       createdTaskIds.push(cloned.id);
+      await cloneResearchExtensions(task, cloned);
     }
     return { taskIdMap, createdTaskIds };
   } catch (error) {

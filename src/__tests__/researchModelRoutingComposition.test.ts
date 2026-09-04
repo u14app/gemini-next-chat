@@ -26,7 +26,7 @@ describe("Research model routing composition", () => {
     );
   });
 
-  it("archives after evidence commit, repairs once without tools, and degrades instead of stopping", () => {
+  it("archives after evidence commit, repairs once, and stops only after repeated degradation", () => {
     // The research pipeline, joined in the order it runs, so the ordering and
     // single-repair assertions below still describe one continuous flow.
     const source = [
@@ -42,11 +42,14 @@ describe("Research model routing composition", () => {
       .map((path) => readFileSync(resolve(process.cwd(), path), "utf8"))
       .join("\n");
 
-    expect(source.match(/buildResearchWaveRepairPrompt\(\{/gu)).toHaveLength(1);
-    expect(source.match(/buildResearchWaveArchivePrompt\(\{/gu)).toHaveLength(
-      1,
+    // Prompt construction also estimates context size. Only these two call
+    // sites dispatch archive/repair; researchWaveArchive exercises their runtime.
+    expect(source.match(/await requestClosedBookArchive\(\{/gu)).toHaveLength(
+      2,
     );
-    expect(source).toContain(".filter(isCommittedCheckpointToolCall)");
+    expect(source).toMatch(
+      /\.filter\(\s*isCommittedCheckpointToolCall,?\s*\)/u,
+    );
     expect(source.indexOf("collectTaskEvidence({")).toBeLessThan(
       source.indexOf("buildResearchWaveArchivePrompt({"),
     );
@@ -57,15 +60,11 @@ describe("Research model routing composition", () => {
     expect(source).toContain("nativeResponseFormatAvailable = false");
     expect(source).toContain("finalizeResearchWavePackets({");
     expect(source).toContain("packetStatus:");
-    expect(source).not.toContain('code: "invalid_model_output"');
+    expect(source).toContain('code: "invalid_model_output"');
+    expect(source).toContain("countTrailingDegradedWaves(ctx.run) >= 2");
     expect(source).toContain(
       'ctx.run.stopReason?.code !== "invalid_model_output"',
     );
-    expect(
-      source.match(
-        /chatMode: "chat",\s+useAgentMode: false,\s+useDeepResearch: false/gu,
-      )?.length,
-    ).toBeGreaterThanOrEqual(4);
   });
 
   it("uses the shared localized Tool-name resolver in Research activity", () => {

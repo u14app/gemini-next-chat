@@ -8,6 +8,7 @@ import {
   createResearchReportRun,
   getActivePlan,
   getActiveResearchReportRun,
+  isActiveResearchStatus,
   getResearchExplorationQueryLimit,
   getResearchExplorationToolCallLimit,
   getResearchSourceBodyLimit,
@@ -65,8 +66,10 @@ export async function prepareResearchExecution({
   onNotice?: (message: string) => void;
 }): Promise<ResearchExecutionContext | null> {
   const store = useResearchStore.getState();
-  let task = store.tasksById[taskId];
-  if (!task) throw new Error("Research task was not found.");
+  const refreshedTask = await store.refreshTask(taskId);
+  if (!refreshedTask || !isActiveResearchStatus(refreshedTask.status))
+    return null;
+  let task = refreshedTask;
   const plan = getActivePlan(task);
   const approvedSnapshot = task.sourceSnapshot;
   if (!plan || !approvedSnapshot?.model) {
@@ -165,11 +168,11 @@ export async function prepareResearchExecution({
   } else {
     researchRun = existingRun;
   }
-  await store.updateTask(taskId, (current) => ({
+  const updatedTask = await store.updateTask(taskId, (current) => ({
     ...upsertResearchReportRun(current, researchRun!),
     error: undefined,
   }));
-  task = store.tasksById[taskId];
+  task = updatedTask ?? task;
 
   const explorationQueryLimit = getResearchExplorationQueryLimit(
     researchRun.strategy,
@@ -183,7 +186,9 @@ export async function prepareResearchExecution({
   );
 
   return {
-    store,
+    get store() {
+      return useResearchStore.getState();
+    },
     taskId,
     controller,
     plan,

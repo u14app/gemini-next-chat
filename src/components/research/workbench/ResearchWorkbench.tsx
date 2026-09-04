@@ -1,29 +1,33 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, Clock3, FileText, SearchCheck, Wrench } from "lucide-react";
+import { ArrowLeft } from "lucide-react";
 import { useTranslations } from "next-intl";
 
 import { Button, InlineStatus } from "@/components/ui/primitives";
 import { cn } from "@/lib/utils/cn";
+import { createReportSectionLabels } from "@/lib/research/reportSections";
 
-import { ResearchRunRail } from "../topology";
-import { StatusLabel, TaskActions, formatDuration } from "../ui";
+import { StatusLabel, TaskActions } from "../ui";
 import type { ResearchTaskActions, ResearchTaskViewModel } from "../types";
 
 import { EvidencePanel } from "./EvidencePanel";
+import { ClaimPanel } from "./ClaimPanel";
 import { PlanPanel } from "./PlanPanel";
-import { ActivityPanel, ReportPanel } from "./ReportPanel";
+import { ActivityPanel, ReportPanel, SupplementPanel } from "./ReportPanel";
 import { ResearchFollowupDialog } from "./ResearchFollowupDialog";
 import {
   WORKBENCH_TABS,
   type FollowupMode,
   type WorkbenchTab,
-  createLocalEvidenceCitations,
-  formatTokens,
+  createReportPresentation,
   handleTabKeyDown,
-  stripLeadingMarkdownTitle,
 } from "./workbenchUtils";
+
+const EvidenceQuestionsPanel = dynamic(
+  () => import("./EvidenceQuestionsPanel"),
+);
 
 export interface ResearchWorkbenchProps extends ResearchTaskActions {
   task: ResearchTaskViewModel;
@@ -32,7 +36,6 @@ export interface ResearchWorkbenchProps extends ResearchTaskActions {
   onSelectEvidence?: (evidenceId: string) => void;
   onDownloadMarkdown?: (versionId: string) => void;
   onPrintPdf?: (versionId: string) => void;
-  onAskEvidence?: (question: string) => void | Promise<void>;
   onContinueResearch?: (instruction: string) => void | Promise<void>;
   onUpdateLatest?: () => void;
 }
@@ -53,11 +56,11 @@ export default function ResearchWorkbench({
   onSelectEvidence,
   onDownloadMarkdown,
   onPrintPdf,
-  onAskEvidence,
   onContinueResearch,
   onUpdateLatest,
 }: ResearchWorkbenchProps) {
   const t = useTranslations("Research");
+  const questionText = useTranslations("EvidenceQuestions");
   const [tab, setTab] = useState<WorkbenchTab>(
     task.reportVersions.length > 0 ? "report" : "plan",
   );
@@ -81,16 +84,18 @@ export default function ResearchWorkbench({
       task.reportVersions.find((version) => version.id === effectiveVersionId),
     [effectiveVersionId, task.reportVersions],
   );
-  const reportCitations = useMemo(
-    () =>
-      report
-        ? createLocalEvidenceCitations(
-            stripLeadingMarkdownTitle(report.markdown),
-            task.evidence,
-          )
-        : { markdown: "", sources: [] },
-    [report, task.evidence],
-  );
+  const reportPresentation = useMemo(() => {
+    if (!report) {
+      return {
+        markdown: "",
+        bodyMarkdown: "",
+        supplementsMarkdown: "",
+        sources: [],
+      };
+    }
+    const labels = createReportSectionLabels((key) => t(key));
+    return createReportPresentation(report.markdown, task.evidence, labels);
+  }, [report, t, task.evidence]);
 
   const selectVersion = (versionId: string) => {
     setSelectedVersionId(versionId);
@@ -104,7 +109,11 @@ export default function ResearchWorkbench({
     });
   };
   const tabLabel = (item: WorkbenchTab) =>
-    item === "plan" ? t("plan.title") : t(`tabs.${item}`);
+    item === "questions"
+      ? questionText("tab")
+      : item === "plan"
+        ? t("plan.title")
+        : t(`tabs.${item}`);
 
   return (
     <section
@@ -136,8 +145,6 @@ export default function ResearchWorkbench({
           </div>
         </div>
       </header>
-
-      {task.run ? <ResearchRunRail run={task.run} /> : null}
 
       {task.error ? (
         <div className="shrink-0 border-b border-border px-4 py-3">
@@ -190,19 +197,24 @@ export default function ResearchWorkbench({
       >
         {tab === "plan" ? <PlanPanel task={task} /> : null}
         {tab === "evidence" ? <EvidencePanel task={task} /> : null}
+        {tab === "claims" ? (
+          <ClaimPanel
+            task={task}
+            claims={report?.claims ?? task.claims ?? []}
+            onInspectEvidence={inspectEvidence}
+          />
+        ) : null}
         {tab === "report" ? (
           <ReportPanel
             task={task}
             report={report}
-            reportMarkdown={reportCitations.markdown}
-            reportSources={reportCitations.sources}
+            reportMarkdown={reportPresentation.bodyMarkdown}
+            reportSources={reportPresentation.sources}
             onSelectVersion={selectVersion}
             onInspectEvidence={inspectEvidence}
             onDownloadMarkdown={onDownloadMarkdown}
             onPrintPdf={onPrintPdf}
-            onAskEvidence={
-              onAskEvidence ? () => setFollowupMode("ask") : undefined
-            }
+            onAskEvidence={() => setTab("questions")}
             onUpdateLatest={
               onUpdateLatest &&
               (task.status === "completed" ||
@@ -212,108 +224,30 @@ export default function ResearchWorkbench({
             }
           />
         ) : null}
+        {tab === "supplements" ? (
+          <SupplementPanel
+            task={task}
+            report={report}
+            supplementsMarkdown={reportPresentation.supplementsMarkdown}
+            reportSources={reportPresentation.sources}
+            onSelectVersion={selectVersion}
+            onInspectEvidence={inspectEvidence}
+          />
+        ) : null}
+        {tab === "questions" ? (
+          <EvidenceQuestionsPanel
+            key={effectiveVersionId}
+            taskId={task.id}
+            reportId={effectiveVersionId}
+            reportVersions={task.reportVersions}
+            onSelectVersion={selectVersion}
+          />
+        ) : null}
         {tab === "activity" ? <ActivityPanel task={task} /> : null}
       </main>
 
       <footer className="shrink-0 border-t border-research-border bg-background/95 px-3 py-3 shadow-[0_-8px_24px_-20px_rgba(0,0,0,0.45)] backdrop-blur sm:px-4">
-        <div className="mx-auto flex max-w-5xl flex-col gap-3 md:flex-row md:items-center md:justify-between">
-          <dl className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-            {task.status === "plan_ready" && task.plan ? (
-              <>
-                <div className="inline-flex items-center gap-1.5">
-                  <FileText size={13} aria-hidden="true" />
-                  <dt className="sr-only">{t("metrics.questions")}</dt>
-                  <dd className="font-mono tabular-nums text-foreground">
-                    {t("plan.decisionSteps", {
-                      count: task.plan.steps.length,
-                    })}
-                  </dd>
-                </div>
-                {task.plan.strategy ? (
-                  <>
-                    <div className="inline-flex items-center gap-1.5">
-                      <SearchCheck size={13} aria-hidden="true" />
-                      <dt className="sr-only">{t("metrics.queries")}</dt>
-                      <dd className="font-mono tabular-nums text-foreground">
-                        {t("plan.decisionQueries", {
-                          count: task.plan.strategy.queryLimit,
-                        })}
-                      </dd>
-                    </div>
-                    <div className="inline-flex items-center gap-1.5">
-                      <dt>{t("metrics.depth")}</dt>
-                      <dd className="font-mono tabular-nums text-foreground">
-                        {task.plan.strategy.maxDepth}
-                      </dd>
-                    </div>
-                  </>
-                ) : null}
-              </>
-            ) : task.run ? (
-              <>
-                <div className="inline-flex items-center gap-1.5">
-                  <SearchCheck size={13} aria-hidden="true" />
-                  <dt>{t("metrics.queries")}</dt>
-                  <dd className="font-mono tabular-nums text-foreground">
-                    {task.run.queryUsage.used}/{task.run.queryUsage.limit}
-                  </dd>
-                </div>
-                <div className="inline-flex items-center gap-1.5">
-                  <dt>{t("metrics.verifiedClaims")}</dt>
-                  <dd className="font-mono tabular-nums text-foreground">
-                    {task.run.claimCounts.verified}/{task.run.claimCounts.total}
-                  </dd>
-                </div>
-                <div className="inline-flex items-center gap-1.5">
-                  <dt>{t("metrics.depth")}</dt>
-                  <dd className="font-mono tabular-nums text-foreground">
-                    {task.run.currentDepth}/{task.run.maxDepth}
-                  </dd>
-                </div>
-              </>
-            ) : null}
-            {task.status !== "plan_ready" ? (
-              <div className="inline-flex items-center gap-1.5">
-                <Wrench size={13} aria-hidden="true" />
-                <dt className="sr-only">{t("metrics.toolCalls")}</dt>
-                <dd className="tabular-nums">
-                  {task.usage.toolCalls}/{task.usage.maxToolCalls}{" "}
-                  {t("metrics.toolCalls").toLocaleLowerCase()}
-                </dd>
-              </div>
-            ) : null}
-            {task.status !== "plan_ready" ? (
-              <div className="inline-flex items-center gap-1.5">
-                <Clock3 size={13} aria-hidden="true" />
-                <dt className="sr-only">{t("metrics.elapsed")}</dt>
-                <dd className="tabular-nums">
-                  {formatDuration(task.usage.elapsedMs)}/
-                  {formatDuration(task.usage.maxWallTimeMs)}
-                </dd>
-              </div>
-            ) : null}
-            {task.status !== "plan_ready" &&
-            task.usage.totalTokens !== undefined ? (
-              <div className="inline-flex items-center gap-1.5">
-                <dt>{t("metrics.tokens")}</dt>
-                <dd className="tabular-nums">
-                  {formatTokens(task.usage.totalTokens)}
-                  {task.usage.maxTotalTokens
-                    ? `/${formatTokens(task.usage.maxTotalTokens)}`
-                    : ""}
-                </dd>
-              </div>
-            ) : null}
-            {task.status !== "plan_ready" ? (
-              <div>
-                <dt className="sr-only">{t("metrics.questions")}</dt>
-                <dd className="tabular-nums">
-                  {task.completedQuestions}/{task.totalQuestions}{" "}
-                  {t("metrics.questions").toLocaleLowerCase()}
-                </dd>
-              </div>
-            ) : null}
-          </dl>
+        <div className="mx-auto flex max-w-5xl justify-end">
           <TaskActions
             compact
             presentation="decision-bar"
@@ -341,7 +275,6 @@ export default function ResearchWorkbench({
         mode={followupMode}
         onClose={() => setFollowupMode(null)}
         onSubmit={(value) => {
-          if (followupMode === "ask") return onAskEvidence?.(value);
           return onContinueResearch?.(value);
         }}
       />

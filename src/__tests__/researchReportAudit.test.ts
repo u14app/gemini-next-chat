@@ -1,3 +1,5 @@
+import zh from "@/i18n/locales/zh/Research.json";
+import ja from "@/i18n/locales/ja/Research.json";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -291,6 +293,117 @@ describe("Deep Research report audit", () => {
     );
   });
 
+  it.each([zh, ja])(
+    "uses localized sections and fallback prose without losing audit metadata",
+    (messages) => {
+      const { plan, run, evidence } = createFixture();
+      const task = createResearchTask({
+        id: "task-1",
+        sessionId: "session-1",
+        goal: "Research",
+      });
+      const markdown = buildDeterministicSalvageReport({
+        task,
+        plan,
+        run,
+        evidence: [evidence],
+        reason: "A limitation.",
+        sectionLabels: messages.report.sections,
+        text: messages.report.fallbackText,
+      });
+      expect(markdown).toContain(
+        `## ${messages.report.sections.executiveSummary}`,
+      );
+      expect(markdown).toContain(messages.report.fallbackText.partialSummary);
+      expect(markdown).not.toContain("[object Object]");
+      expect(markdown).not.toContain("## Executive summary");
+      expect(
+        auditResearchReport({ markdown, plan, run, evidence: [evidence] })
+          .missingSectionCount,
+      ).toBe(0);
+    },
+  );
+
+  it("audits rendered references and preserves their Markdown syntax on publication", () => {
+    const { plan, run, evidence } = createFixture();
+    const markdown = `# Report
+
+## Executive summary
+Summary. [Back to report](#report) [Contact](mailto:editor@example.com).
+
+## Key findings
+- [C1] The premise is supported. [foo][source-known].
+
+## Decision
+Decide.
+
+## Research plan coverage
+- step-1: answered - complete
+
+## Evidence gaps
+None.
+
+## Sources
+[source-known]: ${evidence.locator}
+[unused]: https://not-cited.example
+
+\`\`\`text
+https://code-example.example
+\`\`\``;
+    const audit = auditResearchReport({
+      markdown,
+      plan,
+      run,
+      evidence: [evidence],
+    });
+    expect(audit.unknownCitationCount).toBe(0);
+    expect(audit.unsupportedFindingCount).toBe(0);
+    const published = prepareResearchReportForPublication({
+      markdown,
+      plan,
+      run,
+      evidence: [evidence],
+    });
+    expect(published).toContain("[foo][source-known]");
+    expect(published).toContain(`[source-known]: ${evidence.locator}`);
+    expect(published).toContain("https://code-example.example");
+  });
+
+  it("localizes optional standard chapters in the deterministic fallback", () => {
+    const { plan, run, evidence } = createFixture();
+    const markdown = buildDeterministicSalvageReport({
+      task: createResearchTask({ sessionId: "session-1", goal: "研究" }),
+      plan: {
+        ...plan,
+        deliverable: {
+          ...plan.deliverable,
+          requiredSections: ["Knowledge supplement"],
+        },
+      },
+      run,
+      evidence: [evidence],
+      reason: "限制",
+      sectionLabels: zh.report.sections,
+      text: zh.report.fallbackText,
+    });
+    expect(markdown).toContain(`## ${zh.report.sections.knowledgeSupplement}`);
+    expect(markdown).not.toContain("## Knowledge supplement");
+  });
+
+  it("preserves code and reference definitions during publication", () => {
+    const { plan, run, evidence } = createFixture();
+    const code =
+      "```markdown\n## Sources\n[C1] [source-known]\n\n\nconst x = 1;\n```";
+    const published = prepareResearchReportForPublication({
+      markdown: `# Report\n\n## Key findings\n[C1] Finding [source-known].\n\n${code}\n\n## Sources\n[ref]: https://example.com/source`,
+      plan,
+      run,
+      evidence: [evidence],
+    });
+    expect(published).toContain(code);
+    expect(published).toContain("[ref]: https://example.com/source");
+  });
+
   it("builds an auditable partial report when synthesis is interrupted", () => {
     const { plan, run, evidence } = createFixture();
     const task = createResearchTask({
@@ -307,7 +420,7 @@ describe("Deep Research report audit", () => {
       reason: "The synthesis dependency became unavailable.",
     });
     expect(markdown).toContain(
-      "This partial report includes only findings supported by the available cited evidence.",
+      "This partial report includes findings supported by the available cited evidence.",
     );
     expect(markdown).toContain("## Decision");
     expect(markdown).toContain("- step-1: answered");
@@ -354,7 +467,7 @@ describe("Deep Research report audit", () => {
     });
 
     expect(markdown).toContain(
-      "- step-1: the wave archive did not produce a validated learning packet.",
+      "- step-1: the research round did not produce a validated learning packet.",
     );
     expect(
       auditResearchReport({
@@ -389,11 +502,11 @@ No material evidence gaps.
 \`\`\``);
 
     expect(normalized).toMatch(/^# 原始报告标题/);
-    expect(normalized).toContain("## Executive summary");
-    expect(normalized).toContain("## Key findings");
-    expect(normalized).toContain("## Research plan coverage");
-    expect(normalized).toContain("## Evidence gaps");
-    expect(normalized).toContain("## Sources");
+    expect(normalized).toContain("## 执行摘要");
+    expect(normalized).toContain("## 关键发现");
+    expect(normalized).toContain("## 研究计划覆盖情况");
+    expect(normalized).toContain("## 证据缺口");
+    expect(normalized).toContain("## 来源");
     expect(normalized).not.toMatch(/\`\`\`\s*$/);
 
     expect(normalizeResearchReportMarkdown("# Report\n\nContent.\n\n```")).toBe(
@@ -464,7 +577,7 @@ No material evidence gaps.
     expect(published).not.toContain("source-known");
     expect(published).not.toContain("step-1");
     expect(published).not.toContain("## Research plan coverage");
-    expect(published).not.toContain("## Evidence gaps");
+    expect(published).toContain("## Evidence gaps");
     expect(published).not.toContain("publication audit");
     expect(published).not.toContain("claim ledger");
   });

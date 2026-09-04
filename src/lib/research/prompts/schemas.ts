@@ -1,6 +1,10 @@
 import { z } from "zod";
 
 import { RESEARCH_STRATEGY_LIMITS } from "../orchestration";
+import {
+  RESEARCH_WAVE_SOURCE_KEY_PATTERN,
+  RESEARCH_WAVE_SOURCE_LIMIT,
+} from "./waveAliases";
 
 const sourceTypeSchema = z.enum([
   "web",
@@ -22,6 +26,15 @@ const optionalBoundedText = (max: number) =>
         : value,
     boundedText(max).optional(),
   );
+const optionalIsoDate = z.preprocess(
+  (value) =>
+    typeof value === "string" && value.trim().length === 0 ? undefined : value,
+  z
+    .string()
+    .trim()
+    .regex(/^\d{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])$/)
+    .optional(),
+);
 
 // These plan schemas deliberately allow unknown keys: a stray field from the
 // model is stripped instead of failing the whole plan. Host-owned values
@@ -43,8 +56,8 @@ const timeRangeSchema = z.preprocess(
   },
   z
     .object({
-      start: optionalBoundedText(100),
-      end: optionalBoundedText(100),
+      start: optionalIsoDate,
+      end: optionalIsoDate,
       description: optionalBoundedText(500),
     })
     .optional(),
@@ -55,6 +68,8 @@ const scopeSchema = z.object({
   timeRange: timeRangeSchema,
   includes: boundedTextList(20, 1_000),
   excludes: boundedTextList(20, 1_000),
+  preferredDomains: boundedTextList(8, 253).optional(),
+  excludedDomains: boundedTextList(8, 253).optional(),
   allowedSourceTypes: z.array(sourceTypeSchema).min(1).max(6),
 });
 
@@ -133,6 +148,15 @@ export const planDraftSchema = z
     completionCriteria: boundedTextList(12, 1_000).min(1),
   })
   .superRefine((plan, context) => {
+    const start = plan.scope.timeRange?.start;
+    const end = plan.scope.timeRange?.end;
+    if (start && end && start > end) {
+      context.addIssue({
+        code: "custom",
+        path: ["scope", "timeRange", "end"],
+        message: "The time range end must not precede its start.",
+      });
+    }
     // Duplicate step IDs break evidence attribution, so they stay fatal.
     // Overlapping query topics and out-of-scope source types are repaired
     // deterministically by the runtime instead of failing the plan.
@@ -164,12 +188,7 @@ export const wavePacketSchema = z
             stance: z.enum(["supports", "contradicts", "context"]),
             finding: boundedText(4_000),
             sourceKeys: z
-              .array(
-                z
-                  .string()
-                  .trim()
-                  .regex(/^S(?:[1-9]|[1-7][0-9]|80)$/),
-              )
+              .array(z.string().trim().regex(RESEARCH_WAVE_SOURCE_KEY_PATTERN))
               .min(1)
               .max(20),
           })
@@ -183,19 +202,19 @@ export const wavePacketSchema = z
             sourceKey: z
               .string()
               .trim()
-              .regex(/^S(?:[1-9]|[1-7][0-9]|80)$/),
+              .regex(RESEARCH_WAVE_SOURCE_KEY_PATTERN),
             authority: z.enum(["primary", "secondary", "unknown"]),
             publisherId: committedReferenceSchema.nullish(),
             mirrorOfSourceKey: z
               .string()
               .trim()
-              .regex(/^S(?:[1-9]|[1-7][0-9]|80)$/)
+              .regex(RESEARCH_WAVE_SOURCE_KEY_PATTERN)
               .nullish(),
             rationale: boundedText(1_000),
           })
           .strict(),
       )
-      .max(80),
+      .max(RESEARCH_WAVE_SOURCE_LIMIT),
     followUps: z
       .array(
         z

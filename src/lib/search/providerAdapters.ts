@@ -1,5 +1,10 @@
 import type { ImageSource, SearchTimeRange, Source } from "@/types";
-import { safeFetchJson } from "../security/safeFetch";
+import { safeFetchText, type safeFetchJson } from "../security/safeFetch";
+import { parseSearchRetryAfter, SearchRequestError } from "./errors";
+import {
+  RESEARCH_SEARCH_LIMITS,
+  type SearchRequestProfile,
+} from "./requestPolicy";
 import {
   getSearchProviderPolicy,
   type SearchProvider,
@@ -13,13 +18,16 @@ export interface SearchProviderResult {
   images: ImageSource[];
 }
 
-export class SearchProviderError extends Error {
-  status: number;
-
-  constructor(message: string, status: number) {
-    super(message);
+export class SearchProviderError extends SearchRequestError {
+  constructor(message: string, status: number, retryAfterMs?: number) {
+    super(
+      message,
+      status,
+      status === 429 ? "SEARCH_RATE_LIMITED" : "SEARCH_UPSTREAM_ERROR",
+      "provider",
+      retryAfterMs,
+    );
     this.name = "SearchProviderError";
-    this.status = status;
   }
 }
 
@@ -33,6 +41,7 @@ interface SearchProviderContext {
   maxResultNumber: number;
   fetchJson?: SafeFetchJson;
   signal?: AbortSignal;
+  profile?: SearchRequestProfile;
 }
 
 function pick<T, K extends keyof T>(obj: T, keys: K[]): Pick<T, K> {
@@ -68,19 +77,45 @@ function buildSearchHeaders(apiKey?: string): Record<string, string> {
   return headers;
 }
 
-function getFetchOptions(provider: SearchProvider): SafeFetchOptions {
+function getFetchOptions(
+  provider: SearchProvider,
+  profile?: SearchRequestProfile,
+): SafeFetchOptions {
   return {
     policy: getSearchProviderPolicy(provider),
-    timeoutMs: 30_000,
+    timeoutMs:
+      provider === "tavily" && profile === "research_summary"
+        ? RESEARCH_SEARCH_LIMITS.requestTimeoutMs
+        : 30_000,
     maxResponseBytes: 2 * 1024 * 1024,
   };
 }
 
 function assertSearchResponseOk(response: Response, message: string): void {
   if (!response.ok) {
-    throw new SearchProviderError(message, response.status);
+    throw new SearchProviderError(
+      message,
+      response.status,
+      parseSearchRetryAfter(response.headers.get("Retry-After")),
+    );
   }
 }
+
+// Gateways commonly return HTML for 504. Keep its HTTP status on parse failure,
+// while retaining JSON error bodies used by provider-specific diagnostics.
+const fetchSearchJson: SafeFetchJson = async <T>(
+  input: string | URL,
+  init?: RequestInit,
+  options?: SafeFetchOptions,
+) => {
+  const { response, text, url } = await safeFetchText(input, init, options);
+  try {
+    return { response, data: JSON.parse(text) as T, url };
+  } catch {
+    if (!response.ok) return { response, data: {} as T, url };
+    throw new Error("Expected a JSON response from upstream service");
+  }
+};
 
 const rewritingPrompt = `You are tasked with re-writing the following text to markdown. Ensure you do not change the meaning or story behind the text. 
 
@@ -137,11 +172,12 @@ export async function runSearchProvider({
   apiKey,
   baseUrl,
   maxResultNumber,
-  fetchJson = safeFetchJson,
+  fetchJson = fetchSearchJson,
   signal,
+  profile,
 }: SearchProviderContext): Promise<SearchProviderResult> {
   const headers = buildSearchHeaders(apiKey);
-  const fetchOptions = getFetchOptions(provider);
+  const fetchOptions = getFetchOptions(provider, profile);
 
   if (provider === "tavily") {
     const endpoint = new URL(
@@ -158,10 +194,11 @@ export async function runSearchProvider({
           search_depth: "advanced",
           topic: scope || "general",
           max_results: maxResultNumber,
-          include_images: true,
-          include_image_descriptions: true,
+          include_images: profile !== "research_summary",
+          include_image_descriptions: profile !== "research_summary",
           include_answer: false,
-          include_raw_content: "markdown",
+          include_raw_content:
+            profile === "research_summary" ? false : "markdown",
         }),
         signal,
       },

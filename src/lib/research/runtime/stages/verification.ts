@@ -1,7 +1,10 @@
 import { v7 as uuidv7 } from "uuid";
 
 import {
+  countTrailingDegradedWaves,
+  getResearchVerificationTargetNodeIds,
   getResearchVerificationQueryAllowance,
+  isResearchCoverageSufficient,
   transitionResearchTask,
 } from "@/lib/research";
 
@@ -10,8 +13,8 @@ import { remainingBudget } from "../usage";
 import { executeWave } from "../wave";
 
 /**
- * The single reserved verification pass: one wave aimed at major claims that
- * exploration left unverified, plus any plan step with no verified claim.
+ * Uses the reserved verification budget in bounded waves. A later wave runs
+ * only when the preceding one verified something new.
  */
 export async function runVerificationStage(ctx: ResearchExecutionContext) {
   await ctx.store.updateTask(ctx.taskId, (current) =>
@@ -32,49 +35,33 @@ export async function runVerificationStage(ctx: ResearchExecutionContext) {
       ? ctx.store.tasksById[ctx.taskId].checkpoint
       : undefined,
   );
-  const uncoveredSteps = ctx.plan.steps.filter(
-    (step) =>
-      !ctx.run.claims.some(
-        (claim) =>
-          claim.stepId === step.id &&
-          claim.importance === "major" &&
-          claim.verificationStatus === "verified",
-      ),
-  );
-  const verificationNodeIds = Array.from(
-    new Set([
-      ...ctx.run.claims
-        .filter(
-          (claim) =>
-            claim.importance === "major" &&
-            claim.verificationStatus !== "verified",
-        )
-        .flatMap((claim) => claim.nodeIds),
-      ...uncoveredSteps.flatMap((step) => {
-        const node = ctx.run.nodes.find(
-          (candidate) => candidate.stepId === step.id,
-        );
-        return node ? [node.id] : [];
-      }),
-    ]),
-  ).slice(0, Math.max(1, ctx.run.strategy.initialBreadth));
-  const verificationQueryAllowance = getResearchVerificationQueryAllowance(
-    ctx.run.strategy,
-    ctx.run.usage.queryCount,
-  );
-  if (
+  let waveGuard = 0;
+  while (
+    waveGuard < 64 &&
     ctx.run.stopReason?.code !== "invalid_model_output" &&
-    verificationNodeIds.length > 0 &&
-    verificationQueryAllowance > 0 &&
-    remainingBudget(ctx.store.tasksById[ctx.taskId])
+    ctx.run.stopReason?.code !== "coverage_satisfied" &&
+    ctx.run.stopReason?.code !== "coverage_sufficient"
   ) {
+    waveGuard += 1;
+    ctx.controller.signal.throwIfAborted();
+    const verificationQueryAllowance = getResearchVerificationQueryAllowance(
+      ctx.run.strategy,
+      ctx.run.usage.queryCount,
+    );
+    if (
+      verificationQueryAllowance <= 0 ||
+      !remainingBudget(ctx.store.tasksById[ctx.taskId])
+    ) {
+      break;
+    }
     const resumableWave = ctx.run.waves.find((wave) =>
       ["queued", "running", "paused"].includes(wave.status),
     );
-    const verificationWaveId = resumableWave?.id || `research-wave-${uuidv7()}`;
     const targetNodeIds = resumableWave
       ? [...resumableWave.nodeIds]
-      : verificationNodeIds;
+      : getResearchVerificationTargetNodeIds(ctx.run, ctx.plan);
+    if (targetNodeIds.length === 0) break;
+    const verificationWaveId = resumableWave?.id || `research-wave-${uuidv7()}`;
     if (!resumableWave) {
       const verificationWave = {
         id: verificationWaveId,
@@ -102,8 +89,52 @@ export async function runVerificationStage(ctx: ResearchExecutionContext) {
       waveId: verificationWaveId,
       nodeIds: targetNodeIds,
       phase: "verifying",
-      queryAllowance: verificationQueryAllowance,
+      queryAllowance: Math.min(
+        verificationQueryAllowance,
+        Math.max(1, targetNodeIds.length),
+      ),
       expandFrontier: false,
     });
+    if (ctx.run.phase === "awaiting_scope_approval") break;
+    if (
+      ctx.run.coverage.complete ||
+      isResearchCoverageSufficient(ctx.run.coverage)
+    ) {
+      ctx.run = {
+        ...ctx.run,
+        stopReason: {
+          code: ctx.run.coverage.complete
+            ? "coverage_satisfied"
+            : "coverage_sufficient",
+          at: Date.now(),
+        },
+        updatedAt: Date.now(),
+      };
+      await persistRun(ctx, ctx.run);
+      break;
+    }
+    if (countTrailingDegradedWaves(ctx.run) >= 2) {
+      ctx.run = {
+        ...ctx.run,
+        stopReason: { code: "invalid_model_output", at: Date.now() },
+        updatedAt: Date.now(),
+      };
+      await persistRun(ctx, ctx.run);
+      break;
+    }
+    const completedWave = ctx.run.waves.find(
+      (wave) => wave.id === verificationWaveId,
+    );
+    if (!completedWave || completedWave.newVerifiedClaimCount <= 0) {
+      if (!ctx.run.stopReason) {
+        ctx.run = {
+          ...ctx.run,
+          stopReason: { code: "no_new_verified_claims", at: Date.now() },
+          updatedAt: Date.now(),
+        };
+        await persistRun(ctx, ctx.run);
+      }
+      break;
+    }
   }
 }

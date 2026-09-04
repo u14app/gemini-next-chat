@@ -25,6 +25,7 @@ import type {
   StartDeepResearchArgs,
 } from "@/lib/research/toolArguments";
 import type { ResearchTaskStatus } from "@/lib/research/types";
+import type { ResearchSearchPolicy } from "@/lib/research/searchPolicy";
 
 import type { ChatToolDefinition } from "../types";
 
@@ -41,8 +42,12 @@ export interface BuiltinResearchQueryBudget {
   maxResultsPerQuery: number;
   /** Shared normalized-query ledger used to reject replayed query variants. */
   seenQueries?: Set<string>;
-  /** Optional hard deadline used by the pre-approval reconnaissance stage. */
+  /** Exact public queries fixed before any private planning lookup. */
+  allowedQueries?: ReadonlySet<string>;
+  /** Absolute planning-stage or execution-wave deadline, including queue time. */
   deadlineAt?: number;
+  /** Approved absolute web filters applied by the host before network access. */
+  searchPolicy?: ResearchSearchPolicy;
   onQueriesExecuted?: (queries: string[]) => void;
 }
 

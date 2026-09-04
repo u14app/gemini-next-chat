@@ -16,7 +16,7 @@ import {
   getActiveReport,
   LIVE_PROGRESS_STATUSES,
 } from "./evidenceViews";
-import { loadReports } from "./reports";
+import { buildClaimViews, loadReports } from "./reports";
 import {
   ACTIVE_NODE_STATUSES,
   createRunView,
@@ -156,16 +156,23 @@ export async function createResearchTaskViewModel(
                       plan.scope.timeRange.description ||
                       [plan.scope.timeRange.start, plan.scope.timeRange.end]
                         .filter(Boolean)
-                        .join(" – "),
+                        .join(" - "),
                   }
                 : {}),
               includes: [...plan.scope.includes],
               excludes: [...plan.scope.excludes],
+              ...(plan.scope.preferredDomains
+                ? { preferredDomains: [...plan.scope.preferredDomains] }
+                : {}),
+              ...(plan.scope.excludedDomains
+                ? { excludedDomains: [...plan.scope.excludedDomains] }
+                : {}),
             },
             assumptions: [...plan.assumptions],
             deliverable: {
               kind: plan.deliverable.kind,
               description: plan.deliverable.description,
+              requiredSections: [...plan.deliverable.requiredSections],
             },
             strategy: {
               initialBreadth: plan.strategy.initialBreadth,
@@ -190,13 +197,22 @@ export async function createResearchTaskViewModel(
               queries: plan.recon.queries.map((query, index) => ({
                 id: `${plan.id}-recon-${index}`,
                 query: query.query,
-                status:
-                  query.status === "completed"
-                    ? ("completed" as const)
-                    : ("failed" as const),
+                status: query.status,
                 resultCount: query.resultCount,
                 domains: [...query.domains],
               })),
+              ...(plan.recon.knowledgeQueries?.length
+                ? {
+                    knowledgeQueries: plan.recon.knowledgeQueries.map(
+                      (query, index) => ({
+                        id: `${plan.id}-knowledge-recon-${index}`,
+                        query: query.query,
+                        status: query.status,
+                        resultCount: query.resultCount,
+                      }),
+                    ),
+                  }
+                : {}),
             },
             completionCriteria: [...plan.completionCriteria],
             steps: plan.steps.map((step, index) => ({
@@ -212,7 +228,7 @@ export async function createResearchTaskViewModel(
               queryTopics: [...step.queryTopics],
               sourcePriorities: step.sourcePriorities.map(
                 (source) =>
-                  `${source.sourceType}:${source.priority}${source.rationale ? ` — ${source.rationale}` : ""}`,
+                  `${source.sourceType}:${source.priority}${source.rationale ? ` - ${source.rationale}` : ""}`,
               ),
               evidenceStandard: step.evidenceCriteria.join(" "),
               nodeIds: nodeIdsByStepId.get(step.id) ?? [],
@@ -227,6 +243,7 @@ export async function createResearchTaskViewModel(
     completedQuestions: completedQuestionIndexes.size,
     totalQuestions: plan?.steps.length ?? 0,
     evidence,
+    claims: buildClaimViews(activeResearchRun?.claims ?? []),
     activities: buildActivities(task, text, runsById),
     reportVersions,
     activeReportVersionId:

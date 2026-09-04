@@ -1,9 +1,14 @@
 "use client";
 
 import React from "react";
+import { useTranslations } from "next-intl";
 
 import LongTextBlock from "@/components/content/LongTextBlock";
 import { createLongTextPresentation } from "@/lib/chat/longText";
+import {
+  createReportSectionLabels,
+  projectResearchReport,
+} from "@/lib/research/reportSections";
 
 import ResearchPlanCard from "./ResearchPlanCard";
 import ResearchProgressCard from "./ResearchProgressCard";
@@ -21,6 +26,7 @@ export interface ResearchTaskCardProps extends ResearchTaskActions {
  * a planning failure is reported where the user was looking.
  */
 export default function ResearchTaskCard(props: ResearchTaskCardProps) {
+  const t = useTranslations("Research");
   const { task } = props;
   const isPlanPhase =
     task.status === "draft" ||
@@ -30,7 +36,7 @@ export default function ResearchTaskCard(props: ResearchTaskCardProps) {
   if (isPlanPhase) return <ResearchPlanCard {...props} />;
 
   const activeReport =
-    task.status === "completed"
+    task.status === "completed" || task.status === "partial_completed"
       ? task.reportVersions.find(
           (report) => report.id === task.activeReportVersionId,
         ) || task.reportVersions.at(-1)
@@ -41,7 +47,12 @@ export default function ResearchTaskCard(props: ResearchTaskCardProps) {
       <ResearchProgressCard {...props} />
       {activeReport ? (
         <LongTextBlock
-          content={activeReport.markdown}
+          content={
+            projectResearchReport(
+              activeReport.markdown,
+              createReportSectionLabels((key) => t(key)),
+            ).markdown
+          }
           presentation={createLongTextPresentation({
             title: activeReport.title,
             format: "markdown",

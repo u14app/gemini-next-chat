@@ -1,0 +1,79 @@
+{
+  "title": "リサーチテンプレート",
+  "description": "再利用できる成果物の構成を選択します。テンプレートは初期値だけを設定し、権限や予算は変更しません。",
+  "profileDescription": "再利用できる Research の成果物構成をこのプロファイルに保存します。",
+  "profileInherit": "プロファイルにテンプレートを指定しない",
+  "workspaceDescription": "このワークスペースの Research 成果物構成の初期値を設定します。",
+  "workspaceInherit": "ワークスペースにテンプレートを指定しない",
+  "inherit": "ワークスペースまたはプロファイルを継承",
+  "disabled": "テンプレートを使用しない",
+  "loading": "テンプレートを読み込み中...",
+  "unavailable": "保存済みテンプレートを利用できません。組み込みテンプレートは利用できます。",
+  "duplicate": "テンプレートを複製",
+  "remove": "テンプレートを削除",
+  "builtIn": "組み込み",
+  "custom": "カスタム",
+  "selectAria": "リサーチテンプレート",
+  "profileSelectAria": "プロファイルのリサーチテンプレート",
+  "workspaceSelectAria": "ワークスペースのリサーチテンプレート",
+  "duplicateAria": "選択したリサーチテンプレートを複製",
+  "removeAria": "選択したリサーチテンプレートを削除",
+  "revision": "改訂 {revision}",
+  "newTemplate": "新しいテンプレート",
+  "editTemplate": "テンプレートを編集",
+  "editAria": "選択したリサーチテンプレートを編集",
+  "snapshot": "保存済みスナップショット",
+  "preview": "テンプレートのプレビュー",
+  "deliverable": "成果物の種類",
+  "sections": "必須セクション",
+  "sources": "ソースの優先順位",
+  "strategy": "初期戦略",
+  "editor": {
+    "title": "テンプレートの詳細",
+    "name": "名前",
+    "namePlaceholder": "例：製品評価",
+    "description": "説明",
+    "descriptionPlaceholder": "このテンプレートで作成する成果物",
+    "deliverable": "成果物の種類",
+    "sections": "必須セクション",
+    "sectionsHint": "1 行に 1 セクション。標準監査セクションは自動で追加されます。",
+    "sources": "ソースの優先順位",
+    "sourceType": "ソースの種類",
+    "priority": "優先度",
+    "rationale": "理由",
+    "rationalePlaceholder": "このソースが役立つ理由",
+    "addSource": "ソースの優先順位を追加",
+    "strategy": "初期戦略",
+    "cancel": "キャンセル",
+    "save": "テンプレートを保存",
+    "required": "必須項目を入力してから保存してください。",
+    "removeSourceAria": "ソースの優先順位を削除"
+  },
+  "savePlan": {
+    "save": "テンプレートとして保存",
+    "namePlaceholder": "テンプレート名",
+    "descriptionPlaceholder": "この計画の用途",
+    "confirm": "テンプレートを保存",
+    "cancel": "キャンセル",
+    "saved": "テンプレートを保存しました",
+    "saveAria": "このリサーチ計画をテンプレートとして保存"
+  },
+  "templates": {
+    "competitive-analysis": {
+      "name": "競合分析",
+      "description": "明確な基準で競合を比較し、重要な差異と機会を見つけます。"
+    },
+    "literature-review": {
+      "name": "文献レビュー",
+      "description": "関連研究を統合し、証拠の質を評価して未解決の問いを特定します。"
+    },
+    "due-diligence": {
+      "name": "デューデリジェンス",
+      "description": "検証可能な事実を集め、不確実性を示し、意思決定前に重要なリスクを整理します。"
+    },
+    "technical-evaluation": {
+      "name": "技術評価",
+      "description": "要件、運用コスト、長期的な保守リスクに基づいて技術案を評価します。"
+    }
+  }
+}

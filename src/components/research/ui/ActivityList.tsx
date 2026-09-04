@@ -1,7 +1,14 @@
 "use client";
 
 import React from "react";
-import { AlertTriangle, LoaderCircle } from "lucide-react";
+import {
+  AlertTriangle,
+  CheckCircle2,
+  CircleHelp,
+  CircleStop,
+  CircleX,
+  LoaderCircle,
+} from "lucide-react";
 
 import { cn } from "@/lib/utils/cn";
 
@@ -14,17 +21,16 @@ import type { ResearchActivityView } from "../types";
 export function ActivityList({
   activities,
   limit,
-  live = false,
 }: {
   activities: ResearchActivityView[];
   limit?: number;
-  live?: boolean;
 }) {
   const items = limit ? activities.slice(-limit) : activities;
   return (
     <ol className="border-l border-border pl-4">
-      {items.map((item, index) => {
-        const isNewest = live && index === items.length - 1;
+      {items.map((item) => {
+        const status = item.status ?? "info";
+        const isPending = status === "prepared" || status === "running";
         return (
           <li key={item.id} className="relative pb-3 last:pb-0">
             <div>
@@ -36,10 +42,42 @@ export function ActivityList({
                       "text-amber-800 dark:text-amber-200",
                   )}
                 >
-                  {isNewest ? (
+                  {isPending ? (
                     <LoaderCircle
                       size={12}
                       className="shrink-0 animate-spin text-research-accent motion-reduce:animate-none"
+                      aria-hidden="true"
+                    />
+                  ) : status === "committed" || status === "completed" ? (
+                    item.tone === "warning" ? (
+                      <AlertTriangle
+                        size={13}
+                        className="shrink-0 text-amber-600 dark:text-amber-400"
+                        aria-hidden="true"
+                      />
+                    ) : (
+                      <CheckCircle2
+                        size={13}
+                        className="shrink-0 text-emerald-600 dark:text-emerald-400"
+                        aria-hidden="true"
+                      />
+                    )
+                  ) : status === "failed" ? (
+                    <CircleX
+                      size={13}
+                      className="shrink-0 text-red-600 dark:text-red-400"
+                      aria-hidden="true"
+                    />
+                  ) : status === "effect_unknown" ? (
+                    <CircleHelp
+                      size={13}
+                      className="shrink-0 text-amber-600 dark:text-amber-400"
+                      aria-hidden="true"
+                    />
+                  ) : status === "interrupted" ? (
+                    <CircleStop
+                      size={13}
+                      className="shrink-0 text-muted-foreground"
                       aria-hidden="true"
                     />
                   ) : item.tone === "warning" ? (

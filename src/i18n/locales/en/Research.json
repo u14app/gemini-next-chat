@@ -18,7 +18,7 @@
     "queries": "Queries",
     "verifiedClaims": "Verified claims",
     "depth": "Depth",
-    "wave": "Wave",
+    "wave": "Round",
     "toolCalls": "Tool calls",
     "elapsed": "Elapsed",
     "tokens": "Tokens"
@@ -48,7 +48,8 @@
     "pdf": "PDF",
     "askEvidence": "Ask existing evidence",
     "continueResearch": "Continue research",
-    "updateLatest": "Update latest"
+    "updateLatest": "Update latest",
+    "downloadReport": "Download"
   },
   "plan": {
     "title": "Research plan",
@@ -58,6 +59,8 @@
     "scope": "Scope",
     "audience": "Audience",
     "timeRange": "Time range",
+    "preferredDomains": "Preferred domains",
+    "excludedDomains": "Excluded domains",
     "allowedSources": "Allowed source types",
     "includes": "Included",
     "excludes": "Excluded",
@@ -84,12 +87,14 @@
     "decisionSteps": "{count} steps",
     "decisionQueries": "{count} queries",
     "reconSummary": "Planning reconnaissance: {used}/{limit} queries",
-    "reconDisclosure": "Planning reconnaissance sends the research question to the configured public search service. Its snippets inform the plan only and are not report evidence.",
+    "knowledgeRecon": "Knowledge-base precheck: {count}/2 queries",
+    "reconDisclosure": "Planning precheck is on demand: it checks selected knowledge bases first, then public search summaries only if needed. Results inform the plan and are not formal evidence.",
     "reconResult": "{count} results · {domains}",
     "noDomains": "No domains returned",
     "reconStatus": {
       "partial": "Reconnaissance completed with incomplete results; source feasibility is not fully verified.",
-      "unavailable": "Reconnaissance was unavailable; source feasibility has not been verified."
+      "unavailable": "Reconnaissance was unavailable; source feasibility has not been verified.",
+      "skipped": "The plan was drafted from available knowledge; no precheck was performed."
     },
     "version": "Version {version}",
     "showFull": "Show full plan",
@@ -117,9 +122,9 @@
     "topology": "Research topology",
     "inspector": "Research node inspector",
     "selectNode": "Expand a research node to inspect its evidence and learnings.",
-    "waves": "Research waves",
-    "wave": "Wave {wave}",
-    "waveCount": "{count} waves",
+    "waves": "Research rounds",
+    "wave": "Round {wave}",
+    "waveCount": "{count} rounds",
     "waveSummary": "{queries} queries · {sources} sources · {claims} verified claims",
     "nodeDepth": "Depth {depth}",
     "nodeSummary": "{sources} sources · {claims} verified claims",
@@ -148,13 +153,14 @@
     },
     "stop": {
       "coverage_satisfied": "Evidence coverage satisfied",
+      "coverage_sufficient": "Evidence coverage is sufficient; remaining disputes are reported",
       "max_depth": "Maximum research depth reached",
       "max_queries": "Query limit reached",
       "max_sources": "Source body limit reached",
       "budget_exhausted": "Research budget exhausted",
-      "no_new_sources": "No new formal evidence across two consecutive waves",
+      "no_new_sources": "No new formal evidence across two consecutive rounds",
       "invalid_model_output": "The model returned an invalid research packet",
-      "no_new_verified_claims": "No new verified claims across consecutive waves",
+      "no_new_verified_claims": "No new verified claims across consecutive rounds",
       "frontier_exhausted": "No viable in-scope research nodes remain",
       "user_paused": "Paused by the user",
       "user_cancelled": "Cancelled by the user",
@@ -223,13 +229,11 @@
     "replyHint": "Reply in the chat to refine this plan, or start the research when it looks right.",
     "budgetSummary": "{preset} · {queries} queries · depth {depth}",
     "fullContract": "Full research contract",
-    "liveActivity": "Latest activity",
-    "progress": "Research progress",
-    "progressSummary": "Verified coverage {completed}/{total} key steps",
-    "progressDepth": "wave {wave}/{waves} · depth {depth}/{maxDepth}"
+    "liveActivity": "Latest activity"
   },
   "global": {
-    "label": "Active deep research"
+    "label": "Active deep research",
+    "resumableLabel": "Deep research ready to resume"
   },
   "taskList": {
     "title": "Deep Research",
@@ -250,7 +254,9 @@
     "progress": "Progress",
     "activity": "Activity",
     "report": "Report",
-    "evidence": "Evidence"
+    "evidence": "Evidence",
+    "claims": "Claims",
+    "supplements": "Supplementary material"
   },
   "activity": {
     "title": "Research activity",
@@ -263,9 +269,11 @@
     "toolRunning": "Using {tool}",
     "toolCommitted": "Completed {tool}",
     "toolFailed": "{tool} did not complete",
+    "toolEffectUnknown": "{tool} result could not be confirmed",
+    "toolInterrupted": "{tool} was interrupted",
     "toolSource": "Read-only source: {source}",
     "toolSafeDetail": "Read-only operation; raw arguments and results are hidden.",
-    "degradedWaveTitle": "Wave {wave} archived with evidence gaps",
+    "degradedWaveTitle": "Round {wave} archived with evidence gaps",
     "degradedWaveDetail": "{count} research nodes produced no valid learning packet. Preserved evidence remains available and the report will continue with explicit gaps.",
     "scopeExpansionTitle": "Research scope expanded automatically",
     "scopeExpansionDetail": "{count} additional research directions will continue from committed evidence in this run.",
@@ -276,7 +284,9 @@
       "continue": "Continued research",
       "update": "Latest-source update"
     },
-    "status": "Research status: {status}"
+    "status": "Research status: {status}",
+    "toolSkipped": "{tool}: duplicate query skipped",
+    "duplicateSkippedDetail": "This query was already submitted. No additional search request was sent."
   },
   "report": {
     "singleSourceNote": "{count} of {total} findings above rest on a single source.",
@@ -285,7 +295,46 @@
     "emptyTitle": "No report yet",
     "emptyDescription": "The full report will appear here after evidence has been collected, verified, and synthesized.",
     "artifactUnavailable": "The local report artifact is unavailable.",
-    "fallbackTitle": "Research report v{version}"
+    "fallbackTitle": "Research report v{version}",
+    "knowledgeNotice": "Some content may come from model knowledge that was not verified in this research and is labeled separately.",
+    "noEvidenceNotice": "This report is based on model knowledge and provided materials; no citable evidence was obtained in this research.",
+    "trustTitle": "Coverage and quality",
+    "coverageSummary": "{covered} of {total} research steps covered",
+    "stopReason": "Run stopped because: {reason}",
+    "gapsTitle": "Evidence gaps",
+    "noGaps": "No material evidence gaps were recorded.",
+    "qualityClean": "Publication checks passed.",
+    "qualityIssues": "{count, plural, one {# publication check needs attention.} other {# publication checks need attention.}}",
+    "qualityCounts": "{unknown} unknown citations, {unsupported} unsupported findings, {missing} missing sections",
+    "changeSummary": "Changes in this version",
+    "evidenceAdded": "{count, plural, one {# evidence item added} other {# evidence items added}}",
+    "sourcesChanged": "{count, plural, one {# source changed} other {# sources changed}}",
+    "sourcesUnchanged": "{count, plural, one {# source unchanged} other {# sources unchanged}}",
+    "sections": {
+      "executiveSummary": "Executive summary",
+      "keyFindings": "Key findings",
+      "planCoverage": "Research plan coverage",
+      "evidenceGaps": "Evidence gaps",
+      "sources": "Sources",
+      "knowledgeSupplement": "Knowledge supplement (not verified in this research)",
+      "unverifiedMaterial": "Unverified supplied material",
+      "questionsToVerify": "Questions still to verify",
+      "questionCoverage": "Research question coverage"
+    },
+    "fallbackText": {
+      "partialSummary": "This partial report includes findings supported by the available cited evidence. Some requested areas could not be completed.",
+      "unresolvedConflict": "contradicting evidence remains unresolved",
+      "unverifiedPrefix": "Unverified supplied material",
+      "citedFindingAvailable": "cited finding available",
+      "noCitedFinding": "no cited finding was produced",
+      "unverifiedArea": "This area remains unverified. The approved research questions below describe what still needs to be established.",
+      "retrieved": "retrieved",
+      "archiveMissing": "the research round did not produce a validated learning packet.",
+      "noFindings": "No evidence-supported finding was established during this research.",
+      "noQuestions": "No additional research question was recorded.",
+      "noEvidence": "No formal evidence committed."
+    },
+    "supplementsEmpty": "No supplementary material was recorded for this version."
   },
   "evidence": {
     "title": "Evidence inspector",
@@ -308,7 +357,35 @@
     "questionShort": "Step {number}",
     "allQuestions": "All steps",
     "allRelationships": "All relationships",
-    "noFilterResults": "No evidence matches these filters."
+    "noFilterResults": "No evidence matches these filters.",
+    "searchLabel": "Search evidence",
+    "searchPlaceholder": "Search claims, sources, or domains",
+    "domain": "Domain",
+    "allDomains": "All domains",
+    "authorityFilter": "Source authority",
+    "allAuthorities": "All authority levels",
+    "freshnessFilter": "Freshness",
+    "allFreshness": "All freshness states",
+    "sort": "Sort evidence",
+    "sortNewest": "Newest first",
+    "sortOldest": "Oldest first",
+    "sortClaimCount": "Most linked claims",
+    "results": "{count, plural, one {# evidence item} other {# evidence items}}"
+  },
+  "claims": {
+    "title": "Claim inspector",
+    "emptyTitle": "No formal claims yet",
+    "emptyDescription": "Claims appear after a research round is archived.",
+    "noFilterResults": "No claims match these filters.",
+    "searchLabel": "Search claims",
+    "searchPlaceholder": "Search claim text",
+    "status": "Verification status",
+    "allStatuses": "All statuses",
+    "publishers": "{count, plural, one {# independent publisher} other {# independent publishers}}",
+    "supporting": "Supporting evidence",
+    "contradicting": "Contradicting evidence",
+    "noEvidence": "No committed evidence is linked.",
+    "openEvidence": "Inspect evidence: {title}"
   },
   "sourceType": {
     "web": "Web",
@@ -396,7 +473,9 @@
       "incompleteQuestions": "{count} approved research steps remain partial or unanswered.",
       "scopeExpansionUnavailable": "{count} expanded research directions required sources that were unavailable in this conversation.",
       "executionInterrupted": "The research run ended before every planned operation completed; this report preserves the defensible material already produced.",
-      "budget": "The approved research budget was exhausted."
+      "budget": "The approved research budget was exhausted.",
+      "auditWarning": "The report still has {count} source or content completeness issue(s); review it together with the evidence gaps.",
+      "snapshotUnavailable": "The report was saved, but this version's evidence snapshot could not be saved. Report questions are temporarily unavailable."
     },
     "dependency": {
       "offline": "Network research is unavailable while this browser is offline. Reconnect, then resume manually.",

@@ -8,12 +8,17 @@ import type {
   AgentSkillMode,
   AgentSkillPolicy,
 } from "./types";
+import {
+  normalizeResearchTemplate,
+  type ResearchTemplate,
+} from "../research/templates";
 
 export interface AgentProfileLayer {
   runtime?: Partial<AgentProfileRuntime> & {
     budget?: Partial<AgentRunBudget>;
   };
   capabilities?: Partial<AgentProfileCapabilities>;
+  researchTemplate?: ResearchTemplate | null;
 }
 
 export interface AgentProfileDependencies {
@@ -145,6 +150,16 @@ export function normalizeAgentProfile(
   const memoryScopes = rawScopes?.filter((scope): scope is AgentMemoryScope =>
     MEMORY_SCOPES.has(scope as AgentMemoryScope),
   );
+  const profileRecord = value as Record<string, unknown>;
+  const hasResearchTemplate = Object.prototype.hasOwnProperty.call(
+    profileRecord,
+    "researchTemplate",
+  );
+  const researchTemplate = !hasResearchTemplate
+    ? undefined
+    : profileRecord.researchTemplate === null
+      ? null
+      : normalizeResearchTemplate(profileRecord.researchTemplate) || undefined;
 
   return {
     schemaVersion: 2,
@@ -172,6 +187,7 @@ export function normalizeAgentProfile(
         stringList(capabilities.knowledgeCollectionIds) || [],
       memoryScopes: memoryScopes ?? ["global"],
     },
+    ...(researchTemplate !== undefined ? { researchTemplate } : {}),
   };
 }
 
@@ -194,6 +210,7 @@ export function resolveAgentProfile(
     ...DEFAULT_AGENT_PROFILE.capabilities,
     skillPolicies: [],
   };
+  let researchTemplate: ResearchTemplate | null | undefined;
 
   for (const layer of layers) {
     if (!layer) continue;
@@ -217,9 +234,17 @@ export function resolveAgentProfile(
         ),
       };
     }
+    if (Object.prototype.hasOwnProperty.call(layer, "researchTemplate")) {
+      researchTemplate = layer.researchTemplate;
+    }
   }
 
-  return { schemaVersion: 2, runtime, capabilities };
+  return {
+    schemaVersion: 2,
+    runtime,
+    capabilities,
+    ...(researchTemplate !== undefined ? { researchTemplate } : {}),
+  };
 }
 
 function missing(required: readonly string[], available?: Iterable<string>) {

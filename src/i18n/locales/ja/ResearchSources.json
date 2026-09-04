@@ -1,0 +1,21 @@
+{
+  "arxivTitle": "arXiv",
+  "arxivDescription": "プレプリントを検索し、指定版の抄録と文献情報を取得します。",
+  "pubmedTitle": "PubMed",
+  "pubmedDescription": "医学・生命科学文献を検索し、抄録と出版情報を取得します。",
+  "epo-opsTitle": "EPO OPS",
+  "epo-opsDescription": "世界の特許を検索し、公開書誌情報と利用可能な抄録を取得します。",
+  "sec-edgarTitle": "SEC EDGAR",
+  "sec-edgarDescription": "企業名・ティッカー・CIK で提出書類を検索し、主要文書を取得します。",
+  "clientId": "クライアント ID",
+  "clientSecret": "クライアントシークレット",
+  "epoCredentialsHelp": "EPO OPS アプリの認証情報を入力してください。両方をまとめて暗号化して保存します。",
+  "credentialsSaved": "認証情報を保存しました。必要に応じてプラグインを有効にしてください。",
+  "saveFailed": "認証情報を保存できませんでした。再試行してください。",
+  "save": "認証情報を保存",
+  "saving": "保存中…",
+  "clear": "認証情報を削除",
+  "secContact": "組織名と連絡先メール",
+  "secContactPlaceholder": "組織名 contact@example.com",
+  "fixedEndpoints": "公式の固定アドレスを使用します。検索結果は情報源の候補です。文書を取得すると証拠として使用できます。"
+}

@@ -1,6 +1,7 @@
 "use client";
 
 import React, { createContext, useContext, useEffect, useMemo } from "react";
+import { useLocale } from "next-intl";
 
 import type {
   AgentUserInputController,
@@ -20,6 +21,7 @@ import { useResearchOperations } from "@/hooks/research/useResearchOperations";
 import { useResearchRuntimeText } from "@/hooks/research/useResearchRuntimeText";
 import { useResearchTaskActions } from "@/hooks/research/useResearchTaskActions";
 import { useResearchToolBridge } from "@/hooks/research/useResearchToolBridge";
+import { cancelAllEvidenceAnswers } from "@/lib/research/runtime/evidenceConversation";
 import { createAbortError } from "@/lib/research/runtime/operations";
 
 interface ResearchRuntimeProviderProps {
@@ -41,7 +43,6 @@ export interface ResearchRuntimeActions {
   resumeTask: (taskId: string) => Promise<void>;
   retryTask: (taskId: string) => Promise<void>;
   cancelTask: (taskId: string) => Promise<void>;
-  askExistingEvidence: (taskId: string, question: string) => Promise<void>;
   continueResearch: (taskId: string, instruction: string) => Promise<void>;
   updateLatest: (taskId: string) => Promise<void>;
 }
@@ -81,6 +82,7 @@ export function ResearchRuntimeProvider({
   onError,
   onNotice,
 }: ResearchRuntimeProviderProps) {
+  const locale = useLocale();
   const { t, localizedRuntimeError, dependencyText } = useResearchRuntimeText();
   const {
     operationsRef,
@@ -94,6 +96,7 @@ export function ResearchRuntimeProvider({
     toolConfirmationController,
     t,
     localizedRuntimeError,
+    locale,
     onError,
     onNotice,
   });
@@ -117,27 +120,21 @@ export function ResearchRuntimeProvider({
     t,
     onNotice,
   });
-  const {
-    retryTask,
-    resumeTask,
-    askExistingEvidence,
-    continueResearch,
-    updateLatest,
-  } = useResearchTaskActions({
-    claimActiveSlot,
-    checkpointUnavailableText: dependencyText.checkpointUnavailable,
-    launchResearch,
-    preparePlan,
-    runOperation,
-    t,
-    onNotice,
-  });
+  const { retryTask, resumeTask, continueResearch, updateLatest } =
+    useResearchTaskActions({
+      claimActiveSlot,
+      checkpointUnavailableText: dependencyText.checkpointUnavailable,
+      launchResearch,
+      preparePlan,
+      onNotice,
+    });
 
   useResearchToolBridge({
     adjustPlan,
     claimActiveSlot,
     confirmPlan,
     preparePlan,
+    locale,
     t,
   });
 
@@ -147,6 +144,7 @@ export function ResearchRuntimeProvider({
 
   useEffect(() => {
     const pauseActiveResearch = () => {
+      cancelAllEvidenceAnswers();
       const taskId = useResearchStore.getState().activeTaskId;
       if (taskId) void pauseTask(taskId);
     };
@@ -156,6 +154,7 @@ export function ResearchRuntimeProvider({
 
   useEffect(
     () => () => {
+      cancelAllEvidenceAnswers();
       for (const operation of operationsRef.current.values()) {
         operation.controller.abort(createAbortError());
       }
@@ -173,13 +172,11 @@ export function ResearchRuntimeProvider({
       resumeTask,
       retryTask,
       cancelTask,
-      askExistingEvidence,
       continueResearch,
       updateLatest,
     }),
     [
       adjustPlan,
-      askExistingEvidence,
       cancelTask,
       confirmPlan,
       continueResearch,

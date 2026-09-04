@@ -103,7 +103,20 @@ does not protect credentials or responses in transit.
 All three stores may use in-memory state for one local process. Hosted,
 Cloudflare Workers, and multi-instance Docker deployments should use `upstash`
 for all three so rate limits, document parse jobs, and plugin execution
-registry lookups survive across instances.
+registry lookups survive across instances. The same Upstash pair coordinates
+the provider leases used by the Deep Research arXiv, PubMed, EPO OPS, and SEC
+EDGAR adapters. Hosted specialized-source calls fail closed with a coordination
+error when the pair is absent or unreachable; a local single process can use
+in-memory coordination.
+
+Specialized source credentials are configured in the Plugin Market and stored
+through the existing local encrypted-secret path. They are not environment
+variables and are never copied into Research plans, templates, prompts,
+evidence, or extension snapshots. arXiv needs no credential, PubMed accepts an
+optional NCBI API key, EPO OPS requires a client ID and client secret, and SEC
+EDGAR requires a contact-bearing User-Agent such as `Neo Chat research
+team <research@example.com>`. These adapters use fixed official HTTPS
+endpoints; their endpoint cannot be replaced with `DEFAULT_*_BASE_URL`.
 
 ## Upload Limits
 

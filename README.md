@@ -101,11 +101,20 @@ See [CHANGELOG.md](CHANGELOG.md) for the complete release notes.
   revisioned workspace and Artifact operations, declarative Skills, MCP
   resources/prompts, sandboxed JavaScript, structured user input, and
   persistent run/approval state.
-- Independent Deep Research mode with bounded public-summary reconnaissance,
-  structured plan approval, adaptive breadth/depth research waves, explicit
+- Independent Deep Research mode with model-knowledge-first planning, conditional
+  selected-knowledge and public-summary lookup, structured plan approval,
+  adaptive breadth/depth research rounds, explicit
   claim-to-evidence auditing, safe foreground pause and manual resume,
-  versioned reports, local citations, and a responsive Research workbench. Full
-  reports remain immutable Artifacts instead of chat content.
+  versioned reports, local citations, and a responsive Research workbench. It
+  also includes reusable research templates, read-only arXiv/PubMed/EPO OPS/
+  SEC EDGAR source adapters, safe-wave frontier steering, and threaded
+  closed-book questions against each report version. Reports with evidence gaps
+  remain visible in chat and the workbench, with limitations included in exports.
+  Failed question snapshots do not block reports. Full reports remain immutable
+  Artifacts referenced by chat. Report headings support English, Chinese, and
+  Japanese; appendices have their own tab and a shared Markdown/PDF download menu.
+  Research searches run serially with two-second spacing, and Tavily Research
+  requests allow up to 90 seconds. Document previews open directly when clicked.
 - Parameterized text Skills with localized public catalogs, install/uninstall
   flows, local edits, custom skills, auto-selection, workspace presets, and
   ordered non-nested bundles of up to four Skills.
@@ -140,7 +149,8 @@ See [CHANGELOG.md](CHANGELOG.md) for the complete release notes.
 
 See [End-to-end encrypted sync](docs/encrypted-sync.md),
 [MCP stdio bridge](docs/mcp-stdio-bridge.md), and
-[Offline PWA](docs/offline-pwa.md) for deployment and trust-boundary details.
+[Offline PWA](docs/offline-pwa.md), and [Deep Research workflows](docs/research-workflows.md)
+for deployment and trust-boundary details.
 
 ## Screenshots
 

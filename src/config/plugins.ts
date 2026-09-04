@@ -4,6 +4,7 @@
  */
 
 import { Plugin } from "@/types";
+import { RESEARCH_SOURCE_PLUGINS } from "@/lib/plugin/researchSources/catalog";
 
 // ============================================================================
 // Schema 定义
@@ -592,6 +593,7 @@ export const AGNES_VIDEO_PLUGIN: Plugin = {
  * 所有内置插件
  */
 export const BUILT_IN_PLUGINS: Plugin[] = [
+  ...RESEARCH_SOURCE_PLUGINS,
   JINA_READER_PLUGIN,
   WEATHER_PLUGIN,
   UNSPLASH_PLUGIN,

@@ -15,6 +15,12 @@ import {
 } from "@/lib/byok/client";
 import { logDevError } from "@/lib/utils/devLogger";
 import { SEARCH_CONFIG_LIMITS } from "@/config/limits";
+import {
+  SearchRequestError,
+  parseSearchRetryAfter,
+  type SearchErrorLocation,
+} from "@/lib/search/errors";
+import { dispatchResearchSearch } from "./researchSearchDispatcher";
 
 export interface SearchOptions {
   query: string;
@@ -26,6 +32,7 @@ export interface SearchOptions {
 export async function createSearchProvider(
   { query, scope, maxResults, timeRange }: SearchOptions,
   signal?: AbortSignal,
+  runtime?: { purpose: "research"; deadlineAt?: number },
 ) {
   const { search } = useSettingsStore.getState();
   const provider = search.provider;
@@ -33,7 +40,10 @@ export async function createSearchProvider(
     return { sources: [], images: [] };
   }
 
-  const config = search.configs[provider] || {};
+  // Freeze the logical configuration before a request waits in the queue.
+  // Encryption stays inside the retry factory for public-key refreshes.
+  const config = structuredClone(search.configs[provider] || {});
+  const effectiveTimeRange = timeRange || search.timeRange;
   const configuredResultCount = search.resultsLimit || 5;
   const requestedResultCount =
     typeof maxResults === "number" && Number.isFinite(maxResults)
@@ -44,7 +54,8 @@ export async function createSearchProvider(
     Math.max(SEARCH_CONFIG_LIMITS.minResultsLimit, requestedResultCount),
   );
 
-  try {
+  const request = async (requestSignal?: AbortSignal) => {
+    requestSignal?.throwIfAborted();
     const response = await fetchWithByokRetry(async () =>
       signedApiFetch("/api/search", {
         method: "POST",
@@ -55,17 +66,38 @@ export async function createSearchProvider(
           provider,
           query,
           scope,
-          timeRange: timeRange || search.timeRange,
-          config: await buildSearchRuntimeConfig(provider, config, signal),
+          timeRange: effectiveTimeRange,
+          config: await buildSearchRuntimeConfig(
+            provider,
+            config,
+            requestSignal,
+          ),
           maxResult,
+          ...(runtime ? { profile: "research_summary" } : {}),
         }),
-        signal,
+        signal: requestSignal,
       }),
     );
 
     if (!response.ok) {
-      throw new Error(
+      const details = await response
+        .clone()
+        .json()
+        .catch(() => null);
+      const location: SearchErrorLocation = [
+        "provider",
+        "search_transport",
+        "search_api",
+        "client",
+      ].includes(details?.location)
+        ? details.location
+        : "search_api";
+      throw new SearchRequestError(
         await getResponseErrorMessage(response, "Search request failed"),
+        response.status,
+        typeof details?.code === "string" ? details.code : "SEARCH_HTTP_ERROR",
+        location,
+        parseSearchRetryAfter(response.headers.get("Retry-After")),
       );
     }
 
@@ -77,6 +109,14 @@ export async function createSearchProvider(
       sources: normalizeSearchSources(data.sources),
       images: normalizeImageSources(data.images),
     };
+  };
+  try {
+    return await (runtime
+      ? dispatchResearchSearch(request, {
+          signal,
+          deadlineAt: runtime.deadlineAt,
+        })
+      : request(signal));
   } catch (error) {
     if (
       signal?.aborted ||

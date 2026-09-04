@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
+import { isResearchSourceProvider } from "@/lib/plugin/researchSources/catalog";
+import { executeResearchSourceRequest } from "@/lib/plugin/researchSources/server";
 import {
   createApiErrorResponse,
   readJsonRequestBody,
@@ -207,6 +209,16 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ result });
       }
 
+      if (isResearchSourceProvider(pluginId)) {
+        return executeResearchSourceRequest({
+          provider: pluginId,
+          functionName,
+          args,
+          authConfig,
+          signal: request.signal,
+        });
+      }
+
       return executePluginFunctionRequest({
         plugin,
         functionDef,
@@ -235,6 +247,16 @@ export async function POST(request: NextRequest) {
     const legacyBody = ToolExecutionSchema.parse(rawBody);
     const plugin = legacyBody.plugin as Plugin;
     const functionDef = legacyBody.functionDef as PluginFunction;
+    // Never allow legacy caller-supplied manifests to impersonate a trusted source.
+    if (isResearchSourceProvider(plugin.id)) {
+      return NextResponse.json(
+        {
+          error: "Specialized sources require registered function execution.",
+          code: "SOURCE_REGISTERED_EXECUTION_REQUIRED",
+        },
+        { status: 400 },
+      );
+    }
     // Legacy local-first manifests predate required JSON Schemas. Preserve
     // them with a bounded object contract; hosted execution never accepts
     // this payload shape.

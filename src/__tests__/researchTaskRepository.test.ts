@@ -37,6 +37,8 @@ function createV2TaskFixture(): ResearchTask {
       audience: "Maintainers",
       includes: ["v2 records"],
       excludes: ["legacy migration"],
+      preferredDomains: ["docs.example.com"],
+      excludedDomains: ["archive.example.com"],
       allowedSourceTypes: ["web"],
     },
     assumptions: [],
@@ -271,6 +273,13 @@ function createV2TaskFixture(): ResearchTask {
         gaps: [],
         coveredStepIds: [plan.steps[0].id],
         evidenceIds: [evidence.id],
+        audit: {
+          blocking: [],
+          advisory: ["One finding needs review."],
+          unknownCitationCount: 0,
+          unsupportedFindingCount: 1,
+          missingSectionCount: 0,
+        },
         kind: "initial",
       },
     ],
@@ -356,6 +365,10 @@ describe("ResearchTask repository", () => {
 
     const restored = await repository.get(task.id);
     expect(restored?.planVersions[0].steps[0]).toMatchObject({ id: "step-v2" });
+    expect(restored?.planVersions[0].scope).toMatchObject({
+      preferredDomains: ["docs.example.com"],
+      excludedDomains: ["archive.example.com"],
+    });
     expect(restored?.evidence[0]).toMatchObject({
       id: "evidence-v2",
       stepId: "step-v2",
@@ -388,6 +401,10 @@ describe("ResearchTask repository", () => {
     expect(restored?.reportVersions[0]).toMatchObject({
       researchRunId: "run-v2",
       coveredStepIds: ["step-v2"],
+      audit: {
+        advisory: ["One finding needs review."],
+        unsupportedFindingCount: 1,
+      },
     });
     expect(parseResearchTaskValue(task)).toEqual(task);
     const oldV2Task = structuredClone(task);

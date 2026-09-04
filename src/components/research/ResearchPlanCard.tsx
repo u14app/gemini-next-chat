@@ -95,6 +95,12 @@ export default function ResearchPlanCard({
           .map((sourceType) => t(`sourceType.${sourceType}`))
           .join(", ")
       : undefined,
+    plan?.scope?.preferredDomains?.length
+      ? `${t("plan.preferredDomains")}: ${plan.scope.preferredDomains.join(", ")}`
+      : undefined,
+    plan?.scope?.excludedDomains?.length
+      ? `${t("plan.excludedDomains")}: ${plan.scope.excludedDomains.join(", ")}`
+      : undefined,
     plan?.deliverable ? t(`deliverable.${plan.deliverable.kind}`) : undefined,
   ].filter((part): part is string => Boolean(part));
 
@@ -185,7 +191,7 @@ export default function ResearchPlanCard({
                 {t("card.budgetSummary", {
                   preset: task.budgetPreset
                     ? t(`budget.${task.budgetPreset}`)
-                    : "—",
+                    : "-",
                   queries: plan.strategy.queryLimit,
                   depth: plan.strategy.maxDepth,
                 })}

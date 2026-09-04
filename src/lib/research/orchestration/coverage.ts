@@ -10,6 +10,21 @@ function ratio(numerator: number, denominator: number): number {
   return numerator / denominator;
 }
 
+export const RESEARCH_SUFFICIENT_CLAIM_RATIO = 0.8;
+
+export function isResearchCoverageSufficient(
+  coverage: ResearchCoverage,
+  claimRatio: number = RESEARCH_SUFFICIENT_CLAIM_RATIO,
+): boolean {
+  const threshold = Math.min(1, Math.max(0, claimRatio));
+  return (
+    coverage.requiredStepCount > 0 &&
+    coverage.majorClaimCount > 0 &&
+    coverage.stepRatio === 1 &&
+    coverage.claimRatio >= threshold
+  );
+}
+
 export function calculateResearchCoverage(
   steps: readonly ResearchPlanStepV2[],
   nodes: readonly ResearchNode[],

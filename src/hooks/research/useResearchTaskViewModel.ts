@@ -47,6 +47,13 @@ export function useResearchTaskViewModel(taskId: string | null) {
         t("activity.toolCommitted", { tool: getToolDisplayName(tool) }),
       toolFailedTitle: (tool) =>
         t("activity.toolFailed", { tool: getToolDisplayName(tool) }),
+      toolSkippedTitle: (tool: string) =>
+        t("activity.toolSkipped", { tool: getToolDisplayName(tool) }),
+      duplicateSkippedDetail: t("activity.duplicateSkippedDetail"),
+      toolEffectUnknownTitle: (tool) =>
+        t("activity.toolEffectUnknown", { tool: getToolDisplayName(tool) }),
+      toolInterruptedTitle: (tool) =>
+        t("activity.toolInterrupted", { tool: getToolDisplayName(tool) }),
       toolSourceDetail: (source) => t("activity.toolSource", { source }),
       internalToolResultSource: t("evidence.internalResult"),
       toolSafeDetail: t("activity.toolSafeDetail"),

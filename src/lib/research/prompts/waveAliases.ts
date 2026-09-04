@@ -4,6 +4,9 @@ import type {
   ResearchWaveSourceAlias,
 } from "./types";
 
+export const RESEARCH_WAVE_SOURCE_LIMIT = 80;
+export const RESEARCH_WAVE_SOURCE_KEY_PATTERN = /^S(?:[1-9]|[1-7][0-9]|80)$/;
+
 export function createResearchWaveAliasContext({
   run,
   nodeIds,
@@ -47,7 +50,13 @@ export function createResearchWaveAliasContext({
       .filter((item) => selectedNodeIds.has(item.nodeId))
       .map((item) => item.id),
   ];
-  const sourceById = new Map<string, ResearchWaveSourceAlias>();
+  const sourceById = new Map<
+    string,
+    ResearchWaveSourceAlias & {
+      evidenceIds: string[];
+      aliasSourceIds: string[];
+    }
+  >();
   for (const evidenceId of candidateEvidenceIds) {
     const item = evidenceById.get(evidenceId);
     if (!item) continue;
@@ -56,12 +65,16 @@ export function createResearchWaveAliasContext({
       if (!existing.evidenceIds.includes(item.id)) {
         existing.evidenceIds.push(item.id);
       }
+      existing.aliasSourceIds = Array.from(
+        new Set([...existing.aliasSourceIds, ...(item.aliasSourceIds || [])]),
+      );
       continue;
     }
-    if (sourceById.size >= 80) continue;
+    if (sourceById.size >= RESEARCH_WAVE_SOURCE_LIMIT) continue;
     sourceById.set(item.sourceId, {
       key: `S${sourceById.size + 1}`,
       sourceId: item.sourceId,
+      aliasSourceIds: [...(item.aliasSourceIds || [])],
       evidenceIds: [item.id],
       title: item.title,
       locator: item.locator,
@@ -69,5 +82,51 @@ export function createResearchWaveAliasContext({
       retrievedAt: item.retrievedAt,
     });
   }
-  return { nodes, sources: Array.from(sourceById.values()) };
+  return Object.freeze({
+    nodes: Object.freeze(nodes.map((node) => Object.freeze(node))),
+    sources: Object.freeze(
+      Array.from(sourceById.values(), (source) =>
+        Object.freeze({
+          ...source,
+          evidenceIds: Object.freeze(source.evidenceIds),
+          aliasSourceIds: Object.freeze(source.aliasSourceIds),
+        }),
+      ),
+    ),
+  });
+}
+
+/** Only exact, unambiguous identities in this wave's frozen index may resolve. */
+export function createResearchWaveSourceReferenceResolver(
+  sources: ResearchWaveAliasContext["sources"],
+) {
+  const sourceKeys = new Set(sources.map((source) => source.key));
+  const keysByReference = new Map<string, Set<string>>();
+  for (const source of sources) {
+    for (const reference of [
+      source.key,
+      source.sourceId,
+      ...source.evidenceIds,
+      ...(source.aliasSourceIds || []),
+    ]) {
+      const keys = keysByReference.get(reference) || new Set<string>();
+      keys.add(source.key);
+      keysByReference.set(reference, keys);
+    }
+  }
+  return (reference: string): { key: string } | { error: string } => {
+    const trimmed = reference.trim();
+    // A missing or malformed short alias must never fall back to an internal ID.
+    if (/^s\d+$/i.test(trimmed) && !sourceKeys.has(trimmed)) {
+      return { error: "Source alias is not in the current host index." };
+    }
+    const keys = keysByReference.get(trimmed);
+    if (!keys?.size) {
+      return { error: "Source reference is not in the current host index." };
+    }
+    if (keys.size !== 1) {
+      return { error: "Source reference matches multiple host sources." };
+    }
+    return { key: keys.values().next().value! };
+  };
 }

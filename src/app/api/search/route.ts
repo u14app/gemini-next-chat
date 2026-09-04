@@ -9,7 +9,7 @@ import {
   normalizeImageSources,
   normalizeSearchSources,
 } from "@/lib/search/results";
-import { safeFetchJson } from "@/lib/security/safeFetch";
+import { ResponseTimeoutError } from "@/lib/errors";
 import {
   runSearchProvider,
   SearchProviderError,
@@ -22,7 +22,8 @@ import { safeServerLogError } from "@/lib/utils/safeServerLog";
 export async function POST(request: NextRequest) {
   try {
     const body = SearchRequestSchema.parse(await readJsonRequestBody(request));
-    const { provider, query, scope, timeRange, config, maxResult } = body;
+    const { provider, query, scope, timeRange, config, maxResult, profile } =
+      body;
     const defaultSearch =
       provider === "default" ? getDefaultSearchRuntimeConfig() : null;
     const effectiveProvider = (defaultSearch?.provider ||
@@ -53,14 +54,33 @@ export async function POST(request: NextRequest) {
         apiKey,
         baseUrl,
         maxResultNumber,
-        fetchJson: safeFetchJson,
         signal: request.signal,
+        profile,
       });
     } catch (error) {
       if (error instanceof SearchProviderError) {
         return NextResponse.json(
-          { error: error.message },
-          { status: error.status },
+          {
+            error: error.message,
+            code: error.code,
+            location: error.location,
+            statusCode: error.status,
+            ...(error.retryAfterMs !== undefined
+              ? { retryAfterMs: error.retryAfterMs }
+              : {}),
+          },
+          {
+            status: error.status,
+            ...(error.retryAfterMs !== undefined
+              ? {
+                  headers: {
+                    "Retry-After": String(
+                      Math.ceil(error.retryAfterMs / 1_000),
+                    ),
+                  },
+                }
+              : {}),
+          },
         );
       }
       throw error;
@@ -78,6 +98,13 @@ export async function POST(request: NextRequest) {
       return new Response(null, { status: 499 });
     }
     safeServerLogError("Search error:", error);
+    if (error instanceof ResponseTimeoutError) {
+      const response = createApiErrorResponse(error, "Search failed");
+      return NextResponse.json(
+        { ...(await response.json()), location: "search_transport" },
+        { status: response.status, headers: response.headers },
+      );
+    }
     return createApiErrorResponse(error, "Search failed");
   }
 }

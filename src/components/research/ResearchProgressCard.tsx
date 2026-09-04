@@ -48,13 +48,6 @@ export default function ResearchProgressCard({
   const isFinished =
     task.status === "completed" || task.status === "partial_completed";
   const elapsedMs = useElapsedMs(run?.startedAt, run?.endedAt, isRunning);
-  const coveredStepCount = run?.coverage.coveredStepCount ?? 0;
-  const requiredStepCount =
-    run?.coverage.requiredStepCount ?? task.totalQuestions;
-  const progress =
-    requiredStepCount > 0
-      ? Math.min(100, Math.round((coveredStepCount / requiredStepCount) * 100))
-      : 0;
   const isLegacyScopePause =
     task.status === "paused" &&
     task.error?.code === "RESEARCH_SCOPE_APPROVAL_REQUIRED";
@@ -109,38 +102,6 @@ export default function ResearchProgressCard({
           </InlineStatus>
         ) : null}
 
-        {!isFinished && requiredStepCount > 0 ? (
-          <div>
-            <div
-              className="h-1.5 overflow-hidden rounded-full bg-border"
-              role="progressbar"
-              aria-valuemin={0}
-              aria-valuemax={requiredStepCount}
-              aria-valuenow={coveredStepCount}
-              aria-label={t("card.progress")}
-            >
-              <div
-                className="h-full bg-research-accent transition-[width] duration-500 motion-reduce:transition-none"
-                style={{ width: `${progress}%` }}
-              />
-            </div>
-            <p className="mt-1.5 text-xs text-muted-foreground">
-              {t("card.progressSummary", {
-                completed: coveredStepCount,
-                total: requiredStepCount,
-              })}
-              {run
-                ? ` · ${t("card.progressDepth", {
-                    wave: run.currentWave ?? 0,
-                    waves: run.waves.length,
-                    depth: run.currentDepth,
-                    maxDepth: run.maxDepth,
-                  })}`
-                : ""}
-            </p>
-          </div>
-        ) : null}
-
         {isFinished ? (
           <div>
             {task.status === "partial_completed" && task.gapSummary ? (
@@ -178,7 +139,6 @@ export default function ResearchProgressCard({
                   <ActivityList
                     activities={task.activities}
                     limit={CARD_ACTIVITY_LIMIT}
-                    live={isRunning}
                   />
                 </div>
               </div>

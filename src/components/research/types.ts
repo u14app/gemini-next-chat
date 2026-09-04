@@ -32,11 +32,14 @@ export interface ResearchPlanScopeView {
   allowedSourceTypes?: ResearchSourceType[];
   includes: string[];
   excludes: string[];
+  preferredDomains?: string[];
+  excludedDomains?: string[];
 }
 
 export interface ResearchDeliverableView {
   kind: ResearchDeliverableKind;
   description?: string;
+  requiredSections?: string[];
 }
 
 export interface ResearchStrategyView {
@@ -51,7 +54,7 @@ export interface ResearchStrategyView {
 export interface ResearchReconQueryView {
   id: string;
   query: string;
-  status: "completed" | "failed";
+  status: "completed" | "failed" | "timed_out";
   resultCount: number;
   domains: string[];
 }
@@ -62,12 +65,13 @@ export interface ResearchStopReasonView {
 }
 
 export interface ResearchReconView {
-  status: "completed" | "partial" | "unavailable";
+  status: "completed" | "partial" | "unavailable" | "skipped";
   queryCount: number;
   maxQueries: number;
   resultsPerQuery: number;
   durationMs?: number;
   queries: ResearchReconQueryView[];
+  knowledgeQueries?: Array<Omit<ResearchReconQueryView, "domains">>;
 }
 
 export interface ResearchPlanView {
@@ -191,12 +195,57 @@ export interface ResearchReportVersionView {
   createdAt: number;
   title: string;
   markdown: string;
+  kind?: "initial" | "continue" | "update";
+  gaps?: string[];
+  coveredStepIds?: string[];
+  planStepCount?: number;
+  stopReason?: ResearchStopReasonView;
+  diff?: {
+    addedEvidenceIds: string[];
+    changedSourceIds: string[];
+    unchangedSourceIds: string[];
+  };
+  audit?: {
+    blocking: string[];
+    advisory: string[];
+    unknownCitationCount: number;
+    unsupportedFindingCount: number;
+    missingSectionCount: number;
+  };
+  claims?: ResearchClaimView[];
+}
+
+/**
+ * A persisted tool execution can outlive the task state that produced it.
+ * Keeping this status on the activity view lets the UI distinguish an active
+ * operation from a stale prepared record without inferring from list order.
+ */
+export type ResearchActivityStatus =
+  | "info"
+  | "prepared"
+  | "running"
+  | "committed"
+  | "completed"
+  | "failed"
+  | "effect_unknown"
+  | "interrupted";
+
+export interface ResearchClaimView {
+  id: string;
+  text: string;
+  importance: "major" | "background";
+  verificationStatus: "pending" | "verified" | "unsupported" | "unresolved";
+  independentPublisherCount: number;
+  supportingEvidenceIds: string[];
+  contradictingEvidenceIds: string[];
+  stepId: string;
 }
 
 export interface ResearchActivityView {
   id: string;
   createdAt: number;
   phase: ResearchTaskStatus;
+  status: ResearchActivityStatus;
   title: string;
   detail?: string;
   tone?: "warning";
@@ -216,6 +265,7 @@ export interface ResearchTaskViewModel {
   completedQuestions: number;
   totalQuestions: number;
   evidence: ResearchEvidenceView[];
+  claims?: ResearchClaimView[];
   activities: ResearchActivityView[];
   reportVersions: ResearchReportVersionView[];
   activeReportVersionId?: string;

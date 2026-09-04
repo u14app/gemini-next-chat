@@ -9,7 +9,11 @@ import type {
   ResearchSourceType,
 } from "../types";
 import { calculateResearchCoverage } from "./coverage";
-import { getResearchBreadthAtDepth, normalizeResearchQuery } from "./strategy";
+import {
+  getAdaptiveResearchBreadth,
+  isResearchQueryDuplicate,
+  normalizeResearchQuery,
+} from "./strategy";
 
 function createId(prefix: string): string {
   const randomUuid = globalThis.crypto?.randomUUID?.bind(globalThis.crypto);
@@ -85,6 +89,39 @@ export interface NextResearchWaveResult {
   wave: ResearchReportRun["waves"][number];
 }
 
+export function getResearchVerificationTargetNodeIds(
+  run: ResearchReportRun,
+  plan: ResearchPlanVersion,
+  limit: number = run.strategy.initialBreadth,
+): string[] {
+  const uncoveredSteps = plan.steps.filter(
+    (step) =>
+      !run.claims.some(
+        (claim) =>
+          claim.stepId === step.id &&
+          claim.importance === "major" &&
+          claim.verificationStatus === "verified",
+      ),
+  );
+  return Array.from(
+    new Set([
+      ...run.claims
+        .filter(
+          (claim) =>
+            claim.importance === "major" &&
+            claim.verificationStatus !== "verified",
+        )
+        .flatMap((claim) => claim.nodeIds),
+      ...uncoveredSteps.flatMap((step) => {
+        const node = run.nodes.find(
+          (candidate) => candidate.stepId === step.id,
+        );
+        return node ? [node.id] : [];
+      }),
+    ]),
+  ).slice(0, Math.max(1, Math.trunc(limit)));
+}
+
 export function createNextResearchWave(
   run: ResearchReportRun,
   now: number = Date.now(),
@@ -93,7 +130,7 @@ export function createNextResearchWave(
   if (frontier.length === 0) return null;
   const depth = Math.min(...frontier.map((node) => node.depth));
   if (depth > run.strategy.maxDepth) return null;
-  const breadth = getResearchBreadthAtDepth(run.strategy.initialBreadth, depth);
+  const breadth = getAdaptiveResearchBreadth(run.strategy, run.coverage, depth);
   const selected = frontier
     .filter((node) => node.depth === depth)
     .slice(0, breadth);
@@ -156,7 +193,7 @@ function findFollowUpDuplicates(
   const duplicateIds: string[] = [];
   for (const followUp of followUps) {
     const normalized = normalizeResearchQuery(followUp.question);
-    if (!normalized || seen.has(normalized)) {
+    if (!normalized || isResearchQueryDuplicate(normalized, seen)) {
       duplicateIds.push(followUp.id);
       continue;
     }
@@ -201,8 +238,9 @@ export function expandResearchFrontier(
     run.nodes.map((node) => node.query),
   );
   const nextDepth = parent.depth + 1;
-  const nextBreadth = getResearchBreadthAtDepth(
-    run.strategy.initialBreadth,
+  const nextBreadth = getAdaptiveResearchBreadth(
+    run.strategy,
+    run.coverage,
     nextDepth,
   );
   const priorityRank: Record<ResearchPriority, number> = {

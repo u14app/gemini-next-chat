@@ -18,7 +18,7 @@
     "queries": "クエリ",
     "verifiedClaims": "検証済み主張",
     "depth": "深度",
-    "wave": "ウェーブ",
+    "wave": "ラウンド",
     "toolCalls": "ツール呼び出し",
     "elapsed": "経過時間",
     "tokens": "トークン"
@@ -48,7 +48,8 @@
     "pdf": "PDF",
     "askEvidence": "既存の根拠に質問",
     "continueResearch": "調査を続ける",
-    "updateLatest": "最新情報に更新"
+    "updateLatest": "最新情報に更新",
+    "downloadReport": "ダウンロード"
   },
   "plan": {
     "title": "調査計画",
@@ -58,6 +59,8 @@
     "scope": "調査範囲",
     "audience": "対象読者",
     "timeRange": "対象期間",
+    "preferredDomains": "優先ドメイン",
+    "excludedDomains": "除外ドメイン",
     "allowedSources": "許可された情報源の種類",
     "includes": "含む項目",
     "excludes": "除外項目",
@@ -84,12 +87,14 @@
     "decisionSteps": "{count} ステップ",
     "decisionQueries": "{count} クエリ",
     "reconSummary": "計画前の偵察：{used}/{limit} クエリ",
-    "reconDisclosure": "計画前の偵察では、設定済みの公開検索サービスへ調査質問を送信します。検索要約は計画の改善だけに使われ、レポートの根拠にはなりません。",
+    "knowledgeRecon": "ナレッジベースの事前確認: {count}/2 回",
+    "reconDisclosure": "計画前の確認は必要な場合だけ行います。まず選択したナレッジベースを確認し、必要な場合に限り公開検索の要約を使います。結果は計画にのみ反映し、正式な根拠にはしません。",
     "reconResult": "{count} 件 · {domains}",
     "noDomains": "ドメインなし",
     "reconStatus": {
       "partial": "偵察結果が不完全なため、情報源の実現可能性は十分に検証されていません。",
-      "unavailable": "計画前の偵察を利用できず、情報源の実現可能性は未検証です。"
+      "unavailable": "計画前の偵察を利用できず、情報源の実現可能性は未検証です。",
+      "skipped": "既存の知識に基づいて計画を作成したため、事前確認は行いませんでした。"
     },
     "version": "バージョン {version}",
     "showFull": "計画をすべて表示",
@@ -117,9 +122,9 @@
     "topology": "調査トポロジー",
     "inspector": "調査ノードインスペクター",
     "selectNode": "調査ノードを展開すると、根拠と学びを確認できます。",
-    "waves": "調査ウェーブ",
-    "wave": "ウェーブ {wave}",
-    "waveCount": "{count} ウェーブ",
+    "waves": "調査ラウンド",
+    "wave": "ラウンド {wave}",
+    "waveCount": "{count} ラウンド",
     "waveSummary": "{queries} クエリ · {sources} 情報源 · {claims} 検証済み主張",
     "nodeDepth": "深度 {depth}",
     "nodeSummary": "{sources} 情報源 · {claims} 検証済み主張",
@@ -148,13 +153,14 @@
     },
     "stop": {
       "coverage_satisfied": "根拠のカバレッジを満たしました",
+      "coverage_sufficient": "根拠のカバレッジは十分です。残る相違はレポートに記載します",
       "max_depth": "最大調査深度に達しました",
       "max_queries": "クエリ上限に達しました",
       "max_sources": "本文取得上限に達しました",
       "budget_exhausted": "調査予算を使い切りました",
-      "no_new_sources": "2回連続のウェーブで正式な証拠が増えませんでした",
-      "invalid_model_output": "モデルが無効な調査ウェーブ形式を返しました",
-      "no_new_verified_claims": "連続するウェーブで検証済み主張が増えませんでした",
+      "no_new_sources": "2回連続の調査ラウンドで正式な根拠が増えませんでした",
+      "invalid_model_output": "モデルが無効な調査ラウンド形式を返しました",
+      "no_new_verified_claims": "連続する調査ラウンドで検証済み主張が増えませんでした",
       "frontier_exhausted": "範囲内で実行可能な調査ノードが残っていません",
       "user_paused": "ユーザーが一時停止しました",
       "user_cancelled": "ユーザーがキャンセルしました",
@@ -223,13 +229,11 @@
     "replyHint": "チャットで返信して計画を調整できます。問題なければ調査を開始してください。",
     "budgetSummary": "{preset} · 検索 {queries} 回 · 深さ {depth}",
     "fullContract": "調査契約の全文",
-    "liveActivity": "最新のアクティビティ",
-    "progress": "調査の進捗",
-    "progressSummary": "主要ステップ {total} 件中 {completed} 件を検証済み",
-    "progressDepth": "ウェーブ {wave}/{waves} · 深さ {depth}/{maxDepth}"
+    "liveActivity": "最新のアクティビティ"
   },
   "global": {
-    "label": "実行中のディープリサーチ"
+    "label": "実行中のディープリサーチ",
+    "resumableLabel": "再開できるディープリサーチ"
   },
   "taskList": {
     "title": "ディープリサーチ",
@@ -250,7 +254,9 @@
     "progress": "進捗",
     "activity": "アクティビティ",
     "report": "レポート",
-    "evidence": "根拠"
+    "evidence": "根拠",
+    "claims": "主張",
+    "supplements": "補足資料"
   },
   "activity": {
     "title": "調査アクティビティ",
@@ -263,9 +269,11 @@
     "toolRunning": "{tool} を使用中",
     "toolCommitted": "{tool} が完了しました",
     "toolFailed": "{tool} を完了できませんでした",
+    "toolEffectUnknown": "{tool} の結果を確認できません",
+    "toolInterrupted": "{tool} は中断されました",
     "toolSource": "読み取り専用ソース：{source}",
     "toolSafeDetail": "読み取り専用操作です。元の引数と完全な結果は非表示です。",
-    "degradedWaveTitle": "ウェーブ {wave} を根拠不足ありで保存しました",
+    "degradedWaveTitle": "ラウンド {wave} を根拠不足ありで保存しました",
     "degradedWaveDetail": "{count} 個の調査ノードで有効な学習パケットを生成できませんでした。保存済みの根拠は維持され、レポートは不足箇所を明示して続行します。",
     "scopeExpansionTitle": "調査範囲を自動的に拡張しました",
     "scopeExpansionDetail": "この実行では、確定済みの根拠から {count} 件の追加調査方向を続行します。",
@@ -276,7 +284,9 @@
       "continue": "継続調査",
       "update": "最新情報源の更新"
     },
-    "status": "調査ステータス：{status}"
+    "status": "調査ステータス：{status}",
+    "toolSkipped": "{tool}：重複した検索をスキップ",
+    "duplicateSkippedDetail": "この検索は既に送信済みです。追加の検索リクエストは送信していません。"
   },
   "report": {
     "singleSourceNote": "上記 {total} 件の発見のうち {count} 件は単一の情報源に基づいています。",
@@ -285,7 +295,46 @@
     "emptyTitle": "レポートはまだありません",
     "emptyDescription": "根拠の収集、検証、統合が完了すると、完全なレポートがここに表示されます。",
     "artifactUnavailable": "ローカルのレポート Artifact を利用できません。",
-    "fallbackTitle": "調査レポート v{version}"
+    "fallbackTitle": "調査レポート v{version}",
+    "knowledgeNotice": "一部の内容は、この調査で検証されていないモデルの知識に基づく場合があり、個別に表示されます。",
+    "noEvidenceNotice": "このレポートはモデルの知識と提供された資料に基づいており、この調査で引用可能な根拠は得られませんでした。",
+    "trustTitle": "カバレッジと品質",
+    "coverageSummary": "調査ステップ {total} 件中 {covered} 件をカバー",
+    "stopReason": "実行の停止理由: {reason}",
+    "gapsTitle": "根拠の不足",
+    "noGaps": "重大な根拠不足は記録されていません。",
+    "qualityClean": "公開チェックに合格しました。",
+    "qualityIssues": "{count} 件の公開チェックに注意が必要です。",
+    "qualityCounts": "不明な引用 {unknown} 件、裏付けのない発見 {unsupported} 件、不足セクション {missing} 件",
+    "changeSummary": "このバージョンの変更",
+    "evidenceAdded": "根拠を {count} 件追加",
+    "sourcesChanged": "{count} 件の情報源が変更",
+    "sourcesUnchanged": "{count} 件の情報源は変更なし",
+    "sections": {
+      "executiveSummary": "要約",
+      "keyFindings": "主な調査結果",
+      "planCoverage": "調査計画の網羅状況",
+      "evidenceGaps": "エビデンスギャップ",
+      "sources": "情報源",
+      "knowledgeSupplement": "知識の補足（本調査では未検証）",
+      "unverifiedMaterial": "未検証の提供資料",
+      "questionsToVerify": "今後検証すべき問い",
+      "questionCoverage": "調査質問の網羅状況"
+    },
+    "fallbackText": {
+      "partialSummary": "本レポートには、利用可能な引用資料で裏付けられた知見を掲載しています。一部の調査は未完了です。",
+      "unresolvedConflict": "矛盾する証拠は未解決です",
+      "unverifiedPrefix": "未検証の提供資料",
+      "citedFindingAvailable": "引用可能な知見あり",
+      "noCitedFinding": "引用可能な知見なし",
+      "unverifiedArea": "この項目は未検証です。以下の承認済み調査質問に、今後確認すべき内容を示します。",
+      "retrieved": "取得日時",
+      "archiveMissing": "このラウンドでは検証済みの学習記録が作成されませんでした。",
+      "noFindings": "本調査では証拠に裏付けられた知見を確立できませんでした。",
+      "noQuestions": "追加の調査質問は記録されていません。",
+      "noEvidence": "正式な証拠は収集されていません。"
+    },
+    "supplementsEmpty": "このバージョンの補足資料はありません。"
   },
   "evidence": {
     "title": "根拠インスペクター",
@@ -308,7 +357,35 @@
     "questionShort": "ステップ {number}",
     "allQuestions": "すべてのステップ",
     "allRelationships": "すべての関係",
-    "noFilterResults": "現在のフィルターに一致する証拠はありません。"
+    "noFilterResults": "現在のフィルターに一致する証拠はありません。",
+    "searchLabel": "根拠を検索",
+    "searchPlaceholder": "主張、情報源、ドメインを検索",
+    "domain": "ドメイン",
+    "allDomains": "すべてのドメイン",
+    "authorityFilter": "情報源の権威性",
+    "allAuthorities": "すべての権威性",
+    "freshnessFilter": "鮮度",
+    "allFreshness": "すべての鮮度",
+    "sort": "根拠の並び順",
+    "sortNewest": "新しい順",
+    "sortOldest": "古い順",
+    "sortClaimCount": "関連する主張が多い順",
+    "results": "根拠 {count} 件"
+  },
+  "claims": {
+    "title": "主張インスペクター",
+    "emptyTitle": "正式な主張はまだありません",
+    "emptyDescription": "調査ラウンドの保存後に主張が表示されます。",
+    "noFilterResults": "現在のフィルターに一致する主張はありません。",
+    "searchLabel": "主張を検索",
+    "searchPlaceholder": "主張の本文を検索",
+    "status": "検証状態",
+    "allStatuses": "すべての状態",
+    "publishers": "独立した発行元 {count} 件",
+    "supporting": "支持する根拠",
+    "contradicting": "反証する根拠",
+    "noEvidence": "確定済みの根拠は関連付けられていません。",
+    "openEvidence": "根拠を確認: {title}"
   },
   "sourceType": {
     "web": "ウェブ",
@@ -396,7 +473,9 @@
       "incompleteQuestions": "承認済みの調査ステップのうち {count} 件が一部完了または未完了です。",
       "scopeExpansionUnavailable": "{count} 件の拡張調査方向には、この会話で利用できない情報源が必要でした。",
       "executionInterrupted": "予定したすべての操作が完了する前に調査が終了しました。このレポートには、すでに作成された妥当な内容のみを残しています。",
-      "budget": "承認済みの調査予算を使い切りました。"
+      "budget": "承認済みの調査予算を使い切りました。",
+      "auditWarning": "レポートには情報源または内容の完全性に関する問題が {count} 件残っています。根拠の不足と合わせて確認してください。",
+      "snapshotUnavailable": "レポートは保存されましたが、このバージョンの根拠スナップショットを保存できなかったため、レポートへの質問は一時的に利用できません。"
     },
     "dependency": {
       "offline": "ブラウザーがオフラインのため、ネットワーク調査を実行できません。再接続後に手動で再開してください。",

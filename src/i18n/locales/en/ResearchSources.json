@@ -1,0 +1,21 @@
+{
+  "arxivTitle": "arXiv",
+  "arxivDescription": "Search preprints and read versioned abstracts and publication records.",
+  "pubmedTitle": "PubMed",
+  "pubmedDescription": "Search biomedical literature and read abstracts and publication records.",
+  "epo-opsTitle": "EPO OPS",
+  "epo-opsDescription": "Search worldwide patents and read public records and available abstracts.",
+  "sec-edgarTitle": "SEC EDGAR",
+  "sec-edgarDescription": "Find company filings by name, ticker or CIK and read primary filing documents.",
+  "clientId": "Client ID",
+  "clientSecret": "Client secret",
+  "epoCredentialsHelp": "Enter both credentials from your EPO OPS application. They are stored together as an encrypted secret.",
+  "credentialsSaved": "Credentials saved. Enable the plugin when ready.",
+  "saveFailed": "Could not save credentials. Please retry.",
+  "save": "Save credentials",
+  "saving": "Saving…",
+  "clear": "Clear credentials",
+  "secContact": "Organization and contact email",
+  "secContactPlaceholder": "Organization contact@example.com",
+  "fixedEndpoints": "Uses fixed official endpoints. Search results are discovery records; read a document to add evidence."
+}

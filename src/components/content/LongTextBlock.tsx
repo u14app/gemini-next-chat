@@ -84,6 +84,46 @@ const LongTextBlock = React.memo(function LongTextBlock({
   }, [forceExpanded]);
 
   const controlsDisabled = isStreaming || !content;
+  const canOpen = Boolean(onOpen && content && !isStreaming && !forceExpanded);
+  const suppressOpenRef = useRef(false);
+
+  const isNestedInteractiveTarget = (
+    target: EventTarget | null,
+    container?: EventTarget | null,
+  ) => {
+    if (!(target instanceof Element)) return false;
+    const interactive = target.closest(
+      'a, button, input, textarea, select, summary, [role="button"], [tabindex]:not([tabindex="-1"])',
+    );
+    return Boolean(interactive && interactive !== container);
+  };
+
+  const hasSelection = () => {
+    if (typeof window === "undefined") return false;
+    const selection = window.getSelection();
+    return Boolean(selection && !selection.isCollapsed);
+  };
+
+  const openFromContent = (event: React.MouseEvent<HTMLDivElement>) => {
+    if (!canOpen || event.defaultPrevented) return;
+    if (suppressOpenRef.current) {
+      suppressOpenRef.current = false;
+      return;
+    }
+    if (
+      isNestedInteractiveTarget(event.target, event.currentTarget) ||
+      hasSelection()
+    )
+      return;
+    onOpen?.();
+  };
+
+  const markPointerTarget = (event: React.PointerEvent<HTMLDivElement>) => {
+    suppressOpenRef.current = isNestedInteractiveTarget(
+      event.target,
+      event.currentTarget,
+    );
+  };
   const formatLabel =
     presentation.format === "markdown"
       ? t("longTextMarkdown")
@@ -107,9 +147,21 @@ const LongTextBlock = React.memo(function LongTextBlock({
             <FileText size={17} aria-hidden="true" />
           </span>
           <div className="min-w-0">
-            <h3 className="truncate text-sm font-semibold tracking-[-0.01em] text-foreground">
-              {presentation.title}
-            </h3>
+            {canOpen ? (
+              <h3 className="truncate text-sm font-semibold tracking-[-0.01em] text-foreground">
+                <button
+                  type="button"
+                  onClick={() => onOpen?.()}
+                  className="block max-w-full truncate text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                >
+                  {presentation.title}
+                </button>
+              </h3>
+            ) : (
+              <h3 className="truncate text-sm font-semibold tracking-[-0.01em] text-foreground">
+                {presentation.title}
+              </h3>
+            )}
             <div className="mt-0.5 flex items-center gap-2 text-[10px] font-medium uppercase tracking-[0.11em] text-muted-foreground">
               <span>{formatLabel}</span>
               {statusLabel ? (
@@ -153,8 +205,10 @@ const LongTextBlock = React.memo(function LongTextBlock({
         className={
           forceExpanded
             ? "px-4 py-5 md:px-7 md:py-7"
-            : "relative h-60 overflow-hidden px-4 py-4 md:h-80 md:px-7 md:py-6"
+            : `relative h-60 overflow-hidden px-4 py-4 md:h-80 md:px-7 md:py-6 ${canOpen ? "cursor-pointer" : ""}`
         }
+        onPointerDown={canOpen ? markPointerTarget : undefined}
+        onClick={canOpen ? openFromContent : undefined}
       >
         {isNearViewport ? (
           presentation.format === "markdown" ? (

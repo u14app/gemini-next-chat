@@ -7,6 +7,7 @@ import {
 } from "@/lib/research";
 
 const repository = vi.hoisted(() => ({
+  getStatus: () => ({ durable: true, mode: "persistent" }),
   save: vi.fn(async () => undefined),
   list: vi.fn<() => Promise<ResearchTask[]>>(async () => []),
   get: vi.fn<(taskId: string) => Promise<ResearchTask | null>>(
@@ -77,9 +78,10 @@ describe("researchStore", () => {
       { now: 120 },
     );
     repository.list.mockResolvedValue([running]);
+    repository.get.mockResolvedValue(running);
 
     await useResearchStore.getState().hydrateTasks();
-    expect(pruneUnreferencedResearchStorage).toHaveBeenCalledWith([running]);
+    expect(pruneUnreferencedResearchStorage).not.toHaveBeenCalled();
     expect(useResearchStore.getState().tasksById[running.id].status).toBe(
       "paused",
     );
@@ -97,6 +99,7 @@ describe("researchStore", () => {
       now: 100,
     });
     repository.list.mockResolvedValue([task]);
+    repository.get.mockResolvedValue(task);
 
     await useResearchStore.getState().loadSessionTasks("session-1");
     await useResearchStore.getState().loadSessionTasks("session-1");
@@ -106,7 +109,8 @@ describe("researchStore", () => {
     await useResearchStore.getState().clearSessionTasks("session-1");
     expect(useResearchStore.getState().tasksById).toEqual({});
     expect(useResearchStore.getState().activeTaskId).toBeNull();
-    expect(repository.clearSession).toHaveBeenCalledWith("session-1");
+    expect(repository.remove).toHaveBeenCalledWith(task.id);
+    expect(repository.clearSession).not.toHaveBeenCalled();
   });
 
   it("releases a shared report Artifact only after its last task is removed", async () => {

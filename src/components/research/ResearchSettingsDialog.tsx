@@ -14,16 +14,26 @@ import {
   type ResearchBudgetPreset,
   type ResearchStrategy,
 } from "@/lib/research";
+import ResearchTemplatePicker, {
+  type ResearchTemplatePickerLabels,
+} from "./ResearchTemplatePicker";
+import type {
+  ResearchTemplate,
+  ResearchTemplateSelection,
+} from "@/lib/research/templates";
 
 interface ResearchSettingsDialogProps {
   open: boolean;
   sessionId?: string | null;
   budgetPreset: ResearchBudgetPreset;
   strategy: ResearchStrategy;
+  /** undefined inherits workspace/profile defaults; null explicitly disables templates. */
+  template?: ResearchTemplateSelection;
   onChange: (
     budgetPreset: ResearchBudgetPreset,
     strategy: ResearchStrategy,
   ) => void;
+  onTemplateChange?: (template: ResearchTemplateSelection) => void;
   onClose: () => void;
 }
 
@@ -91,16 +101,109 @@ export default function ResearchSettingsDialog({
   sessionId,
   budgetPreset,
   strategy,
+  template,
   onChange,
+  onTemplateChange,
   onClose,
 }: ResearchSettingsDialogProps) {
   const t = useTranslations("Research");
+  const tTemplate = useTranslations("ResearchTemplates");
   const [activeTab, setActiveTab] = useState<SettingsTab>("research");
   const [artifactVisited, setArtifactVisited] = useState(false);
   const [draft, setDraft] = useState(() => strategyDraft(strategy));
   const dialogId = useId();
   const presetStrategy = RESEARCH_STRATEGY_PRESETS[budgetPreset];
   const customStrategy = !strategiesMatch(strategy, presetStrategy);
+
+  const templateText = (key: string, fallback: string): string => {
+    try {
+      return tTemplate.has(key) ? tTemplate(key as never) : fallback;
+    } catch {
+      return fallback;
+    }
+  };
+  const templateLabels: ResearchTemplatePickerLabels = {
+    title: templateText("title", "Research template"),
+    description: templateText(
+      "description",
+      "Choose a reusable deliverable shape. Templates set starting defaults and never change permissions or budget.",
+    ),
+    inherit: templateText("inherit", "Inherit workspace or profile"),
+    disabled: templateText("disabled", "No template"),
+    loading: templateText("loading", "Loading templates..."),
+    unavailable: templateText(
+      "unavailable",
+      "Saved templates are unavailable. Built-in templates remain available.",
+    ),
+    duplicate: templateText("duplicate", "Duplicate template"),
+    remove: templateText("remove", "Delete template"),
+    builtIn: templateText("builtIn", "Built-in"),
+    custom: templateText("custom", "Custom"),
+    selectAria: templateText("selectAria", "Research template"),
+    duplicateAria: templateText(
+      "duplicateAria",
+      "Duplicate selected research template",
+    ),
+    removeAria: templateText("removeAria", "Delete selected research template"),
+    newTemplate: templateText("newTemplate", "New template"),
+    editTemplate: templateText("editTemplate", "Edit template"),
+    editAria: templateText("editAria", "Edit selected research template"),
+    snapshot: templateText("snapshot", "Saved snapshot"),
+    preview: templateText("preview", "Template preview"),
+    deliverable: templateText("deliverable", "Deliverable"),
+    sections: templateText("sections", "Required sections"),
+    sources: templateText("sources", "Source priorities"),
+    strategy: templateText("strategy", "Starting strategy"),
+    templateEditor: {
+      title: templateText("editor.title", "Template details"),
+      name: templateText("editor.name", "Name"),
+      namePlaceholder: templateText(
+        "editor.namePlaceholder",
+        "e.g. Product evaluation",
+      ),
+      description: templateText("editor.description", "Description"),
+      descriptionPlaceholder: templateText(
+        "editor.descriptionPlaceholder",
+        "What this template helps you deliver",
+      ),
+      deliverable: templateText("editor.deliverable", "Deliverable type"),
+      sections: templateText("editor.sections", "Required sections"),
+      sectionsHint: templateText(
+        "editor.sectionsHint",
+        "One section per line. Standard audit sections are added automatically.",
+      ),
+      sources: templateText("editor.sources", "Source priorities"),
+      sourceType: templateText("editor.sourceType", "Source type"),
+      priority: templateText("editor.priority", "Priority"),
+      rationale: templateText("editor.rationale", "Rationale"),
+      rationalePlaceholder: templateText(
+        "editor.rationalePlaceholder",
+        "Why this source is useful",
+      ),
+      addSource: templateText("editor.addSource", "Add source priority"),
+      strategy: templateText("editor.strategy", "Starting strategy"),
+      cancel: templateText("editor.cancel", "Cancel"),
+      save: templateText("editor.save", "Save template"),
+      required: templateText(
+        "editor.required",
+        "Complete the required fields before saving.",
+      ),
+      removeSourceAria: templateText(
+        "editor.removeSourceAria",
+        "Remove source priority",
+      ),
+    },
+    templateName: (researchTemplate: ResearchTemplate) =>
+      templateText(
+        `templates.${researchTemplate.id}.name`,
+        researchTemplate.name,
+      ),
+    templateDescription: (researchTemplate: ResearchTemplate) =>
+      templateText(
+        `templates.${researchTemplate.id}.description`,
+        researchTemplate.description,
+      ),
+  };
 
   useEffect(() => {
     if (open) setDraft(strategyDraft(strategy));
@@ -194,6 +297,13 @@ export default function ResearchSettingsDialog({
             <p className="text-xs leading-5 text-muted-foreground">
               {t("settings.futureTasksOnly")}
             </p>
+
+            <ResearchTemplatePicker
+              selection={template}
+              onChange={(selection) => onTemplateChange?.(selection)}
+              disabled={!sessionId || !onTemplateChange}
+              labels={templateLabels}
+            />
 
             <section className="rounded-lg border border-border p-3 sm:p-3.5">
               <div className="flex items-start gap-2">

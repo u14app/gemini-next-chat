@@ -23,7 +23,7 @@ describe("global Research activity bar composition", () => {
     );
   });
 
-  it("opens the selected global task without consulting the visible chat", () => {
+  it("opens or resumes the selected global task without consulting the visible chat", () => {
     const connected = readFileSync(
       resolve(
         process.cwd(),
@@ -40,8 +40,11 @@ describe("global Research activity bar composition", () => {
     );
     const bar = connected.slice(barStart, barEnd);
 
-    expect(bar).toContain("selectGlobalActiveResearchTaskId");
+    expect(bar).toContain("selectGlobalResearchAttentionTaskId");
+    expect(bar).toContain("getResearchRunResumeDecision(task, runsById)");
+    expect(bar).toContain('resumeDecision.action === "unavailable"');
     expect(bar).toContain("openResearchTask(visibleTaskId)");
+    expect(bar).toContain("runtime.resumeTask(visibleTaskId)");
     expect(bar).not.toContain("currentSessionId");
   });
 });

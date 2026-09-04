@@ -1,0 +1,32 @@
+{
+  "title": "调整研究",
+  "addQuestion": "添加研究问题",
+  "loading": "正在加载研究控制…",
+  "hint": "调整将在当前研究轮次完成后生效。优先级仅影响同一深度的执行顺序。",
+  "unavailable": "调整需要处于研究阶段，并且浏览器支持持久存储和任务锁。",
+  "step": "所属计划步骤",
+  "question": "研究问题",
+  "scopeHint": "问题应遵守已批准的研究范围和来源，继续受现有预算限制。",
+  "cancel": "取消",
+  "saving": "正在保存…",
+  "submit": "加入待执行",
+  "history": "最近调整",
+  "promote": "同层优先",
+  "demote": "同层靠后",
+  "reset": "恢复默认",
+  "priority": "节点优先级",
+  "pending": "等待下一个安全点",
+  "applied": "已应用",
+  "frontier": "待研究问题",
+  "errors": {
+    "unavailable": "无法保存研究调整，请检查本地存储是否可用后重试。",
+    "closed": "本轮已结束探索，调整未应用。",
+    "invalid_step": "请选择现有计划步骤。",
+    "invalid_question": "请输入不超过 4,000 字符的研究问题。",
+    "duplicate": "该问题已在待执行或已研究的问题中。",
+    "node_limit": "已达到研究节点数量上限。",
+    "command_limit": "本轮调整数量已达上限。",
+    "node_scheduled": "该节点已开始调度，无法调整优先级。",
+    "missing_node": "本轮中已没有该节点。"
+  }
+}

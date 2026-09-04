@@ -75,6 +75,15 @@ export function toPersistedResearchTask(task: ResearchTask): ResearchTask {
             },
           }
         : {}),
+      ...(report.audit
+        ? {
+            audit: {
+              ...report.audit,
+              blocking: [...report.audit.blocking],
+              advisory: [...report.audit.advisory],
+            },
+          }
+        : {}),
     })),
     agentRunIds: [...task.agentRunIds],
     executionRunIds: [...task.executionRunIds],

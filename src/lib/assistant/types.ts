@@ -1,3 +1,5 @@
+import type { ResearchTemplate } from "../research/templates";
+
 export interface LobeAgentMeta {
   avatar: string;
   description: string;
@@ -45,6 +47,8 @@ export interface AgentProfileV2 {
   schemaVersion: 2;
   runtime: AgentProfileRuntime;
   capabilities: AgentProfileCapabilities;
+  /** Portable Research preset; null explicitly disables inherited templates. */
+  researchTemplate?: ResearchTemplate | null;
 }
 
 export interface LobeAgent {

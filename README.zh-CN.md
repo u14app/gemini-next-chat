@@ -90,10 +90,15 @@ Neo Chat 是一个可自托管、本地优先的 AI 对话应用，基于 Next.j
 - 支持面向工具调用模型的会话级 Agent 模式，由浏览器编排研究、分 Scope Memory、
   revision 工作区与 Artifact、声明式 Skill、MCP Resources/Prompts、沙箱
   JavaScript、结构化提问和持久化运行/授权状态。
-- 支持独立深度研究模式：在计划批准前执行有明确上限的公开摘要侦察，经结构化计划
-  确认后按 breadth/depth 自适应推进研究波次，显式审计主张与证据关系，并支持安全
-  暂停、手动恢复、报告版本、本地引用和响应式研究工作台。完整报告以不可变 Artifact
-  保存，不会膨胀聊天消息。
+- 支持独立深度研究模式：先用模型已有知识拟定计划，仅在概念不明确时依次查询
+  选定知识库和公开摘要；经结构化计划确认后按 breadth/depth 自适应推进研究轮次，显式审计主张与证据关系，并支持安全
+  暂停、手动恢复、报告版本、本地引用和响应式研究工作台；同时提供可复用研究模板、
+  只读的 arXiv/PubMed/EPO OPS/SEC EDGAR 来源适配器、研究轮次结束时的前沿节点调整，
+  以及绑定到每个报告版本的多话题闭卷问答。论据不足的报告仍在聊天和工作台展示，
+  导出保留限制说明；问答快照失败不阻碍报告交付。完整报告以不可变 Artifact 保存，
+  聊天保留其引用。报告标准标题支持中英日文，附录放入补充材料标签页，Markdown/PDF
+  共用下载菜单；研究搜索串行执行并至少间隔两秒，Tavily 研究请求最多等待 90 秒。
+  点击文档标题或正文预览即可打开阅读。
 - 支持参数化文本技能：本地化公共目录、安装/卸载、编辑内置技能、本地自定义
   技能、自动选择、工作区预设，以及最多四个普通技能组成的有序非嵌套 bundle。
 - 支持 OpenAPI 风格插件工具，以及 remote Streamable HTTP 与 legacy SSE MCP
@@ -120,7 +125,7 @@ Neo Chat 是一个可自托管、本地优先的 AI 对话应用，基于 Next.j
 
 部署方式与安全边界详见 [端到端加密同步](docs/encrypted-sync.md)、
 [MCP stdio 桥接](docs/mcp-stdio-bridge.md) 与
-[离线 PWA](docs/offline-pwa.md)。
+[离线 PWA](docs/offline-pwa.md)，以及[深度研究工作流](docs/research-workflows.md)。
 
 ## 截图
 

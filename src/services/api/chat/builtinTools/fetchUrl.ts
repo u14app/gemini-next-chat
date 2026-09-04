@@ -43,8 +43,29 @@ async function fetchReadableUrl(
     signal,
   });
   if (!response.ok) {
+    let detail = "The address may be unreachable or blocked.";
+    try {
+      const value: unknown = await response.json();
+      if (value && typeof value === "object") {
+        const error = (value as { error?: unknown }).error;
+        if (typeof error === "string" && error.trim()) {
+          detail = error.slice(0, 2_000);
+        } else if (error && typeof error === "object") {
+          const record = error as { code?: unknown; message?: unknown };
+          if (typeof record.message === "string" && record.message.trim()) {
+            detail =
+              `${typeof record.code === "string" ? `${record.code}: ` : ""}${record.message}`.slice(
+                0,
+                2_000,
+              );
+          }
+        }
+      }
+    } catch {
+      // Non-JSON error pages still retain the reader endpoint's HTTP status.
+    }
     throw new Error(
-      `Could not read ${url} (HTTP ${response.status}). The address may be unreachable or blocked.`,
+      `Could not read ${url} (HTTP ${response.status}). ${detail}`,
     );
   }
   return (await response.json()) as FetchUrlResponse;
@@ -374,6 +395,15 @@ export function createFetchUrlsBinding({
       );
       context.emit.search?.({ phase: "complete", sources, images: [] });
       return {
+        ...(sources.length === 0
+          ? errorResult(
+              "FETCH_URLS_FAILED",
+              results
+                .flatMap((result) => (!result.ok ? [result.error] : []))
+                .join("\n")
+                .slice(0, 4_000),
+            )
+          : { ok: true as const }),
         results: results.map((result) => {
           if (!("evidence" in result)) return result;
           const { evidence, ...visible } = result;

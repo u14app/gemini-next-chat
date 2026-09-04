@@ -81,6 +81,11 @@ export function collectBuiltinTools({
     } else if (researchPhase === "plan") {
       // Planning is non-interactive: the user reviews and refines the plan in
       // chat once the plan card is shown, so no question tool is offered here.
+      if (knowledgeScope?.attachments.some(isKnowledgeAttachment)) {
+        researchCandidates.push(
+          createKnowledgeSearchBinding({ queryBudget: researchQueryBudget }),
+        );
+      }
       if (useSearch && searchMode === "external") {
         researchCandidates.push(
           createWebSearchBinding({ queryBudget: researchQueryBudget }),

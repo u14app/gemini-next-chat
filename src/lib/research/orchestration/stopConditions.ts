@@ -5,6 +5,7 @@ import type {
   ResearchStopReason,
   ResearchStrategy,
 } from "../types";
+import { isResearchCoverageSufficient } from "./coverage";
 
 export interface ResearchStopEvaluation {
   now?: number;
@@ -17,6 +18,8 @@ export interface ResearchStopEvaluation {
   remainingToolCalls: number;
   wavesWithoutNewSources: number;
   wavesWithoutNewVerifiedClaims: number;
+  consecutiveDegradedWaves?: number;
+  sufficientClaimRatio?: number;
   pendingScopeApproval?: boolean;
   dependencyAvailable?: boolean;
   userAction?: "pause" | "cancel";
@@ -40,6 +43,17 @@ export function getResearchStopReason(
     return reason("dependency_unavailable");
   }
   if (evaluation.coverage.complete) return reason("coverage_satisfied");
+  if (
+    isResearchCoverageSufficient(
+      evaluation.coverage,
+      evaluation.sufficientClaimRatio,
+    )
+  ) {
+    return reason("coverage_sufficient");
+  }
+  if ((evaluation.consecutiveDegradedWaves ?? 0) >= 2) {
+    return reason("invalid_model_output");
+  }
   if (evaluation.remainingToolCalls <= 0) return reason("budget_exhausted");
   if (evaluation.queryCount >= strategy.maxQueries) {
     return reason("max_queries");
@@ -50,11 +64,11 @@ export function getResearchStopReason(
   ) {
     return reason("max_sources");
   }
-  if (
-    evaluation.wavesWithoutNewSources >= 2 &&
-    evaluation.wavesWithoutNewVerifiedClaims >= 2
-  ) {
+  if (evaluation.wavesWithoutNewSources >= 2) {
     return reason("no_new_sources");
+  }
+  if (evaluation.wavesWithoutNewVerifiedClaims >= 2) {
+    return reason("no_new_verified_claims");
   }
   if (
     evaluation.frontierCount === 0 &&

@@ -29,11 +29,13 @@ export async function collectTaskEvidence({
 }): Promise<{
   evidence: ResearchEvidence[];
   newEvidenceIds: string[];
+  touchedEvidenceIds: string[];
   searchOnlyCount: number;
 }> {
   const runState = useAgentRunStore.getState().runsById;
   const collected: ResearchEvidence[] = [...task.evidence];
   const existingIds = new Set(collected.map((item) => item.id));
+  const touchedEvidenceIds = new Set<string>();
   const searchDiscoveryUrls = new Set<string>();
   const evidenceIndexByDedupKey = new Map<string, number>();
   collected.forEach((item, index) => {
@@ -49,6 +51,7 @@ export async function collectTaskEvidence({
     );
     if (duplicateIndex !== undefined) {
       const previous = collected[duplicateIndex];
+      touchedEvidenceIds.add(previous.id);
       const previousKeys = new Set(getResearchEvidenceDedupKeys(previous));
       const sameLineage = candidateKeys.some(
         (key) =>
@@ -94,6 +97,7 @@ export async function collectTaskEvidence({
     }
     const nextIndex = collected.length;
     collected.push(candidate);
+    touchedEvidenceIds.add(candidate.id);
     candidateKeys.forEach((key) => evidenceIndexByDedupKey.set(key, nextIndex));
   };
   for (const runId of runIds) {
@@ -154,10 +158,11 @@ export async function collectTaskEvidence({
         searchDiscoveryUrls.add(source.url);
         continue;
       }
-      const contentHash = await hashText(`${source.url}\n${source.content}`);
+      const contentHash =
+        metadata?.contentHash || (await hashText(source.content));
       const sourceId =
         metadata?.sourceId ||
-        `source-${contentHash.replace(/^[^:]+:/, "").slice(0, 20)}`;
+        `source-${(await hashText(`${source.url}\n${contentHash}`)).replace(/^[^:]+:/, "").slice(0, 20)}`;
       mergeEvidence({
         id: uuidv7(),
         sourceId,
@@ -166,7 +171,7 @@ export async function collectTaskEvidence({
         stepId: defaultStepId,
         nodeId: defaultNodeId,
         locator: source.url,
-        retrievedAt: Date.now(),
+        retrievedAt: metadata?.retrievedAt ?? Date.now(),
         contentHash,
         ...(sourceType === "web"
           ? { publisherId: getPublisherIdentity(source.url) }
@@ -182,10 +187,14 @@ export async function collectTaskEvidence({
   const formalLocators = new Set(
     collected.flatMap((item) => [item.locator, ...(item.aliasLocators || [])]),
   );
+  const retainedEvidence = collected.slice(0, 2_000);
   return {
-    evidence: collected.slice(0, 2_000),
-    newEvidenceIds: collected
+    evidence: retainedEvidence,
+    newEvidenceIds: retainedEvidence
       .filter((item) => !existingIds.has(item.id))
+      .map((item) => item.id),
+    touchedEvidenceIds: retainedEvidence
+      .filter((item) => touchedEvidenceIds.has(item.id))
       .map((item) => item.id),
     searchOnlyCount: [...searchDiscoveryUrls].filter(
       (url) => !formalLocators.has(url),

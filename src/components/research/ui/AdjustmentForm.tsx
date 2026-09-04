@@ -196,7 +196,7 @@ export function StrategyAdjustmentForm({
               )}
             />
             <span className="mt-1 block font-mono text-[10px] text-muted-foreground">
-              {field.min}–{field.max}
+              {field.min}-{field.max}
             </span>
           </label>
         ))}

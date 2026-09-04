@@ -1,3 +1,8 @@
+import {
+  withResearchTaskExecutionLock,
+  type ResearchTaskExecutionLease,
+} from "@/services/research/taskExecutionLock";
+import { useResearchStore } from "@/store/core/researchStore";
 import { useCallback } from "react";
 
 import type { ToolConfirmationController } from "@/types";
@@ -18,6 +23,7 @@ export function usePreparePlan({
   toolConfirmationController,
   t,
   localizedRuntimeError,
+  locale,
   onError,
   onNotice,
 }: {
@@ -25,28 +31,52 @@ export function usePreparePlan({
   toolConfirmationController?: ToolConfirmationController;
   t: ResearchTranslate;
   localizedRuntimeError: ResearchRuntimeErrorText;
+  locale?: string;
   onError?: (message: string) => void;
   onNotice?: (message: string) => void;
 }) {
   return useCallback(
-    async (taskId: string, adjustment?: string, requestModel?: string) =>
-      runOperation(taskId, "planning", (controller) =>
-        prepareResearchPlan({
-          taskId,
-          adjustment,
-          requestModel,
-          controller,
-          toolConfirmationController,
-          t,
-          localizedRuntimeError,
-          onError,
-          onNotice,
-        }),
-      ),
+    async (
+      taskId: string,
+      adjustment?: string,
+      requestModel?: string,
+      lease?: ResearchTaskExecutionLease,
+    ) => {
+      const result = await withResearchTaskExecutionLock(
+        taskId,
+        async () => {
+          const task = await useResearchStore.getState().refreshTask(taskId);
+          if (
+            !task ||
+            !["draft", "clarifying", "plan_ready", "paused", "failed"].includes(
+              task.status,
+            )
+          )
+            return;
+          await runOperation(taskId, "planning", (controller) =>
+            prepareResearchPlan({
+              taskId,
+              adjustment,
+              requestModel,
+              controller,
+              toolConfirmationController,
+              t,
+              localizedRuntimeError,
+              locale,
+              onError,
+              onNotice,
+            }),
+          );
+        },
+        lease,
+      );
+      if (!result.acquired) onNotice?.(t("runtime.dependency.leaseConflict"));
+    },
     [
       onError,
       onNotice,
       localizedRuntimeError,
+      locale,
       runOperation,
       t,
       toolConfirmationController,

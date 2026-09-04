@@ -30,6 +30,13 @@ living in one directory. Keep new research code in the matching one:
 - `src/lib/research/` — pure domain logic with no React and no store reads.
   `prompts/`, `orchestration/`, `reportAudit/`, and `types/` are directories
   with an `index.ts` barrel, so `@/lib/research/<name>` stays a valid import.
+  `templates.ts` owns the serializable Research template contract and default
+  application; `steering.ts` owns the pure command and frontier projection;
+  `evidenceConversations.ts` owns frozen-snapshot and citation rules. These
+  modules do not open storage or dispatch providers.
+  `searchPolicy.ts` compiles only the explicitly approved plan scope into
+  normalized web constraints; Tool bindings may narrow that policy but cannot
+  widen it.
 - `src/lib/research/runtime/` — the store-aware execution runtime, and the one
   part of `src/lib/research` that reads stores and workspace IO.
   `prepareExecution.ts` builds the `ResearchExecutionContext` that replaces the
@@ -39,12 +46,34 @@ living in one directory. Keep new research code in the matching one:
   `src/lib/research/index.ts` barrel, so pure consumers never pull it in.
 - `src/services/research/` — persistence and artifact IO. `taskRepository/`
   holds the persisted schema (`schema/`), sanitization, and the backends.
+  `extensionRepository.ts` is a separate IndexedDB v1 sidecar named
+  `neo-chat-research-extensions`; it stores template records, task snapshots,
+  source definition contracts, steering queues, evidence snapshots, and Q&A
+  threads without changing the core Research database schema. `templates.ts`
+  and `evidenceConversations.ts` are the typed persistence seams. Lifecycle
+  code clones ID-bearing extension records during session copies and prunes
+  them with task deletion and cleanup.
+  `taskExecutionLock.ts` grants explicit task leases; lifecycle actions reload
+  durable state under a lease and pass it through execution without reacquiring
+  the lock. Hydration never recovers another tab's active task. Automatic global
+  OPFS orphan sweeping is suspended until it can share a maintenance lock with
+  file publishers; explicit task deletion still checks Artifact references.
+  `src/lib/plugin/researchSources/` contains the fixed-endpoint source catalog,
+  server adapters, bounded parsers, transport throttling, and client result
+  normalization. `src/app/api/plugins/execute/route.ts` dispatches these
+  registered built-ins through the existing plugin security boundary; source
+  credentials never cross into pure Research types.
+- `src/lib/research/runtime/` also contains `steering.ts` and
+  `evidenceConversation.ts`: the former consumes durable commands at a safe
+  wave boundary under a task Web Lock, while the latter owns one-request-per-
+  topic streaming, cancellation, retry, and exact report-version routing.
 - `src/hooks/research/` — the React layer over that runtime. Each hook owns one
   action group, and `ResearchRuntimeProvider.tsx` only composes them.
 - `src/components/research/` — rendering. `ui/`, `workbench/`, and `topology/`
   are directories with an `index.ts` barrel. `viewModel/` builds the
-  presentation model the components take as props, so it lives beside the
-  `types.ts` that owns those view types. `ResearchRuntimeProvider.tsx` and
+  canonical presentation model for plans, runs, evidence, claims, historical
+  report trust metadata, and version diffs, so it lives beside the `types.ts`
+  that owns those view types. `ResearchRuntimeProvider.tsx` and
   `ConnectedResearchViews.tsx` are imported by path rather than through
   `index.ts`, so importing a research card does not pull in the runtime.
 
@@ -72,6 +101,11 @@ living in one directory. Keep new research code in the matching one:
   decryption, into extracted executors when that keeps tests explicit.
 - Server adapters should normalize provider behavior but leave route schemas and
   response contracts intact.
+- Research source adapters accept only fixed official HTTPS hosts and expose
+  `local_read`/`network_read` operations. Search results remain discovery data;
+  the client normalization seam creates formal evidence only from a committed
+  read. Provider credentials and coordination state stay in server-side or
+  encrypted local-secret seams.
 
 ## Verification
 

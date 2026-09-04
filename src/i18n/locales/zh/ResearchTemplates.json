@@ -1,0 +1,79 @@
+{
+  "title": "研究模板",
+  "description": "选择可复用的交付结构。模板只提供初始默认值，不会改变权限或预算。",
+  "profileDescription": "让此配置档携带可复用的 Research 交付结构。",
+  "profileInherit": "配置档不指定模板",
+  "workspaceDescription": "为此工作区设置默认的 Research 交付结构。",
+  "workspaceInherit": "工作区不指定模板",
+  "inherit": "继承工作区或配置档",
+  "disabled": "不使用模板",
+  "loading": "正在加载模板...",
+  "unavailable": "保存的模板暂不可用，内置模板仍可使用。",
+  "duplicate": "复制模板",
+  "remove": "删除模板",
+  "builtIn": "内置",
+  "custom": "自定义",
+  "selectAria": "研究模板",
+  "profileSelectAria": "配置档研究模板",
+  "workspaceSelectAria": "工作区研究模板",
+  "duplicateAria": "复制所选研究模板",
+  "removeAria": "删除所选研究模板",
+  "revision": "修订 {revision}",
+  "newTemplate": "新建模板",
+  "editTemplate": "编辑模板",
+  "editAria": "编辑所选研究模板",
+  "snapshot": "已保存快照",
+  "preview": "模板预览",
+  "deliverable": "交付类型",
+  "sections": "必需章节",
+  "sources": "来源优先级",
+  "strategy": "初始策略",
+  "editor": {
+    "title": "模板详情",
+    "name": "名称",
+    "namePlaceholder": "例如：产品评估",
+    "description": "说明",
+    "descriptionPlaceholder": "此模板帮助完成什么交付",
+    "deliverable": "交付类型",
+    "sections": "必需章节",
+    "sectionsHint": "每行一个章节，标准审计章节会自动加入。",
+    "sources": "来源优先级",
+    "sourceType": "来源类型",
+    "priority": "优先级",
+    "rationale": "理由",
+    "rationalePlaceholder": "此来源为何有用",
+    "addSource": "添加来源优先级",
+    "strategy": "初始策略",
+    "cancel": "取消",
+    "save": "保存模板",
+    "required": "请先补全必填字段。",
+    "removeSourceAria": "移除来源优先级"
+  },
+  "savePlan": {
+    "save": "保存为模板",
+    "namePlaceholder": "模板名称",
+    "descriptionPlaceholder": "此计划的用途",
+    "confirm": "保存模板",
+    "cancel": "取消",
+    "saved": "模板已保存",
+    "saveAria": "将此研究计划保存为模板"
+  },
+  "templates": {
+    "competitive-analysis": {
+      "name": "竞品分析",
+      "description": "按明确标准比较竞品，并找出有意义的差异与机会。"
+    },
+    "literature-review": {
+      "name": "文献综述",
+      "description": "综合相关研究，评估证据质量，并识别尚未解决的问题。"
+    },
+    "due-diligence": {
+      "name": "尽职调查",
+      "description": "收集可核验事实，披露不确定性，并在决策前整理重要风险。"
+    },
+    "technical-evaluation": {
+      "name": "技术评估",
+      "description": "根据需求、运行成本和长期维护风险评估技术方案。"
+    }
+  }
+}

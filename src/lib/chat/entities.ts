@@ -16,6 +16,7 @@ import {
   normalizeAgentProfile,
   normalizeAgentSkillPolicies,
 } from "../assistant/profile";
+import { normalizeResearchTemplate } from "../research/templates";
 import {
   createToolApprovalIdentity,
   getToolApprovalIdentityKey,
@@ -358,6 +359,7 @@ export function normalizeSessionConfig(
     skillPolicies: rawSkillPolicies,
     researchBudgetPreset: rawResearchBudgetPreset,
     researchStrategy: rawResearchStrategy,
+    researchTemplate: rawResearchTemplate,
     ...rest
   } = config;
   const activePlugins = normalizePluginIdRefs(rawActivePlugins);
@@ -393,6 +395,15 @@ export function normalizeSessionConfig(
       ? rawResearchStrategy
       : {},
   );
+  const hasResearchTemplate = Object.prototype.hasOwnProperty.call(
+    config,
+    "researchTemplate",
+  );
+  const researchTemplate = !hasResearchTemplate
+    ? undefined
+    : rawResearchTemplate === null
+      ? null
+      : normalizeResearchTemplate(rawResearchTemplate) || undefined;
   const hasChatModeConfig =
     rawChatMode === "auto" ||
     rawChatMode === "chat" ||
@@ -438,6 +449,9 @@ export function normalizeSessionConfig(
       ? { skillPolicies: skillPolicies || [] }
       : {}),
     ...(hasResearchConfig ? { researchBudgetPreset, researchStrategy } : {}),
+    ...(researchTemplate !== undefined || hasResearchTemplate
+      ? { researchTemplate }
+      : {}),
   };
 }
 
@@ -468,6 +482,15 @@ export function normalizeWorkspace(workspace: Workspace): Workspace {
     workspace.color,
     CHAT_ENTITY_LIMITS.maxWorkspaceColorChars,
   );
+  const hasResearchTemplate = Object.prototype.hasOwnProperty.call(
+    workspace,
+    "researchTemplate",
+  );
+  const researchTemplate = !hasResearchTemplate
+    ? undefined
+    : workspace.researchTemplate === null
+      ? null
+      : normalizeResearchTemplate(workspace.researchTemplate) || undefined;
 
   return {
     ...workspace,
@@ -493,6 +516,9 @@ export function normalizeWorkspace(workspace: Workspace): Workspace {
     activePlugins: normalizePluginIdRefs(workspace.activePlugins),
     activeSkills: normalizeSkillIdRefs(workspace.activeSkills, []),
     agentProfile: normalizeAgentProfile(workspace.agentProfile),
+    ...(researchTemplate !== undefined || hasResearchTemplate
+      ? { researchTemplate }
+      : {}),
     createdAt: Number.isFinite(Number(workspace.createdAt))
       ? Number(workspace.createdAt)
       : Date.now(),

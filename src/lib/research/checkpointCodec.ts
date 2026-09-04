@@ -1,5 +1,6 @@
 import type { MessageOutputBlock, ToolCall } from "@/types";
 import { redactSensitiveToolArgs } from "@/lib/plugin/confirmation";
+import { RESEARCH_TOOL_RESULT_LIMITS } from "./toolResultContent";
 
 export interface SavedResearchCheckpoint {
   version: 1;
@@ -11,9 +12,12 @@ export interface SavedResearchCheckpoint {
   outputBlocks: MessageOutputBlock[];
 }
 
-function compactCheckpointValue(value: unknown): unknown {
+function compactCheckpointValue(
+  value: unknown,
+  maxChars: number = RESEARCH_TOOL_RESULT_LIMITS.inlineChars,
+): unknown {
   try {
-    return JSON.stringify(value).length <= 8_000
+    return JSON.stringify(value).length <= maxChars
       ? value
       : { omitted: true, reason: "Value exceeded the checkpoint size limit." };
   } catch {
@@ -22,16 +26,12 @@ function compactCheckpointValue(value: unknown): unknown {
 }
 
 function compactCheckpointResult(value: unknown): unknown {
-  if (value && typeof value === "object" && !Array.isArray(value)) {
-    const record = value as Record<string, unknown>;
-    if (record.ok === true && "data" in record) {
-      return {
-        ...record,
-        data: "[Committed result body omitted from checkpoint; rely on the partial report and persisted result references.]",
-      };
-    }
-  }
-  return compactCheckpointValue(value);
+  // New Research results are inline or reference envelopes already bounded by
+  // the history writer. Preserve their exact value for tool_cache replay hashes.
+  return compactCheckpointValue(
+    value,
+    RESEARCH_TOOL_RESULT_LIMITS.checkpointResultChars,
+  );
 }
 
 export function sanitizeCheckpointToolCall(toolCall: ToolCall): ToolCall {

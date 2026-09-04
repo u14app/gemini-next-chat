@@ -28,11 +28,22 @@ export const reportSchema = z
     gaps: z.array(z.string().min(1).max(4_000)).max(100),
     coveredStepIds: z.array(z.string().min(1).max(240)).max(100).optional(),
     evidenceIds: z.array(z.string().min(1).max(240)).max(2_000).optional(),
+    evidenceSnapshotStatus: z.enum(["available", "unavailable"]).optional(),
     diff: z
       .object({
         addedEvidenceIds: z.array(z.string().min(1).max(240)).max(2_000),
         changedSourceIds: z.array(z.string().min(1).max(240)).max(2_000),
         unchangedSourceIds: z.array(z.string().min(1).max(240)).max(2_000),
+      })
+      .strict()
+      .optional(),
+    audit: z
+      .object({
+        blocking: z.array(z.string().min(1).max(4_000)).max(100),
+        advisory: z.array(z.string().min(1).max(4_000)).max(100),
+        unknownCitationCount: z.number().int().nonnegative().max(2_000),
+        unsupportedFindingCount: z.number().int().nonnegative().max(2_000),
+        missingSectionCount: z.number().int().nonnegative().max(100),
       })
       .strict()
       .optional(),

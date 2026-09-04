@@ -18,7 +18,7 @@
     "queries": "查询",
     "verifiedClaims": "已验证主张",
     "depth": "深度",
-    "wave": "波次",
+    "wave": "研究轮次",
     "toolCalls": "工具调用",
     "elapsed": "已用时间",
     "tokens": "令牌"
@@ -48,7 +48,8 @@
     "pdf": "PDF",
     "askEvidence": "基于现有证据提问",
     "continueResearch": "继续研究",
-    "updateLatest": "更新最新"
+    "updateLatest": "更新最新",
+    "downloadReport": "下载"
   },
   "plan": {
     "title": "研究计划",
@@ -58,6 +59,8 @@
     "scope": "研究范围",
     "audience": "目标受众",
     "timeRange": "时间范围",
+    "preferredDomains": "优先域名",
+    "excludedDomains": "排除域名",
     "allowedSources": "允许的来源类型",
     "includes": "包含",
     "excludes": "排除",
@@ -84,12 +87,14 @@
     "decisionSteps": "{count} 个步骤",
     "decisionQueries": "{count} 次查询",
     "reconSummary": "计划侦察：{used}/{limit} 次查询",
-    "reconDisclosure": "计划侦察会把研究问题发送给已配置的公开搜索服务。搜索摘要只用于完善计划，不会作为报告证据。",
+    "knowledgeRecon": "知识库预查：{count}/2 次",
+    "reconDisclosure": "计划预查按需进行：先检查选定的知识库，仅在需要时再使用公共搜索摘要。结果只用于拟定计划，不会作为正式论据。",
     "reconResult": "{count} 条结果 · {domains}",
     "noDomains": "未返回域名",
     "reconStatus": {
       "partial": "侦察结果不完整，来源可行性尚未得到充分验证。",
-      "unavailable": "计划侦察不可用，来源可行性尚未验证。"
+      "unavailable": "计划侦察不可用，来源可行性尚未验证。",
+      "skipped": "已根据已有知识拟定计划，未进行预查。"
     },
     "version": "版本 {version}",
     "showFull": "查看完整计划",
@@ -117,9 +122,9 @@
     "topology": "研究拓扑",
     "inspector": "研究节点检查器",
     "selectNode": "展开一个研究节点，检查其证据与阶段性认识。",
-    "waves": "研究波次",
-    "wave": "第 {wave} 波",
-    "waveCount": "共 {count} 个波次",
+    "waves": "研究轮次",
+    "wave": "第 {wave} 轮",
+    "waveCount": "共 {count} 个研究轮次",
     "waveSummary": "{queries} 次查询 · {sources} 个来源 · {claims} 条已验证主张",
     "nodeDepth": "深度 {depth}",
     "nodeSummary": "{sources} 个来源 · {claims} 条已验证主张",
@@ -148,13 +153,14 @@
     },
     "stop": {
       "coverage_satisfied": "证据覆盖已达到要求",
+      "coverage_sufficient": "证据覆盖已充分，其余争议将在报告中说明",
       "max_depth": "已达到最大研究深度",
       "max_queries": "已达到查询上限",
       "max_sources": "已达到来源正文上限",
       "budget_exhausted": "研究预算已耗尽",
-      "no_new_sources": "连续两个波次都没有新增正式证据",
-      "invalid_model_output": "模型返回的研究波次格式无效",
-      "no_new_verified_claims": "连续波次没有新增已验证主张",
+      "no_new_sources": "连续两个研究轮次都没有新增正式证据",
+      "invalid_model_output": "模型返回的研究轮次格式无效",
+      "no_new_verified_claims": "连续研究轮次没有新增已验证主张",
       "frontier_exhausted": "已无可行且在范围内的研究节点",
       "user_paused": "用户已暂停研究",
       "user_cancelled": "用户已取消研究",
@@ -223,13 +229,11 @@
     "replyHint": "可直接在对话中回复以调整此计划，确认无误后开始研究。",
     "budgetSummary": "{preset} · {queries} 次检索 · 深度 {depth}",
     "fullContract": "完整研究约定",
-    "liveActivity": "最新动态",
-    "progress": "研究进度",
-    "progressSummary": "已验证覆盖 {completed}/{total} 个关键步骤",
-    "progressDepth": "第 {wave}/{waves} 轮 · 深度 {depth}/{maxDepth}"
+    "liveActivity": "最新动态"
   },
   "global": {
-    "label": "正在运行的深度研究"
+    "label": "正在运行的深度研究",
+    "resumableLabel": "可继续的深度研究"
   },
   "taskList": {
     "title": "深度研究",
@@ -250,7 +254,9 @@
     "progress": "进度",
     "activity": "活动",
     "report": "报告",
-    "evidence": "证据"
+    "evidence": "证据",
+    "claims": "论据",
+    "supplements": "补充材料"
   },
   "activity": {
     "title": "研究活动",
@@ -260,12 +266,14 @@
     "planPrepared": "研究计划 v{version} 已准备",
     "planAdjusted": "已根据自然语言调整说明生成。",
     "planAwaitingApproval": "等待用户明确确认。",
-    "toolRunning": "正在使用 {tool}",
+    "toolRunning": "{tool} 进行中",
     "toolCommitted": "已完成 {tool}",
     "toolFailed": "{tool} 未能完成",
+    "toolEffectUnknown": "无法确认 {tool} 的结果",
+    "toolInterrupted": "{tool} 已中断",
     "toolSource": "只读来源：{source}",
     "toolSafeDetail": "只读操作；原始参数与完整结果已隐藏。",
-    "degradedWaveTitle": "波次 {wave} 已带证据缺口归档",
+    "degradedWaveTitle": "第 {wave} 轮已带证据缺口归档",
     "degradedWaveDetail": "{count} 个研究节点未生成有效学习包。已保留的证据仍可使用，报告会继续生成并明确标注缺口。",
     "scopeExpansionTitle": "已自动扩展研究范围",
     "scopeExpansionDetail": "已在本次运行中基于已提交证据继续研究 {count} 个新增方向。",
@@ -276,7 +284,9 @@
       "continue": "继续研究",
       "update": "最新来源更新"
     },
-    "status": "研究状态：{status}"
+    "status": "研究状态：{status}",
+    "toolSkipped": "{tool}：已跳过重复请求",
+    "duplicateSkippedDetail": "此查询已经提交，没有再次发送搜索请求。"
   },
   "report": {
     "singleSourceNote": "以上 {total} 条发现中有 {count} 条仅依据单一来源。",
@@ -285,7 +295,46 @@
     "emptyTitle": "尚无报告",
     "emptyDescription": "收集、核验并综合证据后，完整报告会显示在这里。",
     "artifactUnavailable": "本地报告 Artifact 不可用。",
-    "fallbackTitle": "研究报告 v{version}"
+    "fallbackTitle": "研究报告 v{version}",
+    "knowledgeNotice": "部分内容可能来自本次研究未核验的模型知识，已单独标注。",
+    "noEvidenceNotice": "本报告基于模型知识与已提供材料，未取得本次研究可引用证据。",
+    "trustTitle": "覆盖与质量",
+    "coverageSummary": "已覆盖 {covered}/{total} 个研究步骤",
+    "stopReason": "本次运行停止原因：{reason}",
+    "gapsTitle": "证据缺口",
+    "noGaps": "未记录实质性证据缺口。",
+    "qualityClean": "发布检查已通过。",
+    "qualityIssues": "有 {count} 项发布检查需要关注。",
+    "qualityCounts": "{unknown} 个未知引用、{unsupported} 条缺少支持的发现、{missing} 个缺失章节",
+    "changeSummary": "本版本变化",
+    "evidenceAdded": "新增 {count} 条证据",
+    "sourcesChanged": "{count} 个来源发生变化",
+    "sourcesUnchanged": "{count} 个来源保持不变",
+    "sections": {
+      "executiveSummary": "执行摘要",
+      "keyFindings": "关键发现",
+      "planCoverage": "研究计划覆盖情况",
+      "evidenceGaps": "证据缺口",
+      "sources": "来源",
+      "knowledgeSupplement": "知识补充（本次研究未核验）",
+      "unverifiedMaterial": "未核验的已提供材料",
+      "questionsToVerify": "待核验问题",
+      "questionCoverage": "研究问题覆盖情况"
+    },
+    "fallbackText": {
+      "partialSummary": "本报告包含现有可引用证据支持的发现，部分研究内容尚未完成。",
+      "unresolvedConflict": "相互矛盾的证据尚未解决",
+      "unverifiedPrefix": "未核验的已提供材料",
+      "citedFindingAvailable": "已有可引用的发现",
+      "noCitedFinding": "尚未形成可引用的发现",
+      "unverifiedArea": "此部分尚未核验，以下已批准的研究问题说明了仍需确认的内容。",
+      "retrieved": "检索于",
+      "archiveMissing": "本轮未形成通过校验的学习记录。",
+      "noFindings": "本次研究尚未形成有证据支持的发现。",
+      "noQuestions": "未记录其他待研究问题。",
+      "noEvidence": "尚未收集正式证据。"
+    },
+    "supplementsEmpty": "此版本未记录补充材料。"
   },
   "evidence": {
     "title": "证据检查器",
@@ -308,7 +357,35 @@
     "questionShort": "步骤 {number}",
     "allQuestions": "全部步骤",
     "allRelationships": "全部关系",
-    "noFilterResults": "没有符合当前筛选条件的证据。"
+    "noFilterResults": "没有符合当前筛选条件的证据。",
+    "searchLabel": "搜索证据",
+    "searchPlaceholder": "搜索论据、来源或域名",
+    "domain": "域名",
+    "allDomains": "全部域名",
+    "authorityFilter": "来源权威性",
+    "allAuthorities": "全部权威性",
+    "freshnessFilter": "新鲜度",
+    "allFreshness": "全部新鲜度",
+    "sort": "证据排序",
+    "sortNewest": "最新优先",
+    "sortOldest": "最早优先",
+    "sortClaimCount": "关联论据最多",
+    "results": "{count} 条证据"
+  },
+  "claims": {
+    "title": "论据检查器",
+    "emptyTitle": "尚无正式论据",
+    "emptyDescription": "研究轮次归档后，论据会显示在这里。",
+    "noFilterResults": "没有符合当前筛选条件的论据。",
+    "searchLabel": "搜索论据",
+    "searchPlaceholder": "搜索论据文本",
+    "status": "验证状态",
+    "allStatuses": "全部状态",
+    "publishers": "{count} 个独立发布方",
+    "supporting": "支持证据",
+    "contradicting": "反驳证据",
+    "noEvidence": "未关联已提交证据。",
+    "openEvidence": "检查证据：{title}"
   },
   "sourceType": {
     "web": "网页",
@@ -396,7 +473,9 @@
       "incompleteQuestions": "仍有 {count} 个已批准的研究步骤仅部分完成或尚未完成。",
       "scopeExpansionUnavailable": "有 {count} 个扩展研究方向需要当前会话不可用的来源。",
       "executionInterrupted": "研究运行在完成全部计划操作前结束；本报告仅保留已经形成且可辩护的内容。",
-      "budget": "已用尽批准的研究预算。"
+      "budget": "已用尽批准的研究预算。",
+      "auditWarning": "报告仍有 {count} 项来源或内容完整性问题，请结合证据缺口阅读。",
+      "snapshotUnavailable": "报告已保存，但本版本证据快照未能保存，暂不支持报告问答。"
     },
     "dependency": {
       "offline": "浏览器离线时无法执行网络研究。请联网后手动恢复。",

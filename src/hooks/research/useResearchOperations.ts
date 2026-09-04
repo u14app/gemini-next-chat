@@ -1,3 +1,8 @@
+import {
+  isResearchTaskLocallyLocked,
+  waitForLocalResearchTaskExecution,
+} from "@/services/research/taskExecutionLock";
+import { runResearchTaskAction } from "@/lib/research/runtime/taskLifecycle";
 import { useCallback, useRef } from "react";
 import { v7 as uuidv7 } from "uuid";
 
@@ -70,6 +75,20 @@ export function useResearchOperations({
     const task = store.tasksById[taskId];
     if (!task || isTerminalResearchStatus(task.status)) return;
     const operation = operationsRef.current.get(taskId);
+    if (!operation || !isResearchTaskLocallyLocked(taskId)) {
+      await runResearchTaskAction(taskId, async (current) => {
+        if (
+          !isTerminalResearchStatus(current.status) &&
+          current.status !== "paused"
+        )
+          await useResearchStore
+            .getState()
+            .updateTask(taskId, (latest) =>
+              transitionResearchTask(latest, "paused"),
+            );
+      });
+      return;
+    }
     if (
       operation?.kind === "research" &&
       operation.phase === "tool_execution"
@@ -87,6 +106,7 @@ export function useResearchOperations({
     );
     if (store.activeTaskId === taskId) store.setActiveTask(null);
     await operation?.promise.catch(() => undefined);
+    await waitForLocalResearchTaskExecution(taskId);
   }, []);
 
   const cancelTask = useCallback(async (taskId: string) => {
@@ -101,6 +121,26 @@ export function useResearchOperations({
       return;
     }
     const operation = operationsRef.current.get(taskId);
+    if (!operation || !isResearchTaskLocallyLocked(taskId)) {
+      await runResearchTaskAction(taskId, async (current) => {
+        if (
+          ["completed", "partial_completed", "cancelled"].includes(
+            current.status,
+          )
+        )
+          return;
+        await useResearchStore.getState().updateTask(taskId, (latest) => ({
+          ...transitionResearchTask(latest, "cancelled"),
+          reportRuns: latest.reportRuns.map((run) =>
+            run.id === latest.activeReportRunId
+              ? applyResearchRunUserStop(run, "cancel")
+              : run,
+          ),
+          checkpoint: undefined,
+        }));
+      });
+      return;
+    }
     operation?.controller.abort(
       createAbortError("Research cancelled by the user."),
     );
@@ -121,6 +161,7 @@ export function useResearchOperations({
     );
     if (store.activeTaskId === taskId) store.setActiveTask(null);
     await operation?.promise.catch(() => undefined);
+    await waitForLocalResearchTaskExecution(taskId);
   }, []);
 
   const claimActiveSlot = useCallback(

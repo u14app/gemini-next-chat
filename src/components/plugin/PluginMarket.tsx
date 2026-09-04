@@ -45,6 +45,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { getSafeWebHref } from "@/lib/security/clientUrl";
+import { ResearchSourceCredentials } from "./ResearchSourceCredentials";
+import { isResearchSourceProvider } from "@/lib/plugin/researchSources/catalog";
 import { localizePluginMeta } from "@/lib/plugin/localizedMeta";
 import { isPluginAuthRequired } from "@/lib/plugin/config";
 import { PLUGIN_CONFIG_LIMITS } from "@/config/limits";
@@ -1070,6 +1072,7 @@ const PluginDetailsModal = ({
     activePlugins,
     togglePluginActive,
   } = useSettingsStore();
+  const tSource = useTranslations("ResearchSources");
   const config = pluginConfigs[plugin.id] || { disabledFunctions: [] };
   const disabledFunctions = config.disabledFunctions || [];
 
@@ -1150,7 +1153,10 @@ const PluginDetailsModal = ({
       },
     });
 
-    if (!activePlugins.includes(plugin.id)) {
+    if (
+      !isResearchSourceProvider(plugin.id) &&
+      !activePlugins.includes(plugin.id)
+    ) {
       togglePluginActive(plugin.id);
     }
   };
@@ -1505,7 +1511,18 @@ const PluginDetailsModal = ({
                 </div>
               </div>
 
-              {plugin.auth?.type === "none" ? (
+              {isResearchSourceProvider(plugin.id) && (
+                <p className="text-sm text-gray-600 dark:text-foreground/75">
+                  {tSource("fixedEndpoints")}
+                </p>
+              )}
+              {plugin.id === "epo-ops" ? (
+                <ResearchSourceCredentials
+                  hasSecret={hasPluginAuthValue(config.auth)}
+                  onSave={handleSaveAuthSecret}
+                  onClear={handleClearAuthSecret}
+                />
+              ) : plugin.auth?.type === "none" ? (
                 <div className="text-sm text-gray-500 text-center py-4">
                   {t("noAuthRequired")}
                 </div>
@@ -1515,14 +1532,21 @@ const PluginDetailsModal = ({
                     htmlFor={authInputId}
                     className="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-foreground/85"
                   >
-                    <KeyRound size={16} aria-hidden="true" /> {t("apiKeyLabel")}
+                    <KeyRound size={16} aria-hidden="true" />{" "}
+                    {plugin.id === "sec-edgar"
+                      ? tSource("secContact")
+                      : t("apiKeyLabel")}
                   </label>
                   <div className="relative">
                     <SecretInput
                       id={authInputId}
                       name={`${plugin.id}-auth-token`}
                       maxLength={PLUGIN_CONFIG_LIMITS.maxAuthValueChars}
-                      placeholder={t("authPlaceholder")}
+                      placeholder={
+                        plugin.id === "sec-edgar"
+                          ? tSource("secContactPlaceholder")
+                          : t("authPlaceholder")
+                      }
                       hasSecret={hasPluginAuthValue(config.auth)}
                       onSave={handleSaveAuthSecret}
                       onClear={handleClearAuthSecret}
@@ -1679,6 +1703,7 @@ const PluginDetailsModal = ({
 const PluginMarket: React.FC<PluginMarketProps> = ({ onClose }) => {
   const t = useTranslations("Plugin");
   const tConfig = useTranslations("Config");
+  const tSource = useTranslations("ResearchSources");
   const locale = useLocale();
   const {
     installedPlugins,
@@ -1694,8 +1719,17 @@ const PluginMarket: React.FC<PluginMarketProps> = ({ onClose }) => {
   // Built-in plugins carry English product copy in the store; localize their
   // title/description for display (matched by id, so search/aria/details follow).
   const localizedInstalledPlugins = useMemo(
-    () => installedPlugins.map((plugin) => localizePluginMeta(plugin, tConfig)),
-    [installedPlugins, tConfig],
+    () =>
+      installedPlugins.map((plugin) =>
+        isResearchSourceProvider(plugin.id)
+          ? {
+              ...plugin,
+              title: tSource(`${plugin.id}Title`),
+              description: tSource(`${plugin.id}Description`),
+            }
+          : localizePluginMeta(plugin, tConfig),
+      ),
+    [installedPlugins, tConfig, tSource],
   );
   const [availablePlugins, setAvailablePlugins] = useState<Plugin[]>([]);
   const [activeSource, setActiveSource] = useState<MarketSource>("plugins");

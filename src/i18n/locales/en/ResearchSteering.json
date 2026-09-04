@@ -1,0 +1,32 @@
+{
+  "title": "Adjust research",
+  "addQuestion": "Add question",
+  "loading": "Loading research controls…",
+  "hint": "Changes apply after the current round. Priority only changes order at the same depth.",
+  "unavailable": "Adjustments need an active research phase, durable local storage, and browser task locks.",
+  "step": "Plan step",
+  "question": "Research question",
+  "scopeHint": "Use the approved scope and sources. Existing budgets still apply.",
+  "cancel": "Cancel",
+  "saving": "Saving…",
+  "submit": "Queue question",
+  "history": "Recent adjustments",
+  "promote": "Prioritize at this depth",
+  "demote": "Defer at this depth",
+  "reset": "Reset priority",
+  "priority": "Node priority",
+  "pending": "Pending next safe point",
+  "applied": "Applied",
+  "frontier": "Pending research questions",
+  "errors": {
+    "unavailable": "Research adjustments could not be saved. Check local storage availability and retry.",
+    "closed": "This run has left exploration. The adjustment was not applied.",
+    "invalid_step": "Select an existing plan step.",
+    "invalid_question": "Enter a question of up to 4,000 characters.",
+    "duplicate": "This question is already in the research frontier or history.",
+    "node_limit": "The research node limit has been reached.",
+    "command_limit": "The adjustment limit for this run has been reached.",
+    "node_scheduled": "This node has already been scheduled; its priority cannot change.",
+    "missing_node": "This node is no longer in the run."
+  }
+}

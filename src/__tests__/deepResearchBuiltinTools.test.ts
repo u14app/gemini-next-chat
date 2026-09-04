@@ -383,10 +383,10 @@ describe("Deep Research built-in tools", () => {
     });
     expect(
       byName.get("start_deep_research")?.definition.function.description,
-    ).toContain("bounded public search-summary reconnaissance");
+    ).toContain("unclear subjects");
     expect(
       byName.get("adjust_research_plan")?.definition.function.description,
-    ).toContain("bounded public search-summary reconnaissance");
+    ).toContain("unclear subjects");
   });
 
   it("registers a strict tool set for every Research phase", async () => {
@@ -452,6 +452,30 @@ describe("Deep Research built-in tools", () => {
     expect(startNames).toEqual(["start_deep_research"]);
     expect(planNames).toEqual([]);
     expect(planSearchNames).toEqual(["web_search"]);
+    const knowledgePlanning = {
+      message: "Clarify the concept",
+      researchPhase: "plan" as const,
+      knowledgeScope: {
+        attachments: [
+          {
+            id: "selected",
+            fileName: "Selected",
+            mimeType: "application/vnd.neo-chat.collection",
+            data: "collection-1",
+          },
+        ],
+        collections: [],
+        ragConfig: { enabled: false },
+      },
+    };
+    expect(
+      collectBuiltinTools({ ...knowledgePlanning, disabled: true }).definitions,
+    ).toEqual([]);
+    expect(
+      collectBuiltinTools(knowledgePlanning).definitions.map(
+        (tool) => tool.function.name,
+      ),
+    ).toEqual(["search_knowledge"]);
     // Clarification is source-free: refine or approve the plan, nothing else.
     expect(clarifyNames).toEqual([
       "adjust_research_plan",

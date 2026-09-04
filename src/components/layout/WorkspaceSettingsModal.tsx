@@ -45,6 +45,8 @@ import {
   getImageCompressionConfig,
 } from "@/lib/utils/imageCompression";
 import { Button } from "@/components/ui/primitives";
+import ResearchTemplatePicker from "@/components/research/ResearchTemplatePicker";
+import type { ResearchTemplateSelection } from "@/lib/research/templates";
 
 interface WorkspaceSettingsModalProps {
   onClose: () => void;
@@ -93,6 +95,7 @@ const WorkspaceSettingsModal: React.FC<WorkspaceSettingsModalProps> = ({
 }) => {
   const t = useTranslations("Workspace");
   const tConfig = useTranslations("Config");
+  const tResearchTemplates = useTranslations("ResearchTemplates");
   const { createWorkspace, updateWorkspace, deleteWorkspace } = useChatStore();
   const { collections } = useKnowledgeStore();
   const { installedPlugins, installedSkills, system } = useSettingsStore();
@@ -140,6 +143,8 @@ const WorkspaceSettingsModal: React.FC<WorkspaceSettingsModalProps> = ({
   const [activeSkills, setActiveSkills] = useState<string[]>(
     normalizeSkillIdRefs(workspace?.activeSkills, installedSkills),
   );
+  const [researchTemplate, setResearchTemplate] =
+    useState<ResearchTemplateSelection>(workspace?.researchTemplate);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dialogRef = useRef<HTMLDivElement | null>(null);
@@ -160,6 +165,16 @@ const WorkspaceSettingsModal: React.FC<WorkspaceSettingsModalProps> = ({
   const optimizeErrorId = `${modalId}-optimize-error`;
   const isActionPending = pendingAction !== null;
   const trimmedName = name.trim();
+
+  const researchTemplateText = (key: string, fallback: string) => {
+    try {
+      return tResearchTemplates.has(key)
+        ? tResearchTemplates(key as never)
+        : fallback;
+    } catch {
+      return fallback;
+    }
+  };
 
   const clearDeleteConfirmation = () => {
     if (deleteConfirmTimerRef.current) {
@@ -247,6 +262,7 @@ const WorkspaceSettingsModal: React.FC<WorkspaceSettingsModalProps> = ({
         installedPlugins.map((plugin) => plugin.id),
       ),
       activeSkills: normalizeSkillIdRefs(activeSkills, installedSkills),
+      ...(researchTemplate !== undefined ? { researchTemplate } : {}),
     };
 
     try {
@@ -696,6 +712,160 @@ const WorkspaceSettingsModal: React.FC<WorkspaceSettingsModalProps> = ({
                   />
                 </div>
               </div>
+
+              <ResearchTemplatePicker
+                selection={researchTemplate}
+                onChange={setResearchTemplate}
+                disabled={isActionPending}
+                labels={{
+                  title: researchTemplateText("title", "Research template"),
+                  description: researchTemplateText(
+                    "workspaceDescription",
+                    "Set the default Research deliverable shape for this workspace.",
+                  ),
+                  inherit: researchTemplateText(
+                    "workspaceInherit",
+                    "No workspace template",
+                  ),
+                  disabled: researchTemplateText(
+                    "disabled",
+                    "Disable inherited template",
+                  ),
+                  loading: researchTemplateText(
+                    "loading",
+                    "Loading templates...",
+                  ),
+                  unavailable: researchTemplateText(
+                    "unavailable",
+                    "Built-in templates remain available.",
+                  ),
+                  duplicate: researchTemplateText(
+                    "duplicate",
+                    "Duplicate template",
+                  ),
+                  remove: researchTemplateText("remove", "Delete template"),
+                  builtIn: researchTemplateText("builtIn", "Built-in"),
+                  custom: researchTemplateText("custom", "Custom"),
+                  selectAria: researchTemplateText(
+                    "workspaceSelectAria",
+                    "Workspace research template",
+                  ),
+                  duplicateAria: researchTemplateText(
+                    "duplicateAria",
+                    "Duplicate workspace research template",
+                  ),
+                  removeAria: researchTemplateText(
+                    "removeAria",
+                    "Delete workspace research template",
+                  ),
+                  newTemplate: researchTemplateText(
+                    "newTemplate",
+                    "New template",
+                  ),
+                  editTemplate: researchTemplateText(
+                    "editTemplate",
+                    "Edit template",
+                  ),
+                  editAria: researchTemplateText(
+                    "editAria",
+                    "Edit selected research template",
+                  ),
+                  snapshot: researchTemplateText("snapshot", "Saved snapshot"),
+                  preview: researchTemplateText("preview", "Template preview"),
+                  deliverable: researchTemplateText(
+                    "deliverable",
+                    "Deliverable",
+                  ),
+                  sections: researchTemplateText(
+                    "sections",
+                    "Required sections",
+                  ),
+                  sources: researchTemplateText("sources", "Source priorities"),
+                  strategy: researchTemplateText(
+                    "strategy",
+                    "Starting strategy",
+                  ),
+                  templateEditor: {
+                    title: researchTemplateText(
+                      "editor.title",
+                      "Template details",
+                    ),
+                    name: researchTemplateText("editor.name", "Name"),
+                    namePlaceholder: researchTemplateText(
+                      "editor.namePlaceholder",
+                      "e.g. Product evaluation",
+                    ),
+                    description: researchTemplateText(
+                      "editor.description",
+                      "Description",
+                    ),
+                    descriptionPlaceholder: researchTemplateText(
+                      "editor.descriptionPlaceholder",
+                      "What this template helps you deliver",
+                    ),
+                    deliverable: researchTemplateText(
+                      "editor.deliverable",
+                      "Deliverable type",
+                    ),
+                    sections: researchTemplateText(
+                      "editor.sections",
+                      "Required sections",
+                    ),
+                    sectionsHint: researchTemplateText(
+                      "editor.sectionsHint",
+                      "One section per line. Standard audit sections are added automatically.",
+                    ),
+                    sources: researchTemplateText(
+                      "editor.sources",
+                      "Source priorities",
+                    ),
+                    sourceType: researchTemplateText(
+                      "editor.sourceType",
+                      "Source type",
+                    ),
+                    priority: researchTemplateText(
+                      "editor.priority",
+                      "Priority",
+                    ),
+                    rationale: researchTemplateText(
+                      "editor.rationale",
+                      "Rationale",
+                    ),
+                    rationalePlaceholder: researchTemplateText(
+                      "editor.rationalePlaceholder",
+                      "Why this source is useful",
+                    ),
+                    addSource: researchTemplateText(
+                      "editor.addSource",
+                      "Add source priority",
+                    ),
+                    strategy: researchTemplateText(
+                      "editor.strategy",
+                      "Starting strategy",
+                    ),
+                    cancel: researchTemplateText("editor.cancel", "Cancel"),
+                    save: researchTemplateText("editor.save", "Save template"),
+                    required: researchTemplateText(
+                      "editor.required",
+                      "Complete the required fields before saving.",
+                    ),
+                    removeSourceAria: researchTemplateText(
+                      "editor.removeSourceAria",
+                      "Remove source priority",
+                    ),
+                  },
+                  templateName: (template) =>
+                    researchTemplateText(
+                      `templates.${template.id}.name`,
+                      template.name,
+                    ),
+                  templateDescription: (template) =>
+                    researchTemplateText(
+                      `templates.${template.id}.description`,
+                      template.description,
+                    ),
+                }}
+              />
 
               {/* Plugins */}
               <div className="space-y-2">

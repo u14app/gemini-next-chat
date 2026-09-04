@@ -146,6 +146,7 @@ import {
   type ResearchBudgetPreset,
   type ResearchStrategy,
 } from "@/lib/research";
+import type { ResearchTemplateSelection } from "@/lib/research/templates";
 
 type MessageInputVariant = "default" | "hero";
 
@@ -764,6 +765,17 @@ const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
         updateSessionConfig(currentSessionId, {
           researchBudgetPreset: preset,
           researchStrategy: strategy,
+        });
+      },
+      [currentSessionId, updateSessionConfig],
+    );
+
+    const handleResearchTemplateChange = useCallback(
+      (template: ResearchTemplateSelection) => {
+        if (!currentSessionId) return;
+        updateSessionConfig(currentSessionId, {
+          researchTemplate: template,
+          ...(template ? { researchStrategy: { ...template.strategy } } : {}),
         });
       },
       [currentSessionId, updateSessionConfig],
@@ -2120,7 +2132,9 @@ const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
             sessionId={currentSessionId}
             budgetPreset={researchBudgetPreset}
             strategy={researchStrategy}
+            template={currentSession?.config?.researchTemplate}
             onChange={handleResearchSettingsChange}
+            onTemplateChange={handleResearchTemplateChange}
             onClose={handleResearchSettingsClose}
           />
 

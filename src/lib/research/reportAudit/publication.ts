@@ -1,3 +1,11 @@
+import {
+  DEFAULT_REPORT_SECTION_LABELS,
+  omitReportSections,
+  readReportSections,
+  reportSectionIdentity,
+  transformReportProse,
+  type ReportSectionLabels,
+} from "../reportSections";
 import { getCitableResearchClaims } from "../orchestration";
 import type {
   ResearchEvidence,
@@ -7,7 +15,6 @@ import type {
 import {
   containsExactToken,
   extractAuditSection,
-  normalizeAuditLabel,
   normalizeResearchReportMarkdown,
 } from "./normalize";
 
@@ -36,26 +43,15 @@ function getPublicationCitationLabel(
   return `Source ${index + 1}`;
 }
 
-function removePublicationOnlySections(markdown: string): string {
-  const hiddenHeadings = new Set([
-    normalizeAuditLabel("Research plan coverage"),
-    normalizeAuditLabel("Evidence gaps"),
+function removePublicationOnlySections(
+  markdown: string,
+  replaceGaps = false,
+): string {
+  return omitReportSections(markdown, [
+    "planCoverage",
+    "questionCoverage",
+    ...(replaceGaps ? ["evidenceGaps" as const] : []),
   ]);
-  const kept: string[] = [];
-  let hidden = false;
-  for (const line of markdown.split("\n")) {
-    const heading = /^(#{1,6})\s+(.+?)\s*$/.exec(line);
-    if (heading && heading[1].length <= 2) hidden = false;
-    if (
-      heading?.[1].length === 2 &&
-      hiddenHeadings.has(normalizeAuditLabel(heading[2].replace(/[*_`]/g, "")))
-    ) {
-      hidden = true;
-      continue;
-    }
-    if (!hidden) kept.push(line);
-  }
-  return kept.join("\n");
 }
 
 function appendToReportSection(
@@ -63,26 +59,13 @@ function appendToReportSection(
   heading: string,
   line: string,
 ): string {
-  const normalizedHeading = normalizeAuditLabel(heading);
-  const lines = markdown.split("\n");
-  let start = -1;
-  for (let index = 0; index < lines.length; index += 1) {
-    const match = /^(#{1,6})\s+(.+?)\s*$/.exec(lines[index]);
-    if (!match) continue;
-    if (start >= 0 && match[1].length <= 2) {
-      return [...lines.slice(0, index), line, "", ...lines.slice(index)].join(
-        "\n",
-      );
-    }
-    if (
-      start < 0 &&
-      normalizeAuditLabel(match[2].replace(/[*_`]/g, "")) === normalizedHeading
-    ) {
-      start = index;
-    }
-  }
-  if (start < 0) return markdown;
-  return [...lines, "", line].join("\n");
+  const section = readReportSections(markdown).find(
+    (item) =>
+      item.depth === 2 &&
+      reportSectionIdentity(item.title) === reportSectionIdentity(heading),
+  );
+  if (!section) return markdown;
+  return `${markdown.slice(0, section.end).trimEnd()}\n\n${line}\n\n${markdown.slice(section.end)}`;
 }
 
 export function prepareResearchReportForPublication({
@@ -91,16 +74,34 @@ export function prepareResearchReportForPublication({
   run,
   evidence,
   singleSourceNote,
+  gaps,
+  qualityNotice,
+  sectionLabels = DEFAULT_REPORT_SECTION_LABELS,
 }: {
   markdown: string;
   plan: ResearchPlanVersion;
   run: ResearchReportRun;
   evidence: readonly ResearchEvidence[];
   singleSourceNote?: (count: number, total: number) => string;
+  gaps?: readonly string[];
+  qualityNotice?: string;
+  sectionLabels?: ReportSectionLabels;
 }): string {
   let published = removePublicationOnlySections(
     normalizeResearchReportMarkdown(markdown),
+    gaps !== undefined,
   );
+  if (qualityNotice?.trim()) {
+    const notice = `> ${qualityNotice.trim().replace(/\n/g, " ")}`;
+    published = /^#\s+.+(?:\n|$)/.test(published)
+      ? published.replace(/^(#\s+.+)(?:\n|$)/, `$1\n\n${notice}\n`)
+      : `${notice}\n\n${published}`;
+  }
+  if (gaps?.length) {
+    published += `\n\n## ${sectionLabels.evidenceGaps}\n\n${gaps
+      .map((gap) => `- ${gap.trim().replace(/\n/g, " ")}`)
+      .join("\n")}`;
+  }
 
   if (singleSourceNote) {
     const citedInFindings = getCitableResearchClaims(run, evidence).filter(
@@ -122,56 +123,62 @@ export function prepareResearchReportForPublication({
     }
   }
 
-  for (const claim of run.claims) {
-    const marker = escapeReportPattern(claim.id);
-    published = published.replace(new RegExp(`\\[${marker}\\]\\s*`, "g"), "");
-  }
-
-  evidence.forEach((item, index) => {
-    const label = escapeMarkdownLabel(getPublicationCitationLabel(item, index));
-    const localLabel = `Source ${index + 1}`;
-    const replacement = /^https?:\/\//i.test(item.locator)
-      ? `[${label}](${item.locator})`
-      : `[${localLabel}]`;
-    for (const sourceId of [item.sourceId, ...(item.aliasSourceIds || [])]) {
-      const sourcePattern = escapeReportPattern(sourceId);
-      const locatorPattern = escapeReportPattern(item.locator);
-      published = published.replace(
-        new RegExp(
-          `\\[${sourcePattern}\\]\\s+(?=\\[[^\\]]+\\]\\(${locatorPattern}\\))`,
-          "g",
-        ),
-        "",
-      );
-      published = published.replace(
-        new RegExp(`\\[${sourcePattern}\\]\\([^\\n)]+\\)`, "g"),
-        replacement,
-      );
-      published = published.replace(
-        new RegExp(`\\[${sourcePattern}\\]`, "g"),
-        replacement,
-      );
+  published = transformReportProse(published, (prose) => {
+    let published = prose;
+    for (const claim of run.claims) {
+      const marker = escapeReportPattern(claim.id);
+      published = published.replace(new RegExp(`\\[${marker}\\]\\s*`, "g"), "");
     }
+
+    evidence.forEach((item, index) => {
+      const label = escapeMarkdownLabel(
+        getPublicationCitationLabel(item, index),
+      );
+      const localLabel = `Source ${index + 1}`;
+      const replacement = /^https?:\/\//i.test(item.locator)
+        ? `[${label}](${item.locator})`
+        : `[${localLabel}]`;
+      for (const sourceId of [item.sourceId, ...(item.aliasSourceIds || [])]) {
+        const sourcePattern = escapeReportPattern(sourceId);
+        const locatorPattern = escapeReportPattern(item.locator);
+        published = published.replace(
+          new RegExp(
+            `\\[${sourcePattern}\\]\\s+(?=\\[[^\\]]+\\]\\(${locatorPattern}\\))`,
+            "g",
+          ),
+          "",
+        );
+        published = published.replace(
+          new RegExp(`\\[${sourcePattern}\\]\\([^\\n)]+\\)`, "g"),
+          replacement,
+        );
+        published = published.replace(
+          new RegExp(`\\[${sourcePattern}\\]`, "g"),
+          replacement,
+        );
+      }
+    });
+
+    const internalIds = new Set([
+      ...plan.steps.map((step) => step.id),
+      ...run.nodes.map((node) => node.id),
+      ...evidence.map((item) => item.id),
+    ]);
+    for (const id of internalIds) {
+      const marker = escapeReportPattern(id);
+      published = published.replace(new RegExp(`\\[${marker}\\]\\s*`, "g"), "");
+    }
+
+    published = published
+      .split("\n")
+      .filter(
+        (line) =>
+          !/(?:reconstructed deterministically|model-authored report|publication audit|verified claim ledger)/i.test(
+            line,
+          ),
+      )
+      .join("\n");
+    return published.replace(/\n{3,}/g, "\n\n");
   });
-
-  const internalIds = new Set([
-    ...plan.steps.map((step) => step.id),
-    ...run.nodes.map((node) => node.id),
-    ...evidence.map((item) => item.id),
-  ]);
-  for (const id of internalIds) {
-    const marker = escapeReportPattern(id);
-    published = published.replace(new RegExp(`\\[${marker}\\]\\s*`, "g"), "");
-  }
-
-  published = published
-    .split("\n")
-    .filter(
-      (line) =>
-        !/(?:reconstructed deterministically|model-authored report|publication audit|verified claim ledger)/i.test(
-          line,
-        ),
-    )
-    .join("\n");
-  return published.replace(/\n{3,}/g, "\n\n").trim();
+  return published.trim();
 }

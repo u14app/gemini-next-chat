@@ -48,6 +48,8 @@ export interface ResearchScope {
   timeRange?: ResearchTimeRange;
   includes: string[];
   excludes: string[];
+  preferredDomains?: string[];
+  excludedDomains?: string[];
   allowedSourceTypes: ResearchSourceType[];
 }
 
@@ -67,7 +69,8 @@ export interface ResearchStrategy {
   resultsPerQuery: number;
 }
 
-export type ResearchReconStatus = "completed" | "partial" | "unavailable";
+export type ResearchReconStatus =
+  "completed" | "partial" | "unavailable" | "skipped";
 
 export interface ResearchReconQuery {
   query: string;
@@ -91,6 +94,8 @@ export interface ResearchReconSnapshot {
     wallTimeMs: number;
   };
   queries: ResearchReconQuery[];
+  /** Separate from the public-web allowance; contains no retrieved passages. */
+  knowledgeQueries?: Omit<ResearchReconQuery, "domains">[];
   providerId?: string;
 }
 

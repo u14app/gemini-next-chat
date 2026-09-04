@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xmlns:opensearch="http://a9.com/-/spec/opensearch/1.1/">
+  <opensearch:totalResults>2</opensearch:totalResults>
+  <entry><id>http://arxiv.org/abs/2401.00001v2</id><updated>2024-02-01T00:00:00Z</updated><published>2024-01-01T00:00:00Z</published><title>A bounded retrieval study</title><summary>We compare two retrieval methods &amp; their limits.</summary><author><name>Example Researcher</name></author><link href="http://arxiv.org/abs/2401.00001v2" rel="alternate" type="text/html"/></entry>
+  <entry><id>http://arxiv.org/abs/hep-th/9901001v1</id><published>1999-01-01T00:00:00Z</published><title>Archived preprint</title><author><name>Example Author</name></author></entry>
+</feed>

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import Ajv from "ajv";
 
 import {
   buildResearchExecutionPrompt,
@@ -7,6 +8,7 @@ import {
   buildResearchWaveArchivePrompt,
   buildResearchWavePrompt,
   buildResearchWaveRepairPrompt,
+  buildResearchWaveResponseFormat,
   createDegradedResearchWavePackets,
   createResearchReportRun,
   createResearchTask,
@@ -21,6 +23,7 @@ import {
   RESEARCH_WAVE_RESPONSE_FORMAT,
   summarizeResearchReport,
   type ResearchPlanVersion,
+  type ResearchWaveAliasContext,
 } from "@/lib/research";
 
 const planDraft = {
@@ -190,6 +193,21 @@ describe("Deep Research prompts", () => {
     if (invalidRange.valid) throw new Error("Expected an invalid plan.");
     expect(invalidRange.error.issues.join("\n")).toContain(
       "scope.timeRange.start",
+    );
+
+    const reversedRange = parseResearchPlan(
+      JSON.stringify({
+        ...planDraft,
+        scope: {
+          ...planDraft.scope,
+          timeRange: { start: "2026-12-31", end: "2026-01-01" },
+        },
+      }),
+    );
+    expect(reversedRange.valid).toBe(false);
+    if (reversedRange.valid) throw new Error("Expected an invalid plan.");
+    expect(reversedRange.error.issues.join("\n")).toContain(
+      "scope.timeRange.end",
     );
   });
 
@@ -810,5 +828,213 @@ None.
         2,
       ),
     ).toEqual([0]);
+  });
+});
+
+describe("Research wave source contract", () => {
+  const aliases: ResearchWaveAliasContext = {
+    nodes: [
+      { key: "N1", nodeId: "node-1", stepId: "step-1", objective: "Verify" },
+    ],
+    sources: [
+      {
+        key: "S1",
+        sourceId: "source-1",
+        aliasSourceIds: ["source-mirror-1"],
+        evidenceIds: ["evidence-1"],
+        locator: "https://example.test/one",
+        sourceType: "web",
+        retrievedAt: 1,
+      },
+      {
+        key: "S2",
+        sourceId: "source-2",
+        aliasSourceIds: ["source-mirror-2"],
+        evidenceIds: ["evidence-2"],
+        locator: "https://example.test/two",
+        sourceType: "web",
+        retrievedAt: 1,
+      },
+    ],
+  };
+  const packet = (sourceKeys: string[]) => ({
+    nodeKey: "N1",
+    learnings: [
+      {
+        claim: "One claim",
+        importance: "major",
+        stance: "supports",
+        finding: "One finding",
+        sourceKeys,
+      },
+    ],
+    sourceAssessments: [] as {
+      sourceKey: string;
+      authority: string;
+      rationale: string;
+      mirrorOfSourceKey?: string;
+    }[],
+    followUps: [],
+  });
+
+  it("maps only exact committed identities across every source-reference field", () => {
+    const output = packet([
+      " S1 ",
+      "source-1",
+      "evidence-1",
+      "source-mirror-1",
+    ]);
+    output.sourceAssessments = [
+      {
+        sourceKey: "evidence-1",
+        authority: "secondary",
+        rationale: "Known mirror",
+        mirrorOfSourceKey: "source-mirror-2",
+      },
+    ];
+    const parsed = parseResearchWavePackets(
+      JSON.stringify({ packets: [output] }),
+      { aliases },
+    );
+    expect(parsed).toMatchObject({
+      valid: true,
+      data: [
+        {
+          learnings: [{ sourceIds: ["source-1"], evidenceIds: ["evidence-1"] }],
+          sourceAssessments: [
+            { sourceId: "source-1", mirrorOfSourceId: "source-2" },
+          ],
+        },
+      ],
+    });
+  });
+
+  it.each([
+    "source-uncommitted",
+    "https://example.test/one",
+    "S80",
+    "S81",
+    "S01",
+    "s1",
+    "[S1]",
+  ])("rejects unregistered or guessed reference %s", (sourceKey) => {
+    const parsed = parseResearchWavePackets(
+      JSON.stringify({ packets: [packet([sourceKey])] }),
+      { aliases },
+    );
+    expect(parsed).toMatchObject({
+      valid: false,
+      data: [],
+      invalidNodeKeys: ["N1"],
+    });
+  });
+
+  it("rejects ambiguous identity mappings instead of choosing a source", () => {
+    const ambiguous = {
+      ...aliases,
+      sources: aliases.sources.map((source) =>
+        source.key === "S2"
+          ? { ...source, aliasSourceIds: ["source-1"] }
+          : source,
+      ),
+    };
+    const parsed = parseResearchWavePackets(
+      JSON.stringify({ packets: [packet(["source-1"])] }),
+      { aliases: ambiguous },
+    );
+    expect(parsed.valid).toBe(false);
+    if (parsed.valid) throw new Error("Expected ambiguous source rejection.");
+    expect(parsed.error.issues.join("\n")).toContain(
+      "matches multiple host sources",
+    );
+  });
+
+  it("keeps duplicate assessments and mirror-cycle checks after identity normalization", () => {
+    const output = packet(["S1"]);
+    output.sourceAssessments = [
+      { sourceKey: "source-1", authority: "unknown", rationale: "Unknown" },
+      { sourceKey: "evidence-1", authority: "unknown", rationale: "Duplicate" },
+    ];
+    let parsed = parseResearchWavePackets(
+      JSON.stringify({ packets: [output] }),
+      { aliases },
+    );
+    expect(parsed.valid).toBe(false);
+    if (!parsed.valid)
+      expect(parsed.error.issues.join("\n")).toContain(
+        "Duplicate source assessment",
+      );
+    output.sourceAssessments = [
+      {
+        sourceKey: "source-1",
+        authority: "unknown",
+        rationale: "Mirror",
+        mirrorOfSourceKey: "evidence-2",
+      },
+      {
+        sourceKey: "source-2",
+        authority: "unknown",
+        rationale: "Mirror",
+        mirrorOfSourceKey: "evidence-1",
+      },
+    ];
+    parsed = parseResearchWavePackets(JSON.stringify({ packets: [output] }), {
+      aliases,
+    });
+    expect(parsed.valid).toBe(false);
+    if (!parsed.valid)
+      expect(parsed.error.issues.join("\n")).toContain("contains a cycle");
+  });
+
+  it("constrains native output to this wave's keys, including a valid zero-source schema", () => {
+    const ajv = new Ajv({ strict: false });
+    const validate = ajv.compile(
+      buildResearchWaveResponseFormat(aliases).schema,
+    );
+    expect(validate({ packets: [packet(["S1"])] })).toBe(true);
+    expect(validate({ packets: [packet(["S80"])] })).toBe(false);
+    const emptyFormat = buildResearchWaveResponseFormat({
+      ...aliases,
+      sources: [],
+    });
+    expect(JSON.stringify(emptyFormat)).not.toContain('"enum":[]');
+    const validateEmpty = ajv.compile(emptyFormat.schema);
+    expect(validateEmpty({ packets: [{ ...packet([]), learnings: [] }] })).toBe(
+      true,
+    );
+    expect(validateEmpty({ packets: [packet(["S1"])] })).toBe(false);
+  });
+
+  it("freezes the selected index, retains 80 sources, and excludes the overflow from compatibility mapping", () => {
+    const run = createResearchReportRun({ taskId: "task", plan: createPlan() });
+    const node = run.nodes[0];
+    const evidence = Array.from({ length: 81 }, (_, index) => ({
+      id: `evidence-${index}`,
+      sourceId: `source-${index}`,
+      aliasSourceIds: [`mirror-${index}`],
+      stepId: node.stepId,
+      nodeId: node.id,
+      locator: `https://example.test/${index}`,
+      sourceType: "web" as const,
+      retrievedAt: 1,
+      contentHash: `hash-${index}`,
+      claimIds: [],
+    }));
+    const context = createResearchWaveAliasContext({
+      run,
+      nodeIds: [node.id],
+      evidence,
+    });
+    expect(context.sources).toHaveLength(80);
+    expect(context.sources.at(-1)?.key).toBe("S80");
+    evidence[0].aliasSourceIds.push("late-source");
+    expect(context.sources[0].aliasSourceIds).toEqual(["mirror-0"]);
+    expect(Object.isFrozen(context.sources)).toBe(true);
+    expect(Object.isFrozen(context.sources[0].evidenceIds)).toBe(true);
+    const parsed = parseResearchWavePackets(
+      JSON.stringify({ packets: [packet(["source-80"])] }),
+      { aliases: context },
+    );
+    expect(parsed).toMatchObject({ valid: false, data: [] });
   });
 });

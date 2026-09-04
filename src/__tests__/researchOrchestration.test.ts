@@ -1,9 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  areResearchQueriesSimilar,
   applyResearchRunUserStop,
   calculateResearchCoverage,
   applyResearchSourceAssessments,
+  countTrailingDegradedWaves,
+  createResearchSearchPolicy,
   createClaimRecordsFromLearningPackets,
   createNextResearchWave,
   createResearchReportRun,
@@ -12,6 +15,7 @@ import {
   expandResearchFrontier,
   findInvalidResearchWorkspaceSource,
   finalizeResearchReportRun,
+  getAdaptiveResearchBreadth,
   getCitableResearchClaims,
   getNextResearchBreadth,
   getResearchEvidenceDedupKeys,
@@ -22,8 +26,11 @@ import {
   getResearchStopReason,
   getResearchVerificationQueryReserve,
   getResearchVerificationQueryAllowance,
+  getResearchVerificationTargetNodeIds,
+  isResearchCoverageSufficient,
   isResearchWorkspaceSnapshotPath,
   markMutableResearchEvidenceStale,
+  normalizeResearchDomain,
   mergeResearchSourceSnapshotForExpansion,
   resolveResearchStrategy,
   type ClaimRecord,
@@ -172,17 +179,62 @@ describe("Deep Research orchestration", () => {
     expect(getResearchReservedModelRounds({ maxToolRounds: 12 })).toBe(2);
   });
 
-  it("normalizes queries and halves breadth with ceiling semantics", () => {
+  it("normalizes the approved web search policy without guessing from topics", () => {
+    expect(normalizeResearchDomain("https://Docs.Example.com/path")).toBe(
+      "docs.example.com",
+    );
+    expect(normalizeResearchDomain("not a domain")).toBeUndefined();
+    expect(
+      createResearchSearchPolicy({
+        preferredDomains: ["docs.example.com", "excluded.example"],
+        excludedDomains: ["excluded.example"],
+        timeRange: {
+          start: "2025-01-01",
+          end: "2025-12-31",
+          description: "calendar year 2025",
+        },
+      }),
+    ).toEqual({
+      preferredDomains: ["docs.example.com"],
+      excludedDomains: ["excluded.example"],
+      dateFrom: "2025-01-01",
+      dateTo: "2025-12-31",
+    });
+  });
+
+  it("deduplicates reordered queries and adapts breadth to uncertainty", () => {
     expect(
       dedupeResearchQueries(
-        ["  Alpha   BETA ", "alpha beta", "Ｇａｍｍａ", ""],
+        [
+          "  Alpha   BETA ",
+          "alpha beta",
+          "Ｇａｍｍａ",
+          "X pricing 2025",
+          "X 2025 pricing",
+          "",
+        ],
         ["Existing"],
       ),
-    ).toEqual(["Alpha   BETA", "Ｇａｍｍａ"]);
+    ).toEqual(["Alpha   BETA", "Ｇａｍｍａ", "X pricing 2025"]);
     expect(dedupeResearchQueries(["existing"], ["Existing"])).toEqual([]);
+    expect(areResearchQueriesSimilar("X 2025 pricing", "X pricing 2025")).toBe(
+      true,
+    );
+    expect(areResearchQueriesSimilar("X pricing", "X roadmap")).toBe(false);
     expect(getNextResearchBreadth(6)).toBe(3);
     expect(getNextResearchBreadth(3)).toBe(2);
     expect(getNextResearchBreadth(1)).toBe(1);
+    expect(
+      getAdaptiveResearchBreadth(
+        { initialBreadth: 6 },
+        {
+          requiredStepCount: 5,
+          coveredStepCount: 2,
+          unresolvedMajorClaimCount: 1,
+        },
+        2,
+      ),
+    ).toBe(4);
   });
 
   it("creates a run frontier and schedules only the current wave breadth", () => {
@@ -214,7 +266,42 @@ describe("Deep Research orchestration", () => {
     ).toHaveLength(2);
   });
 
-  it("keeps the legacy default bounded to in-scope follow-ups", () => {
+  it("retargets verification after each bounded batch", () => {
+    const plan = createPlan();
+    const run = createResearchReportRun({
+      id: "run-verification-targets",
+      taskId: "task-verification-targets",
+      plan,
+      now: 10,
+    });
+    const pendingClaims: ClaimRecord[] = run.nodes.map((node, index) =>
+      claim(`claim-${index + 1}`, {
+        stepId: node.stepId,
+        nodeIds: [node.id],
+        supportingEvidenceIds: [`evidence-${index + 1}`],
+      }),
+    );
+    const withClaims = { ...run, claims: pendingClaims };
+
+    expect(getResearchVerificationTargetNodeIds(withClaims, plan, 2)).toEqual([
+      run.nodes[0].id,
+      run.nodes[1].id,
+    ]);
+    expect(
+      getResearchVerificationTargetNodeIds(
+        {
+          ...withClaims,
+          claims: pendingClaims.map((item, index) =>
+            index < 2 ? { ...item, verificationStatus: "verified" } : item,
+          ),
+        },
+        plan,
+        2,
+      ),
+    ).toEqual([run.nodes[2].id, run.nodes[3].id]);
+  });
+
+  it("adapts later breadth to unresolved in-scope work", () => {
     const plan = createPlan();
     const run = createResearchReportRun({
       id: "run-1",
@@ -265,7 +352,7 @@ describe("Deep Research orchestration", () => {
         {
           id: "follow-up-5",
           question: "A third in-scope question",
-          rationale: "Would exceed the reduced breadth",
+          rationale: "Close a lower-priority evidence gap",
           priority: "medium",
           scopeImpact: "within",
           requiredSourceTypes: ["web"],
@@ -273,7 +360,7 @@ describe("Deep Research orchestration", () => {
         {
           id: "follow-up-6",
           question: "A fourth in-scope question",
-          rationale: "Would also exceed the reduced breadth",
+          rationale: "Close the final evidence gap",
           priority: "low",
           scopeImpact: "within",
           requiredSourceTypes: ["web"],
@@ -282,12 +369,9 @@ describe("Deep Research orchestration", () => {
     };
 
     const expanded = expandResearchFrontier(run, packet, 20);
-    expect(expanded.addedNodeIds).toHaveLength(2);
+    expect(expanded.addedNodeIds).toHaveLength(4);
     expect(expanded.duplicateFollowUpIds).toEqual(["follow-up-2"]);
-    expect(expanded.breadthLimitedFollowUpIds).toEqual([
-      "follow-up-5",
-      "follow-up-6",
-    ]);
+    expect(expanded.breadthLimitedFollowUpIds).toEqual([]);
     expect(expanded.depthLimitedFollowUpIds).toEqual([]);
     expect(expanded.unavailableSourceFollowUpIds).toEqual(["follow-up-3"]);
     expect(expanded.run.phase).toBe("awaiting_scope_approval");
@@ -440,7 +524,7 @@ describe("Deep Research orchestration", () => {
     expect(merged.capturedAt).toBe(30);
   });
 
-  it("verifies claims using primary or independent evidence and preserves conflicts", () => {
+  it("verifies major claims from primary evidence and preserves conflicts", () => {
     const baseClaim = {
       importance: "major" as const,
       supportingEvidenceIds: ["evidence-1"],
@@ -451,6 +535,14 @@ describe("Deep Research orchestration", () => {
         evidence("evidence-1", { authority: "primary" }),
       ]).status,
     ).toBe("verified");
+    expect(
+      evaluateResearchClaimVerification(baseClaim, [
+        evidence("evidence-1", {
+          authority: "primary",
+          mirrorOfSourceId: "source-original",
+        }),
+      ]).status,
+    ).toBe("pending");
     expect(
       evaluateResearchClaimVerification(baseClaim, [evidence("evidence-1")])
         .status,
@@ -471,7 +563,37 @@ describe("Deep Research orchestration", () => {
         },
         [evidence("evidence-1"), evidence("evidence-2")],
       ).status,
-    ).toBe("verified");
+    ).toBe("pending");
+    expect(
+      evaluateResearchClaimVerification(
+        {
+          ...baseClaim,
+          supportingEvidenceIds: ["evidence-1", "evidence-2"],
+        },
+        [
+          evidence("evidence-1", { authority: "secondary" }),
+          evidence("evidence-2", { authority: "secondary" }),
+        ],
+      ),
+    ).toMatchObject({ status: "pending", independentPublisherCount: 2 });
+    expect(
+      evaluateResearchClaimVerification(
+        {
+          ...baseClaim,
+          supportingEvidenceIds: ["evidence-1", "evidence-2"],
+        },
+        [
+          evidence("evidence-1", {
+            authority: "secondary",
+            title: "Vendor launches the new research product today",
+          }),
+          evidence("evidence-2", {
+            authority: "secondary",
+            title: "Vendor launches new research product today",
+          }),
+        ],
+      ),
+    ).toMatchObject({ status: "pending", independentPublisherCount: 1 });
     expect(
       evaluateResearchClaimVerification(
         { ...baseClaim, contradictingEvidenceIds: ["evidence-2"] },
@@ -686,6 +808,7 @@ describe("Deep Research orchestration", () => {
       overallRatio: 1,
       complete: true,
     });
+    expect(isResearchCoverageSufficient(coverage)).toBe(true);
     const regressedCoverage = calculateResearchCoverage(
       plan.steps,
       run.nodes.map((node) => ({ ...node, status: "completed" })),
@@ -701,9 +824,20 @@ describe("Deep Research orchestration", () => {
       stepRatio: 0.75,
       complete: false,
     });
+    expect(isResearchCoverageSufficient(regressedCoverage)).toBe(false);
+    const sufficientCoverage = {
+      ...coverage,
+      majorClaimCount: 5,
+      verifiedMajorClaimCount: 4,
+      unresolvedMajorClaimCount: 1,
+      claimRatio: 0.8,
+      overallRatio: 0.8,
+      complete: false,
+    };
+    expect(isResearchCoverageSufficient(sufficientCoverage)).toBe(true);
     const baseEvaluation = {
       now: 30,
-      coverage: { ...coverage, complete: false },
+      coverage: regressedCoverage,
       frontierCount: 1,
       currentDepth: 1,
       queryCount: 1,
@@ -722,6 +856,12 @@ describe("Deep Research orchestration", () => {
     expect(
       getResearchStopReason(plan.strategy, {
         ...baseEvaluation,
+        coverage: sufficientCoverage,
+      })?.code,
+    ).toBe("coverage_sufficient");
+    expect(
+      getResearchStopReason(plan.strategy, {
+        ...baseEvaluation,
         queryCount: plan.strategy.maxQueries,
       })?.code,
     ).toBe("max_queries");
@@ -729,8 +869,8 @@ describe("Deep Research orchestration", () => {
       getResearchStopReason(plan.strategy, {
         ...baseEvaluation,
         wavesWithoutNewVerifiedClaims: 2,
-      }),
-    ).toBeUndefined();
+      })?.code,
+    ).toBe("no_new_verified_claims");
     expect(
       getResearchStopReason(plan.strategy, {
         ...baseEvaluation,
@@ -745,6 +885,53 @@ describe("Deep Research orchestration", () => {
         wavesWithoutNewVerifiedClaims: 2,
       })?.code,
     ).toBe("no_new_sources");
+    expect(
+      getResearchStopReason(plan.strategy, {
+        ...baseEvaluation,
+        consecutiveDegradedWaves: 2,
+      })?.code,
+    ).toBe("invalid_model_output");
+
+    expect(
+      countTrailingDegradedWaves({
+        ...run,
+        waves: [
+          {
+            id: "wave-valid",
+            index: 1,
+            depth: 1,
+            breadth: 1,
+            nodeIds: [run.nodes[0].id],
+            status: "completed",
+            packetStatus: "valid",
+            newEvidenceCount: 1,
+            newVerifiedClaimCount: 1,
+          },
+          {
+            id: "wave-degraded-1",
+            index: 2,
+            depth: 1,
+            breadth: 1,
+            nodeIds: [run.nodes[1].id],
+            status: "completed",
+            packetStatus: "degraded",
+            newEvidenceCount: 1,
+            newVerifiedClaimCount: 0,
+          },
+          {
+            id: "wave-degraded-2",
+            index: 3,
+            depth: 1,
+            breadth: 1,
+            nodeIds: [run.nodes[2].id],
+            status: "completed",
+            packetStatus: "degraded",
+            newEvidenceCount: 1,
+            newVerifiedClaimCount: 0,
+          },
+        ],
+      }),
+    ).toBe(2);
 
     const stopCases = [
       [{ userAction: "cancel" as const }, "user_cancelled"],

@@ -1,10 +1,11 @@
 "use client";
 
-import React, { useState } from "react";
-import { ExternalLink, SearchCheck } from "lucide-react";
+import React, { useId, useMemo, useState } from "react";
+import { ExternalLink, Search, SearchCheck } from "lucide-react";
 import { useTranslations } from "next-intl";
 
-import { Button } from "@/components/ui/primitives";
+import { CustomSelect } from "@/components/ui/controls";
+import { Button, Input } from "@/components/ui/primitives";
 import { getSafeExternalHref } from "@/lib/security/clientUrl";
 import { cn } from "@/lib/utils/cn";
 
@@ -145,24 +146,180 @@ function EvidenceListItem({
 
 export function EvidencePanel({ task }: { task: ResearchTaskViewModel }) {
   const t = useTranslations("Research");
+  const controlId = useId();
+  const [query, setQuery] = useState("");
   const [questionFilter, setQuestionFilter] = useState<number | "all">("all");
   const [stanceFilter, setStanceFilter] = useState<EvidenceStance | "all">(
     "all",
   );
+  const [domainFilter, setDomainFilter] = useState("all");
+  const [authorityFilter, setAuthorityFilter] = useState("all");
+  const [freshnessFilter, setFreshnessFilter] = useState("all");
+  const [sort, setSort] = useState<"newest" | "oldest" | "claims">("newest");
   const questionTitles = task.plan?.steps.map((step) => step.title) ?? [];
-  const filteredEvidence = task.evidence.filter((item) => {
-    const matchesQuestion =
-      questionFilter === "all" ||
-      item.questionIndexes?.includes(questionFilter);
-    const matchesStance =
-      stanceFilter === "all" || item.stance === stanceFilter;
-    return matchesQuestion && matchesStance;
-  });
+  const domains = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          task.evidence.flatMap((item) => (item.domain ? [item.domain] : [])),
+        ),
+      ).sort((left, right) => left.localeCompare(right)),
+    [task.evidence],
+  );
+  const filteredEvidence = useMemo(() => {
+    const normalizedQuery = query.normalize("NFKC").trim().toLowerCase();
+    return task.evidence
+      .filter((item) => {
+        const matchesQuestion =
+          questionFilter === "all" ||
+          item.questionIndexes?.includes(questionFilter);
+        const matchesStance =
+          stanceFilter === "all" || item.stance === stanceFilter;
+        const matchesDomain =
+          domainFilter === "all" || item.domain === domainFilter;
+        const matchesAuthority =
+          authorityFilter === "all" || item.authority === authorityFilter;
+        const matchesFreshness =
+          freshnessFilter === "all" || item.freshness === freshnessFilter;
+        const searchable = [
+          item.title,
+          item.locator,
+          item.domain,
+          item.excerpt,
+          ...(item.linkedClaims ?? []).map((claim) => claim.text),
+        ]
+          .filter(Boolean)
+          .join("\n")
+          .normalize("NFKC")
+          .toLowerCase();
+        return (
+          matchesQuestion &&
+          matchesStance &&
+          matchesDomain &&
+          matchesAuthority &&
+          matchesFreshness &&
+          (!normalizedQuery || searchable.includes(normalizedQuery))
+        );
+      })
+      .sort((left, right) => {
+        if (sort === "oldest") return left.retrievedAt - right.retrievedAt;
+        if (sort === "claims") {
+          const claimDifference =
+            (right.linkedClaims?.length ?? 0) -
+            (left.linkedClaims?.length ?? 0);
+          if (claimDifference !== 0) return claimDifference;
+        }
+        return right.retrievedAt - left.retrievedAt;
+      });
+  }, [
+    authorityFilter,
+    domainFilter,
+    freshnessFilter,
+    query,
+    questionFilter,
+    sort,
+    stanceFilter,
+    task.evidence,
+  ]);
 
   return (
     <div className="mx-auto w-full max-w-5xl p-4 sm:p-6">
       <h2 className="text-lg font-semibold">{t("evidence.title")}</h2>
       <div className="mt-4 space-y-3 border-b border-border pb-4">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <label className="min-w-0 text-xs font-medium text-foreground lg:col-span-2">
+            <span>{t("evidence.searchLabel")}</span>
+            <span className="relative mt-1 block">
+              <Search
+                size={15}
+                className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-muted-foreground"
+                aria-hidden="true"
+              />
+              <Input
+                type="search"
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder={t("evidence.searchPlaceholder")}
+                className="h-11 bg-background pl-9 md:h-9"
+              />
+            </span>
+          </label>
+          <div className="min-w-0 text-xs font-medium text-foreground">
+            <label htmlFor={`${controlId}-domain`}>
+              {t("evidence.domain")}
+            </label>
+            <CustomSelect
+              id={`${controlId}-domain`}
+              value={domainFilter}
+              onChange={setDomainFilter}
+              ariaLabel={t("evidence.domain")}
+              options={[
+                { value: "all", label: t("evidence.allDomains") },
+                ...domains.map((domain) => ({ value: domain, label: domain })),
+              ]}
+              selectButtonClassName="mt-1 flex h-11 w-full items-center justify-between gap-2 rounded-md border border-border bg-background px-3 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:h-9"
+            />
+          </div>
+          <div className="min-w-0 text-xs font-medium text-foreground">
+            <label htmlFor={`${controlId}-sort`}>{t("evidence.sort")}</label>
+            <CustomSelect
+              id={`${controlId}-sort`}
+              value={sort}
+              onChange={(value) =>
+                setSort(value as "newest" | "oldest" | "claims")
+              }
+              ariaLabel={t("evidence.sort")}
+              options={[
+                { value: "newest", label: t("evidence.sortNewest") },
+                { value: "oldest", label: t("evidence.sortOldest") },
+                { value: "claims", label: t("evidence.sortClaimCount") },
+              ]}
+              selectButtonClassName="mt-1 flex h-11 w-full items-center justify-between gap-2 rounded-md border border-border bg-background px-3 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:h-9"
+            />
+          </div>
+          <div className="min-w-0 text-xs font-medium text-foreground">
+            <label htmlFor={`${controlId}-authority`}>
+              {t("evidence.authorityFilter")}
+            </label>
+            <CustomSelect
+              id={`${controlId}-authority`}
+              value={authorityFilter}
+              onChange={setAuthorityFilter}
+              ariaLabel={t("evidence.authorityFilter")}
+              options={[
+                { value: "all", label: t("evidence.allAuthorities") },
+                ...(["primary", "secondary", "unknown"] as const).map(
+                  (authority) => ({
+                    value: authority,
+                    label: t(`authority.${authority}`),
+                  }),
+                ),
+              ]}
+              selectButtonClassName="mt-1 flex h-11 w-full items-center justify-between gap-2 rounded-md border border-border bg-background px-3 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:h-9"
+            />
+          </div>
+          <div className="min-w-0 text-xs font-medium text-foreground">
+            <label htmlFor={`${controlId}-freshness`}>
+              {t("evidence.freshnessFilter")}
+            </label>
+            <CustomSelect
+              id={`${controlId}-freshness`}
+              value={freshnessFilter}
+              onChange={setFreshnessFilter}
+              ariaLabel={t("evidence.freshnessFilter")}
+              options={[
+                { value: "all", label: t("evidence.allFreshness") },
+                ...(["current", "stale", "unknown"] as const).map(
+                  (freshness) => ({
+                    value: freshness,
+                    label: t(`freshness.${freshness}`),
+                  }),
+                ),
+              ]}
+              selectButtonClassName="mt-1 flex h-11 w-full items-center justify-between gap-2 rounded-md border border-border bg-background px-3 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:h-9"
+            />
+          </div>
+        </div>
         {questionTitles.length > 0 ? (
           <div
             className="flex gap-1 overflow-x-auto pb-1 [&_button]:h-9 sm:[&_button]:h-8"
@@ -232,6 +389,9 @@ export function EvidencePanel({ task }: { task: ResearchTaskViewModel }) {
             </Button>
           ))}
         </div>
+        <p className="text-xs text-muted-foreground" aria-live="polite">
+          {t("evidence.results", { count: filteredEvidence.length })}
+        </p>
       </div>
       {filteredEvidence.length > 0 ? (
         <ul className="divide-y divide-border">

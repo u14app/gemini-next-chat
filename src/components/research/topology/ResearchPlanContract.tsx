@@ -24,13 +24,35 @@ export function ResearchPlanContract({
   const t = useTranslations("Research");
   const [reconOpen, setReconOpen] = useState(false);
   const recon = plan.recon;
+  const knowledgeQueries = recon?.knowledgeQueries ?? [];
+  const reconNeedsWarning =
+    recon?.status === "partial" || recon?.status === "unavailable";
+  const reconSummary = recon
+    ? knowledgeQueries.length > 0
+      ? `${t("plan.knowledgeRecon", { count: knowledgeQueries.length })}${
+          recon.queryCount > 0
+            ? ` · ${t("plan.reconSummary", {
+                used: recon.queryCount,
+                limit: recon.maxQueries,
+              })}`
+            : ""
+        }`
+      : recon.status === "skipped"
+        ? t("plan.reconStatus.skipped")
+        : t("plan.reconSummary", {
+            used: recon.queryCount,
+            limit: recon.maxQueries,
+          })
+    : "";
   const hasScope = Boolean(
     plan.scope &&
     (plan.scope.audience ||
       plan.scope.timeRange ||
       plan.scope.allowedSourceTypes?.length ||
       plan.scope.includes.length ||
-      plan.scope.excludes.length),
+      plan.scope.excludes.length ||
+      plan.scope.preferredDomains?.length ||
+      plan.scope.excludedDomains?.length),
   );
   const hasPlanContract = advancedOnly
     ? Boolean(
@@ -166,6 +188,26 @@ export function ResearchPlanContract({
                 </dd>
               </div>
             ) : null}
+            {plan.scope.preferredDomains?.length ? (
+              <div>
+                <dt className="text-muted-foreground">
+                  {t("plan.preferredDomains")}
+                </dt>
+                <dd className="mt-1 leading-5 text-foreground">
+                  {plan.scope.preferredDomains.join(", ")}
+                </dd>
+              </div>
+            ) : null}
+            {plan.scope.excludedDomains?.length ? (
+              <div>
+                <dt className="text-muted-foreground">
+                  {t("plan.excludedDomains")}
+                </dt>
+                <dd className="mt-1 leading-5 text-foreground">
+                  {plan.scope.excludedDomains.join(", ")}
+                </dd>
+              </div>
+            ) : null}
           </dl>
         </section>
       ) : null}
@@ -239,12 +281,7 @@ export function ResearchPlanContract({
                 className="text-research-accent"
                 aria-hidden="true"
               />
-              <span className="min-w-0 flex-1">
-                {t("plan.reconSummary", {
-                  used: recon.queryCount,
-                  limit: recon.maxQueries,
-                })}
-              </span>
+              <span className="min-w-0 flex-1">{reconSummary}</span>
               <ChevronDown
                 size={14}
                 className={cn(
@@ -257,13 +294,18 @@ export function ResearchPlanContract({
           )}
         >
           <div className="mt-2 rounded-md border border-border p-3">
-            <InlineStatus
-              tone={recon.status === "completed" ? "neutral" : "warning"}
-            >
+            <InlineStatus tone={reconNeedsWarning ? "warning" : "neutral"}>
               {t("plan.reconDisclosure")}
             </InlineStatus>
             {recon.status !== "completed" ? (
-              <p className="mt-2 text-xs leading-5 text-amber-700 dark:text-amber-300">
+              <p
+                className={cn(
+                  "mt-2 text-xs leading-5",
+                  reconNeedsWarning
+                    ? "text-amber-700 dark:text-amber-300"
+                    : "text-muted-foreground",
+                )}
+              >
                 {t(`plan.reconStatus.${recon.status}`)}
               </p>
             ) : null}
@@ -293,6 +335,38 @@ export function ResearchPlanContract({
                   </li>
                 ))}
               </ol>
+            ) : null}
+            {knowledgeQueries.length ? (
+              <div className={cn(recon.queries.length > 0 && "mt-4")}>
+                <p className="text-xs font-medium text-foreground">
+                  {t("plan.knowledgeRecon", {
+                    count: knowledgeQueries.length,
+                  })}
+                </p>
+                <ol className="mt-2 space-y-2">
+                  {knowledgeQueries.map((item, index) => (
+                    <li
+                      key={item.id}
+                      className="grid grid-cols-[1.5rem_minmax(0,1fr)] gap-2 text-xs"
+                    >
+                      <span className="font-mono tabular-nums text-muted-foreground">
+                        {String(index + 1).padStart(2, "0")}
+                      </span>
+                      <div className="min-w-0">
+                        <p className="wrap-break-word font-medium text-foreground">
+                          {item.query}
+                        </p>
+                        <p className="mt-0.5 wrap-break-word leading-5 text-muted-foreground">
+                          {t("plan.reconResult", {
+                            count: item.resultCount,
+                            domains: t("sourceType.knowledge"),
+                          })}
+                        </p>
+                      </div>
+                    </li>
+                  ))}
+                </ol>
+              </div>
             ) : null}
           </div>
         </ResearchDisclosure>

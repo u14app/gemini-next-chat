@@ -2,6 +2,7 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import { useTranslations } from "next-intl";
+import { Button } from "@/components/ui/primitives";
 
 import type { ResearchNodeView, ResearchTaskViewModel } from "../types";
 
@@ -10,6 +11,7 @@ import { WaveGroup } from "./TopologyNode";
 
 export function ResearchTopology({ task }: { task: ResearchTaskViewModel }) {
   const t = useTranslations("Research");
+  const steeringText = useTranslations("ResearchSteering");
   const run = task.run;
   const [selectedNodeId, setSelectedNodeId] = useState<string | undefined>(
     () =>
@@ -45,7 +47,7 @@ export function ResearchTopology({ task }: { task: ResearchTaskViewModel }) {
     return { nodeById, nodesByWave, evidenceTitleById };
   }, [run?.nodes, task.evidence]);
 
-  if (!run || run.waves.length === 0 || run.nodes.length === 0) return null;
+  if (!run || run.nodes.length === 0) return null;
 
   const selectedNode = selectedNodeId
     ? topology.nodeById.get(selectedNodeId)
@@ -80,6 +82,27 @@ export function ResearchTopology({ task }: { task: ResearchTaskViewModel }) {
       </div>
       <div className="grid overflow-hidden rounded-lg border border-border bg-background lg:grid-cols-[minmax(0,1.35fr)_minmax(18rem,0.65fr)]">
         <div className="min-w-0 lg:border-r lg:border-border">
+          {topology.nodesByWave.get("unassigned")?.length ? (
+            <div className="border-b border-border p-3">
+              <h3 className="mb-2 text-xs font-medium text-muted-foreground">
+                {steeringText("frontier")}
+              </h3>
+              <ul className="space-y-1">
+                {topology.nodesByWave.get("unassigned")!.map((node) => (
+                  <li key={node.id}>
+                    <Button
+                      variant="ghost"
+                      className="min-h-11 w-full justify-start text-left text-xs"
+                      aria-pressed={selectedNodeId === node.id}
+                      onClick={() => setSelectedNodeId(node.id)}
+                    >
+                      {node.objective}
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
           <ol className="divide-y divide-border" aria-label={t("run.waves")}>
             {run.waves.map((wave) => (
               <WaveGroup
@@ -97,6 +120,7 @@ export function ResearchTopology({ task }: { task: ResearchTaskViewModel }) {
           aria-label={t("run.inspector")}
         >
           <NodeInspector
+            taskId={task.id}
             node={selectedNode}
             parent={selectedParent}
             evidenceTitles={selectedEvidenceTitles}

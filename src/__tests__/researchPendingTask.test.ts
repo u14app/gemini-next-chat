@@ -23,6 +23,7 @@ import { useResearchStore } from "@/store/core/researchStore";
 import {
   getPendingResearchPlanTaskId,
   selectGlobalActiveResearchTaskId,
+  selectGlobalResearchAttentionTaskId,
   selectVisibleResearchTaskId,
 } from "@/lib/research/pendingTask";
 
@@ -141,6 +142,46 @@ describe("pending research plan routing", () => {
     ).toBeNull();
     expect(
       selectGlobalActiveResearchTaskId({ ...state, activeTaskId: null }),
+    ).toBeNull();
+  });
+
+  it("offers the newest resumable task when no task is executing", () => {
+    const active = makeTask("task-active", "session-1", "researching", 50);
+    const olderPaused = transitionResearchTask(
+      makeTask("task-paused-old", "session-2", "researching", 10),
+      "paused",
+      { now: 20 },
+    );
+    const newerPaused = transitionResearchTask(
+      makeTask("task-paused-new", "session-3", "verifying", 30),
+      "paused",
+      { now: 40 },
+    );
+    const planReady = makeTask("task-plan", "session-4", "plan_ready", 60);
+    const tasksById = {
+      [active.id]: active,
+      [olderPaused.id]: olderPaused,
+      [newerPaused.id]: newerPaused,
+      [planReady.id]: planReady,
+    };
+
+    expect(
+      selectGlobalResearchAttentionTaskId({
+        tasksById,
+        activeTaskId: active.id,
+      }),
+    ).toBe(active.id);
+    expect(
+      selectGlobalResearchAttentionTaskId({
+        tasksById,
+        activeTaskId: null,
+      }),
+    ).toBe(newerPaused.id);
+    expect(
+      selectGlobalResearchAttentionTaskId({
+        tasksById: { [planReady.id]: planReady },
+        activeTaskId: null,
+      }),
     ).toBeNull();
   });
 });

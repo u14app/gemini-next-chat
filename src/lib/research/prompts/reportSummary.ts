@@ -1,13 +1,6 @@
 import type { ResearchReportVersion, ResearchTask } from "../types";
 
-function extractSection(markdown: string, heading: string): string {
-  const escaped = heading.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const match = new RegExp(
-    `(?:^|\\n)##[ \\t]+${escaped}[ \\t]*\\n([\\s\\S]*?)(?=\\n##[ \\t]+|$)`,
-    "i",
-  ).exec(markdown.replace(/\r\n/g, "\n"));
-  return match?.[1]?.trim() || "";
-}
+import { extractReportSection as extractSection } from "../reportSections";
 
 const clampText = (value: string, max: number) => value.trim().slice(0, max);
 

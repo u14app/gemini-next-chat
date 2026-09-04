@@ -532,6 +532,7 @@ export const McpBridgeDiscoveryRequestSchema = z
 
 export const SearchRequestSchema = z
   .object({
+    profile: z.enum(["research_summary"]).optional(),
     provider: z.enum([
       "default",
       "tavily",

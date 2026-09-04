@@ -7,6 +7,62 @@ group changes under a level-2 heading that matches the release tag, such as
 `## v2.0.0`; the release workflow uses that section as the GitHub release notes
 when the matching tag is pushed.
 
+## Unreleased
+
+- **Research search reliability:** Research requests share a serial queue with
+  two-second spacing, preserve partial batch results, distinguish duplicate skips
+  from failures, and respect rate-limit cooldowns. Tavily Research searches and
+  planning web lookup allow 90 seconds and use a lighter summary response profile.
+- **Research evidence recovery:** Archiving receives committed body excerpts;
+  checkpoints preserve recoverable results and verified local references. Source
+  callbacks and the ledger share evidence identity, and all-failed page batches
+  no longer report success.
+- **Research report reading:** Standard headings and fallback text support English,
+  Chinese, and Japanese. Appendices and quality details have a supplementary tab,
+  Markdown/PDF downloads share a menu, and document previews open when clicked.
+- **Research rollback compatibility:** New reconnaissance records can contain
+  `timeoutMs: 90000`; older readers capped at 30000 need the validator update before
+  opening these records. Existing reports are not rewritten.
+
+- **Adaptive Research planning:** Familiar topics now receive a plan without
+  searches. Unclear concepts use bounded selected-knowledge lookup before public
+  search, with public queries fixed before private passages are read.
+- **Research report delivery:** Reports retain unverified findings, labelled model
+  knowledge, quality notices, and interrupted text. Partial reports are visible
+  in chat and the workbench, exports preserve limitations, and auxiliary evidence
+  snapshot failures disable questions without blocking the report.
+- **Research source and activity reliability:** Reread evidence remains in the
+  current source index; registered source IDs map exactly to frozen short aliases.
+  Activity labels and spinners follow actual execution state. The coverage strip
+  is removed and user-facing waves are called research rounds.
+
+## v2.5.0
+
+- **Deep Research templates:** Added four built-in research templates for
+  competitive analysis, literature review, due diligence, and technical
+  evaluation, plus local custom template management, revisioned Profile
+  snapshots, explicit inheritance or no-template states, and immutable
+  per-task template snapshots.
+- **Specialized read-only sources:** Added arXiv, PubMed, EPO OPS, and SEC EDGAR
+  search/read adapters with fixed official endpoints, source-scope and
+  definition-fingerprint checks, encrypted local credentials, bounded parsing,
+  provider-aware throttling, and discovery results that become evidence only
+  after a source read is committed.
+- **Frontier steering:** Added durable safe-wave commands to promote, demote,
+  restore, or add a research node. Task Web Locks serialize execution; queued
+  changes are applied after a completed wave and checkpoint, while late or
+  already scheduled changes receive an explicit rejection.
+- **Evidence conversations:** Added report-version-bound evidence snapshots and
+  multiple local Q&A topics per report. Answers stream with cancellation and
+  retry, use only the frozen report/evidence/claim ledger, and validate every
+  citation against that snapshot without tools, network, Memory, or Research
+  execution.
+- **Research extension storage:** Added the local IndexedDB
+  `neo-chat-research-extensions` v1 sidecar for templates, source contracts,
+  steering records, evidence snapshots, and threads. The core Research store
+  and existing ZIP format remain unchanged; task deletion, session copies, and
+  orphan cleanup maintain the sidecar lifecycle.
+
 ## v2.4.0
 
 - **Private cross-device vault:** Added opt-in WebDAV and S3/MinIO sync with

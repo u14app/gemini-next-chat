@@ -15,9 +15,15 @@ import type { Attachment, Source } from "@/types";
 import {
   consumeBuiltinResearchSourceBodies,
   type BuiltinKnowledgeScope,
+  type BuiltinResearchQueryBudget,
   type BuiltinResearchSourceBudget,
   type BuiltinToolBinding,
 } from "./types";
+import {
+  consumeResearchQueries,
+  createQuerySignal,
+  queryBudgetError,
+} from "./researchQueryBudget";
 
 const KNOWLEDGE_QUERY_MAX_CHARS = 4_000;
 const MAX_COLLECTION_FILTERS = 20;
@@ -117,7 +123,11 @@ function createRagFailure(message: string): RagQueryError {
 
 export function createKnowledgeSearchBinding({
   sourceBudget,
-}: { sourceBudget?: BuiltinResearchSourceBudget } = {}): BuiltinToolBinding {
+  queryBudget,
+}: {
+  sourceBudget?: BuiltinResearchSourceBudget;
+  queryBudget?: BuiltinResearchQueryBudget;
+} = {}): BuiltinToolBinding {
   const lexicalCache: KnowledgeLexicalIndexCache = new Map();
 
   return {
@@ -210,16 +220,34 @@ export function createKnowledgeSearchBinding({
         );
       }
 
+      const budgetResult = consumeResearchQueries(queryBudget, [query]);
+      if (budgetResult !== "ok") return queryBudgetError(budgetResult);
+      const querySignal = createQuerySignal(
+        context.signal,
+        queryBudget?.deadlineAt,
+      );
       try {
         const result = await retrieveKnowledgeSources({
           queries: [query],
           scopeAttachments,
           collections: context.knowledgeScope.collections,
-          ragConfig: context.knowledgeScope.ragConfig,
-          signal: context.signal,
+          ragConfig: {
+            ...context.knowledgeScope.ragConfig,
+            ...(queryBudget
+              ? {
+                  topK: Math.min(
+                    context.knowledgeScope.ragConfig.topK ||
+                      queryBudget.maxResultsPerQuery,
+                    queryBudget.maxResultsPerQuery,
+                  ),
+                }
+              : {}),
+          },
+          signal: querySignal.signal,
           lexicalCache,
         });
         context.signal?.throwIfAborted();
+        querySignal.signal?.throwIfAborted();
         if (sourceBudget && sourceBudget.remainingSourceBodies <= 0) {
           return errorResult(
             "RESEARCH_SOURCE_BUDGET_EXHAUSTED",
@@ -228,7 +256,10 @@ export function createKnowledgeSearchBinding({
         }
         const boundedSources = boundKnowledgeSources(result.sources).slice(
           0,
-          sourceBudget?.remainingSourceBodies ?? RAG_LIMITS.maxTopK,
+          Math.min(
+            sourceBudget?.remainingSourceBodies ?? RAG_LIMITS.maxTopK,
+            queryBudget?.maxResultsPerQuery ?? RAG_LIMITS.maxTopK,
+          ),
         );
         const sources = await Promise.all(
           boundedSources.map((source, index) =>
@@ -265,6 +296,17 @@ export function createKnowledgeSearchBinding({
         };
       } catch (error) {
         if (
+          !context.signal?.aborted &&
+          querySignal.signal?.aborted &&
+          querySignal.signal.reason instanceof Error &&
+          querySignal.signal.reason.name === "TimeoutError"
+        ) {
+          return errorResult(
+            "RESEARCH_RECON_TIMEOUT",
+            "The planning knowledge lookup timed out.",
+          );
+        }
+        if (
           context.signal?.aborted ||
           (error instanceof Error && error.name === "AbortError")
         ) {
@@ -277,6 +319,8 @@ export function createKnowledgeSearchBinding({
         const ragError = createRagFailure(message);
         context.emit.knowledgeSources?.([], ragError);
         return errorResult("KNOWLEDGE_SEARCH_FAILED", message);
+      } finally {
+        querySignal.cleanup();
       }
     },
   };

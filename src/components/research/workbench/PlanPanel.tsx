@@ -5,6 +5,8 @@ import { CheckCircle2, ChevronDown, CircleX, SearchCheck } from "lucide-react";
 import { useTranslations } from "next-intl";
 
 import { cn } from "@/lib/utils/cn";
+import { ResearchSteeringPanel } from "../ui/ResearchSteeringPanel";
+import SaveResearchTemplateButton from "../SaveResearchTemplateButton";
 
 import ResearchDisclosure from "../ResearchDisclosure";
 import {
@@ -152,8 +154,16 @@ function PlanBoundary({ task }: { task: ResearchTaskViewModel }) {
             .join(", ")}`,
         ]
       : []),
+    ...(scope?.preferredDomains?.length
+      ? [`${t("plan.preferredDomains")}: ${scope.preferredDomains.join(", ")}`]
+      : []),
   ];
-  const excluded = scope?.excludes ?? [];
+  const excluded = [
+    ...(scope?.excludes ?? []),
+    ...(scope?.excludedDomains?.length
+      ? [`${t("plan.excludedDomains")}: ${scope.excludedDomains.join(", ")}`]
+      : []),
+  ];
 
   return (
     <section
@@ -292,9 +302,14 @@ export function PlanPanel({ task }: { task: ResearchTaskViewModel }) {
         <p className="mt-3 max-w-4xl text-sm leading-6 text-muted-foreground sm:text-base sm:leading-7">
           {task.plan.summary}
         </p>
+        <div className="mt-4">
+          <SaveResearchTemplateButton plan={task.plan} />
+        </div>
       </section>
 
       <PlanBoundary task={task} />
+
+      <ResearchSteeringPanel key={task.id} taskId={task.id} />
 
       <section aria-labelledby={`research-step-ledger-${task.id}`}>
         <div className="flex flex-wrap items-baseline justify-between gap-2">

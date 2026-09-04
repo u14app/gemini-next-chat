@@ -1,3 +1,4 @@
+import { readReportSections, readReportCitations } from "../reportSections";
 import { canonicalizeResearchLocator } from "../evidence";
 import { getCitableResearchClaims } from "../orchestration";
 import { summarizeResearchReport } from "../prompts";
@@ -15,19 +16,13 @@ import {
 import { getDegradedResearchStepIds } from "./stepCoverage";
 
 export interface ResearchReportAudit {
-  /** Defects worth one model repair pass before publication. */
+  /** Legacy severity field, retained for saved reports; never gates delivery. */
   blocking: string[];
   /** Recorded for diagnostics; never blocks or rewrites the report. */
   advisory: string[];
   unknownCitationCount: number;
   unsupportedFindingCount: number;
   missingSectionCount: number;
-}
-
-function extractCitedUrls(markdown: string): string[] {
-  return Array.from(markdown.matchAll(/https?:\/\/[^\s)\]>]+/gi), (match) =>
-    canonicalizeResearchLocator(match[0].replace(/[.,;:!?]+$/, "")),
-  );
 }
 
 export function auditResearchReport({
@@ -46,8 +41,8 @@ export function auditResearchReport({
   const blocking: string[] = [];
   const advisory: string[] = [];
   const headings = new Set(
-    Array.from(markdown.matchAll(/^#{1,6}\s+(.+)$/gm)).map((match) =>
-      normalizeAuditLabel(match[1].replace(/[*_`]/g, "")),
+    readReportSections(markdown).map((section) =>
+      normalizeAuditLabel(section.title),
     ),
   );
   const hasHeading = (section: string) =>
@@ -71,7 +66,7 @@ export function auditResearchReport({
     );
   }
   if (missingContractSections.length > 0) {
-    advisory.push(
+    blocking.push(
       `Missing deliverable sections: ${missingContractSections.join(", ")}.`,
     );
   }
@@ -100,14 +95,15 @@ export function auditResearchReport({
       ),
     ),
   );
-  const citedUrls = extractCitedUrls(markdown);
+  const citations = readReportCitations(markdown);
+  // Navigation/contact links are not claims about external web evidence.
+  const citedUrls = citations.urls
+    .filter((url) => /^https?:\/\//i.test(url))
+    .map(canonicalizeResearchLocator);
   const knownSourceIds = new Set(
     evidence.flatMap((item) => [item.sourceId, ...(item.aliasSourceIds || [])]),
   );
-  const citedSourceIds = Array.from(
-    markdown.matchAll(/\[(source-[A-Za-z0-9:_-]+)\]/g),
-    (match) => match[1],
-  );
+  const citedSourceIds = citations.sourceIds;
   const unknownCitationCount =
     citedUrls.filter((url) => !knownLocators.has(url)).length +
     citedSourceIds.filter((sourceId) => !knownSourceIds.has(sourceId)).length;
@@ -128,14 +124,18 @@ export function auditResearchReport({
       unsupportedFindingCount += 1;
       continue;
     }
-    const findingUrls = new Set(extractCitedUrls(finding));
+    const findingCitations = readReportCitations(finding, markdown);
+    const findingUrls = new Set(
+      findingCitations.urls.map(canonicalizeResearchLocator),
+    );
+    const findingSourceIds = new Set(findingCitations.sourceIds);
     const hasCitation = citable.supportingEvidence.some(
       (item) =>
         [item.locator, ...(item.aliasLocators || [])].some((locator) =>
           findingUrls.has(canonicalizeResearchLocator(locator)),
         ) ||
         [item.sourceId, ...(item.aliasSourceIds || [])].some((sourceId) =>
-          finding.toLowerCase().includes(`[${sourceId}]`.toLowerCase()),
+          findingSourceIds.has(sourceId),
         ),
     );
     if (!hasCitation) unsupportedFindingCount += 1;

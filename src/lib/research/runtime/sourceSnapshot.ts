@@ -1,4 +1,5 @@
 import type { Message, SessionMessageTree } from "@/types";
+import { freezeResearchSourceContracts } from "@/lib/plugin/researchSources/contracts";
 import {
   findInvalidResearchWorkspaceSource,
   getResearchSourceBuiltinToolNames,
@@ -129,7 +130,7 @@ export async function createSourceSnapshot(
     toolIds.some(
       (toolId) => toolId === "web_search" || toolId === "search_web",
     );
-  return {
+  const snapshot: ResearchSourceSnapshot = {
     model,
     reasoningMode: chatConfig.reasoningMode,
     approvalMode: effective.approvalMode,
@@ -150,6 +151,13 @@ export async function createSourceSnapshot(
     memoryScopeIds: {},
     capturedAt: Date.now(),
   };
+  await freezeResearchSourceContracts(
+    task,
+    snapshot,
+    settings.installedPlugins,
+    settings.pluginConfigs,
+  );
+  return snapshot;
 }
 
 export async function captureApprovedWorkspaceSources(

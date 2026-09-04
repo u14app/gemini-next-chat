@@ -1,3 +1,12 @@
+import {
+  DEFAULT_REPORT_SECTION_LABELS,
+  reportSectionKey,
+  type ReportSectionLabels,
+} from "../reportSections";
+import {
+  DEFAULT_REPORT_FALLBACK_TEXT,
+  type ReportFallbackText,
+} from "../reportFallbackText";
 import { getCitableResearchClaims } from "../orchestration";
 import type {
   ResearchEvidence,
@@ -17,27 +26,34 @@ export function buildDeterministicSalvageReport({
   run,
   evidence,
   reason,
+  sectionLabels = DEFAULT_REPORT_SECTION_LABELS,
+  text = DEFAULT_REPORT_FALLBACK_TEXT,
 }: {
   task: ResearchTask;
   plan: ResearchPlanVersion;
   run: ResearchReportRun;
   evidence: readonly ResearchEvidence[];
   reason: string;
+  sectionLabels?: ReportSectionLabels;
+  text?: ReportFallbackText;
 }): string {
-  const findings = getCitableResearchClaims(run, evidence).map((citable) => {
+  const citableClaims = getCitableResearchClaims(run, evidence);
+  const findings = citableClaims.map((citable) => {
     const source = citable.supportingEvidence[0];
     const conflict =
-      citable.confidence === "contested"
-        ? " (contradicting evidence remains unresolved)"
-        : "";
+      citable.confidence === "contested" ? ` (${text.unresolvedConflict})` : "";
     return `- [${citable.claim.id}] ${citable.claim.text}${conflict} [${source.sourceId}](${source.locator})`;
   });
+  const citableIds = new Set(citableClaims.map((item) => item.claim.id));
+  const unverified = run.claims
+    .filter((claim) => !citableIds.has(claim.id))
+    .map((claim) => `- ${text.unverifiedPrefix}: ${claim.text}`);
   const coveredStepIds = new Set(
     getCoveredResearchStepIds(plan, run, evidence),
   );
   const coverage = plan.steps.map((step) => {
     const answered = coveredStepIds.has(step.id);
-    return `- ${step.id}: ${answered ? "answered" : "partial"} - ${answered ? "cited finding available" : "no cited finding was produced"}`;
+    return `- ${step.id}: ${answered ? "answered" : "partial"} - ${answered ? text.citedFindingAvailable : text.noCitedFinding}`;
   });
   const requiredSections = plan.deliverable.requiredSections
     .filter(
@@ -47,7 +63,10 @@ export function buildDeterministicSalvageReport({
             normalizeAuditLabel(required) === normalizeAuditLabel(section),
         ),
     )
-    .map((section) => `## ${section}\n\nNot completed in this partial report.`);
+    .map((section) => {
+      const key = reportSectionKey(section);
+      return `## ${key ? sectionLabels[key] : section}\n\n${text.unverifiedArea}`;
+    });
   const relevantEvidenceIds = new Set([
     ...run.nodes.flatMap((node) => node.evidenceIds),
     ...run.claims.flatMap((claim) => [
@@ -60,30 +79,33 @@ export function buildDeterministicSalvageReport({
     .slice(0, 200)
     .map(
       (item) =>
-        `- [${item.sourceId}] [${item.title || item.locator}](${item.locator}) — retrieved ${new Date(item.retrievedAt).toISOString()}`,
+        `- [${item.sourceId}] [${item.title || item.locator}](${item.locator}) — ${text.retrieved} ${new Date(item.retrievedAt).toISOString()}`,
     );
   const degradedStepIds = getDegradedResearchStepIds(run, evidence);
   const evidenceGaps = [
     reason,
-    ...degradedStepIds.map(
-      (stepId) =>
-        `- ${stepId}: the wave archive did not produce a validated learning packet.`,
-    ),
+    ...degradedStepIds.map((stepId) => `- ${stepId}: ${text.archiveMissing}`),
   ].join("\n");
   return [
     `# ${plan.title || task.goal}`,
-    "## Executive summary",
-    "This partial report includes only findings supported by the available cited evidence. Some requested areas could not be completed.",
-    "## Key findings",
-    findings.length > 0
-      ? findings.join("\n")
-      : "No finding could be reconstructed from the collected evidence.",
+    `## ${sectionLabels.executiveSummary}`,
+    text.partialSummary,
+    `## ${sectionLabels.keyFindings}`,
+    findings.length > 0 ? findings.join("\n") : text.noFindings,
+    ...(unverified.length
+      ? [`## ${sectionLabels.unverifiedMaterial}`, unverified.join("\n")]
+      : []),
     ...requiredSections,
-    "## Research plan coverage",
+    `## ${sectionLabels.questionsToVerify}`,
+    plan.steps
+      .filter((step) => !coveredStepIds.has(step.id))
+      .map((step) => `- ${step.title}: ${step.objective}`)
+      .join("\n") || text.noQuestions,
+    `## ${sectionLabels.planCoverage}`,
     coverage.join("\n"),
-    "## Evidence gaps",
+    `## ${sectionLabels.evidenceGaps}`,
     evidenceGaps,
-    "## Sources",
-    sources.length > 0 ? sources.join("\n") : "No formal evidence committed.",
+    `## ${sectionLabels.sources}`,
+    sources.length > 0 ? sources.join("\n") : text.noEvidence,
   ].join("\n\n");
 }

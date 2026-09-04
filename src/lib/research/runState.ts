@@ -78,3 +78,12 @@ export function countTrailingWaves(
   }
   return count;
 }
+
+export function countTrailingDegradedWaves(run: ResearchReportRun): number {
+  let count = 0;
+  for (const wave of [...run.waves].reverse()) {
+    if (wave.status !== "completed" || wave.packetStatus !== "degraded") break;
+    count += 1;
+  }
+  return count;
+}

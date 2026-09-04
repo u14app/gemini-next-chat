@@ -13,7 +13,6 @@ export {
 export {
   buildEvidenceQuestionPrompt,
   buildResearchExecutionPrompt,
-  buildResearchReportRepairPrompt,
   buildResearchSynthesisPrompt,
   formatResearchFindingsLedger,
 } from "./reportPrompts";
@@ -29,5 +28,6 @@ export {
   buildResearchWaveArchivePrompt,
   buildResearchWavePrompt,
   buildResearchWaveRepairPrompt,
+  buildResearchWaveResponseFormat,
   RESEARCH_WAVE_RESPONSE_FORMAT,
 } from "./wavePrompts";

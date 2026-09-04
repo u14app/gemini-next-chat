@@ -1,8 +1,11 @@
 import { v7 as uuidv7 } from "uuid";
+import { assertFrozenResearchSourceContracts } from "@/lib/plugin/researchSources/contracts";
+import { getSpecializedCheckpointUsage } from "@/lib/plugin/researchSources/client";
 
 import type { Message } from "@/types";
 import {
   buildResearchWavePrompt,
+  createResearchSearchPolicy,
   getCurrentResearchReportRunIds,
   getResearchQueriesFromToolCalls,
   getResearchRunResumeDecision,
@@ -32,6 +35,11 @@ export async function prepareWave(
   input: ResearchWaveInput,
 ): Promise<ResearchWaveContext | null> {
   const { run, waveId, nodeIds, phase, queryAllowance } = input;
+  await assertFrozenResearchSourceContracts(
+    ctx.taskId,
+    ctx.snapshot,
+    ctx.settings.installedPlugins,
+  );
   const invalidWorkspaceSource = await getInvalidFrozenWorkspaceSource(
     ctx.snapshot,
     ctx.task.sessionId,
@@ -44,6 +52,7 @@ export async function prepareWave(
   const currentTask = ctx.store.tasksById[ctx.taskId];
   const availableBudget = remainingBudget(currentTask);
   if (!availableBudget) return null;
+  const searchDeadlineAt = Date.now() + availableBudget.maxDurationMs;
   const currentExecutionUsage = aggregateExecutionUsage(
     getCurrentResearchReportRunIds(currentTask),
   );
@@ -132,12 +141,19 @@ export async function prepareWave(
   const readLocators: string[] = getResearchSourceLocatorsFromToolCalls(
     savedCheckpoint?.toolCalls || [],
   );
+  const specializedUsage = getSpecializedCheckpointUsage(
+    savedCheckpoint?.toolCalls || [],
+  );
+  executedQueries.push(...specializedUsage.queries);
+  readLocators.push(...specializedUsage.locators);
   const queryBudget: BuiltinResearchQueryBudget = {
-    remainingQueries: Math.max(0, queryAllowance),
+    deadlineAt: searchDeadlineAt,
+    remainingQueries: Math.max(0, queryAllowance - executedQueries.length),
     maxResultsPerQuery: run.strategy.resultsPerQuery,
     seenQueries: new Set(
       [...run.executedQueries, ...executedQueries].map(normalizeResearchQuery),
     ),
+    searchPolicy: createResearchSearchPolicy(ctx.plan.scope),
     onQueriesExecuted: (queries) => executedQueries.push(...queries),
   };
   const sourceBudget: BuiltinResearchSourceBudget = {

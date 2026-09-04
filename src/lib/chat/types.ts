@@ -14,6 +14,7 @@ import type {
   AgentSkillPolicy,
 } from "../assistant/types";
 import type { ResearchBudgetPreset, ResearchStrategy } from "../research/types";
+import type { ResearchTemplate } from "../research/templates";
 
 export interface Attachment {
   id: string;
@@ -458,6 +459,8 @@ export interface SessionConfig {
   skillPolicies?: AgentSkillPolicy[];
   researchBudgetPreset?: ResearchBudgetPreset;
   researchStrategy?: ResearchStrategy;
+  /** undefined inherits; null explicitly disables the resolved template. */
+  researchTemplate?: ResearchTemplate | null;
 }
 
 export interface Session {
@@ -494,6 +497,8 @@ export interface Workspace {
   activePlugins?: string[];
   activeSkills?: string[];
   agentProfile?: AgentProfileV2;
+  /** Workspace-level template layer, before the active Agent Profile. */
+  researchTemplate?: ResearchTemplate | null;
   createdAt: number;
 }
 

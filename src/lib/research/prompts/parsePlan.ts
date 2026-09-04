@@ -1,4 +1,9 @@
 import type { ResearchScope, ResearchStrategy } from "../types";
+import { createResearchSearchPolicy } from "../searchPolicy";
+import {
+  applyResearchTemplateDefaults,
+  type ResearchTemplate,
+} from "../templates";
 import { formatZodIssues, parseJsonObjects } from "./json";
 import { planDraftSchema } from "./schemas";
 import type { ParsedResearchPlan, ResearchPlanDraftV2 } from "./types";
@@ -63,27 +68,43 @@ export function normalizeResearchPlanDraft({
   plan,
   strategy,
   allowedSourceTypes,
+  template,
+  preserveInitialContract = false,
 }: {
   plan: ResearchPlanDraftV2;
   strategy: ResearchStrategy;
   allowedSourceTypes: readonly ResearchScope["allowedSourceTypes"][number][];
+  template?: ResearchTemplate | null;
+  preserveInitialContract?: boolean;
 }): ResearchPlanDraftV2 {
+  const planWithDefaults = applyResearchTemplateDefaults(
+    plan,
+    template,
+    preserveInitialContract,
+  );
   const allowed: readonly ResearchScope["allowedSourceTypes"][number][] =
     allowedSourceTypes.length > 0 ? allowedSourceTypes : ["web"];
   const allowedSet = new Set(allowed);
-  const scopedSourceTypes = plan.scope.allowedSourceTypes.filter((sourceType) =>
-    allowedSet.has(sourceType),
+  const scopedSourceTypes = planWithDefaults.scope.allowedSourceTypes.filter(
+    (sourceType) => allowedSet.has(sourceType),
   );
+  const searchPolicy = createResearchSearchPolicy(planWithDefaults.scope);
   const seenTopics = new Set<string>();
   return {
-    ...plan,
+    ...planWithDefaults,
     strategy,
     scope: {
       ...plan.scope,
+      ...(searchPolicy.preferredDomains.length > 0
+        ? { preferredDomains: searchPolicy.preferredDomains }
+        : { preferredDomains: undefined }),
+      ...(searchPolicy.excludedDomains.length > 0
+        ? { excludedDomains: searchPolicy.excludedDomains }
+        : { excludedDomains: undefined }),
       allowedSourceTypes:
         scopedSourceTypes.length > 0 ? scopedSourceTypes : [...allowed],
     },
-    steps: plan.steps.map((step) => {
+    steps: planWithDefaults.steps.map((step) => {
       const sourcePriorities = step.sourcePriorities.filter((source) =>
         allowedSet.has(source.sourceType),
       );

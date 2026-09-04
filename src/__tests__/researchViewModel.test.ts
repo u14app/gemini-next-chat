@@ -3,9 +3,12 @@ import { describe, expect, it } from "vitest";
 import {
   commitToolExecution,
   createAgentRun,
+  failToolExecution,
   markToolExecutionRunning,
+  markToolExecutionEffectUnknown,
   prepareToolExecution,
   recordAgentEvidence,
+  transitionAgentRunStatus,
 } from "@/lib/agent";
 import {
   createResearchTask,
@@ -288,6 +291,7 @@ describe("research task view model", () => {
 
     expect(activity).toMatchObject({
       phase: "researching",
+      status: "committed",
       title: "Completed fetch_url",
       detail: "Read-only source: Primary documentation",
     });
@@ -347,8 +351,142 @@ describe("research task view model", () => {
     expect(
       viewModel.activities.find((item) => item.id === "execution-internal"),
     ).toMatchObject({
+      status: "committed",
       title: "Completed read_workspace_file",
       detail: "Read-only source: Internal tool result",
+    });
+  });
+
+  it("maps tool lifecycle status without reviving stale activity spinners", async () => {
+    const policy = {
+      effects: ["network_read" as const],
+      idempotency: "idempotent" as const,
+      sensitivity: "none" as const,
+      origin: "builtin" as const,
+    };
+    const prepare = (id: string) =>
+      prepareToolExecution(
+        createAgentRun({
+          id: `run-${id}`,
+          sessionId: "session-status",
+          now: 100,
+        }),
+        {
+          id: `execution-${id}`,
+          callId: `call-${id}`,
+          toolName: "fetch_url",
+          definitionFingerprint: "fingerprint",
+          argumentsHash: `arguments-${id}`,
+          policy,
+          at: 110,
+        },
+      );
+
+    const prepared = prepare("prepared");
+    const awaitingApproval = transitionAgentRunStatus(
+      prepare("approval"),
+      "awaiting_approval",
+      { at: 120 },
+    );
+    const awaitingInput = transitionAgentRunStatus(
+      prepare("input"),
+      "awaiting_input",
+      { at: 120 },
+    );
+    let running = prepare("running");
+    running = markToolExecutionRunning(running, "execution-running", 120);
+    let committed = prepare("committed");
+    committed = markToolExecutionRunning(committed, "execution-committed", 120);
+    committed = commitToolExecution(committed, "execution-committed", {
+      at: 130,
+    });
+    let failed = prepare("failed");
+    failed = failToolExecution(
+      failed,
+      "execution-failed",
+      { message: "network failed" },
+      130,
+    );
+    let unknown = prepare("unknown");
+    unknown = markToolExecutionRunning(unknown, "execution-unknown", 120);
+    unknown = markToolExecutionEffectUnknown(
+      unknown,
+      "execution-unknown",
+      { message: "effect was not confirmed" },
+      130,
+    );
+    let interrupted = prepare("interrupted");
+    interrupted = markToolExecutionRunning(
+      interrupted,
+      "execution-interrupted",
+      120,
+    );
+    interrupted = transitionAgentRunStatus(interrupted, "interrupted", {
+      at: 130,
+      stop: { reason: "page_interrupted" },
+    });
+
+    const task = {
+      ...createResearchTask({
+        id: "research-statuses",
+        sessionId: "session-status",
+        goal: "Show activity status",
+        now: 100,
+      }),
+      status: "researching" as const,
+      executionRunIds: [
+        prepared.id,
+        awaitingApproval.id,
+        awaitingInput.id,
+        running.id,
+        committed.id,
+        failed.id,
+        unknown.id,
+        interrupted.id,
+      ],
+    };
+    const viewModel = await createResearchTaskViewModel(task, {
+      [prepared.id]: prepared,
+      [awaitingApproval.id]: awaitingApproval,
+      [awaitingInput.id]: awaitingInput,
+      [running.id]: running,
+      [committed.id]: committed,
+      [failed.id]: failed,
+      [unknown.id]: unknown,
+      [interrupted.id]: interrupted,
+    });
+    const activities = new Map(
+      viewModel.activities.map((activity) => [activity.id, activity]),
+    );
+
+    expect(activities.get("execution-prepared")).toMatchObject({
+      status: "prepared",
+      title: "Using fetch_url",
+    });
+    expect(activities.get("execution-approval")?.status).toBe("prepared");
+    expect(activities.get("execution-input")?.status).toBe("prepared");
+    expect(
+      activities.get(`${task.id}-${task.status}-${task.updatedAt}`)?.status,
+    ).toBe("info");
+    expect(activities.get("execution-running")).toMatchObject({
+      status: "running",
+      title: "Using fetch_url",
+    });
+    expect(activities.get("execution-committed")).toMatchObject({
+      status: "committed",
+      title: "Completed fetch_url",
+    });
+    expect(activities.get("execution-failed")).toMatchObject({
+      status: "failed",
+      title: "fetch_url did not complete",
+    });
+    expect(activities.get("execution-unknown")).toMatchObject({
+      status: "effect_unknown",
+      title: "fetch_url result could not be confirmed",
+    });
+    expect(activities.get("execution-interrupted")).toMatchObject({
+      status: "interrupted",
+      title: "fetch_url was interrupted",
     });
   });
 
@@ -484,9 +622,17 @@ describe("research task view model", () => {
         ratio: 1 / 3,
       },
     });
+    expect(viewModel.claims).toEqual([
+      expect.objectContaining({
+        id: "claim-1",
+        supportingEvidenceIds: ["evidence-live"],
+        independentPublisherCount: 1,
+      }),
+    ]);
     expect(
       viewModel.activities.find((item) => item.id === "scope-expansion-1"),
     ).toMatchObject({
+      status: "completed",
       title: "Research scope expanded automatically",
       tone: "warning",
     });
@@ -535,8 +681,55 @@ describe("research task view model", () => {
         (activity) => activity.id === "wave-1-degraded-packets",
       ),
     ).toMatchObject({
-      title: "Wave 1 archived with evidence gaps",
+      status: "completed",
+      title: "Round 1 archived with evidence gaps",
       tone: "warning",
+    });
+  });
+
+  it("keeps skipped reconnaissance neutral and maps knowledge queries separately", async () => {
+    const draft = createResearchTask({
+      id: "research-skipped-recon",
+      sessionId: "session-skipped-recon",
+      goal: "Use existing knowledge first",
+      now: 100,
+    });
+    const plan = createPlan("plan-skipped-recon", ["Question one"]);
+    const planWithRecon = {
+      ...plan,
+      recon: {
+        ...plan.recon,
+        status: "skipped" as const,
+        usage: { queryCount: 0, resultCount: 0, wallTimeMs: 0 },
+        queries: [],
+        knowledgeQueries: [
+          {
+            query: "Question one concept",
+            status: "completed" as const,
+            resultCount: 3,
+          },
+        ],
+      },
+    };
+    const task = {
+      ...draft,
+      planVersions: [planWithRecon],
+      activePlanVersion: planWithRecon.version,
+    };
+
+    const viewModel = await createResearchTaskViewModel(task);
+
+    expect(viewModel.plan?.recon).toMatchObject({
+      status: "skipped",
+      queryCount: 0,
+      maxQueries: 2,
+      knowledgeQueries: [
+        {
+          query: "Question one concept",
+          status: "completed",
+          resultCount: 3,
+        },
+      ],
     });
   });
 

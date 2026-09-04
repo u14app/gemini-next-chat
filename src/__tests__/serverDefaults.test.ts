@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   safeFetchJson: vi.fn(),
+  safeFetchText: vi.fn(),
   safeFetchArrayBuffer: vi.fn(),
 }));
 
@@ -46,6 +47,7 @@ vi.mock("@/lib/security/safeFetch", async () => {
   return {
     ...actual,
     safeFetchJson: mocks.safeFetchJson,
+    safeFetchText: mocks.safeFetchText,
     safeFetchArrayBuffer: mocks.safeFetchArrayBuffer,
   };
 });
@@ -139,6 +141,7 @@ describe("server default configuration", () => {
   beforeEach(() => {
     vi.resetModules();
     mocks.safeFetchJson.mockReset();
+    mocks.safeFetchText.mockReset();
     mocks.safeFetchArrayBuffer.mockReset();
 
     originalEnv.clear();
@@ -583,9 +586,9 @@ describe("server default configuration", () => {
       DEFAULT_SEARCH_API_KEY: "search-secret",
       DEFAULT_SEARCH_BASE_URL: "https://search.internal",
     });
-    mocks.safeFetchJson.mockResolvedValue({
+    mocks.safeFetchText.mockResolvedValue({
       response: new Response(null, { status: 200 }),
-      data: {
+      text: JSON.stringify({
         results: [
           {
             title: "Result",
@@ -594,7 +597,7 @@ describe("server default configuration", () => {
           },
         ],
         images: [],
-      },
+      }),
     });
 
     const { POST } = await import("../app/api/search/route");
@@ -609,7 +612,7 @@ describe("server default configuration", () => {
     );
 
     expect(response.status).toBe(200);
-    expect(mocks.safeFetchJson).toHaveBeenCalledWith(
+    expect(mocks.safeFetchText).toHaveBeenCalledWith(
       "https://search.internal/search",
       expect.objectContaining({
         headers: expect.objectContaining({

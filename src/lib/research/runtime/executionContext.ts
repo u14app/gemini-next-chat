@@ -16,6 +16,7 @@ import {
   type ResearchTask,
 } from "@/lib/research";
 import { useResearchStore } from "@/store/core/researchStore";
+import type { ResearchSteeringRecord } from "@/lib/research/steering";
 
 import type { RunningOperation } from "./operations";
 import type { buildResearchExecutionSourceContext } from "./sourceSnapshot";
@@ -40,8 +41,7 @@ type ResearchExecutionSourceContext = ReturnType<
  * mutable block is fixed for the whole run; the mutable block is the direct
  * translation of the locals the stages used to share through scope.
  *
- * `store` is captured once, exactly as the closure did, so `store.tasksById`
- * keeps resolving against the snapshot taken when execution started.
+ * `store` is a getter so asynchronous stages always see the latest task state.
  */
 export interface ResearchExecutionContext {
   readonly store: ResearchStoreState;
@@ -71,7 +71,11 @@ export interface ResearchExecutionContext {
   sourceContext: ResearchExecutionSourceContext;
   run: ResearchReportRun;
   evidence: ResearchEvidence[];
+  /** Best generated text retained until this run's report is durably published. */
+  reportDraft?: string;
   lastAgentRunId?: string;
+  steeringLockHeld?: boolean;
+  steeringRecord?: ResearchSteeringRecord;
 }
 
 export async function persistRun(
@@ -80,7 +84,7 @@ export async function persistRun(
   evidence: ResearchEvidence[] = ctx.evidence,
   checkpoint?: ResearchCheckpoint,
 ) {
-  await ctx.store.updateTask(ctx.taskId, (current) => {
+  const savedTask = await ctx.store.updateTask(ctx.taskId, (current) => {
     const withRun = upsertResearchReportRun(current, nextRun);
     return {
       ...withRun,
@@ -91,5 +95,5 @@ export async function persistRun(
   });
   ctx.run = nextRun;
   ctx.evidence = evidence;
-  ctx.task = ctx.store.tasksById[ctx.taskId];
+  if (savedTask) ctx.task = savedTask;
 }

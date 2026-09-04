@@ -1,3 +1,4 @@
+import { isResearchSourceProvider } from "../lib/plugin/researchSources/catalog";
 import { useSettingsStore } from "../store/core/settingsStore";
 import { UNSPLASH_PLUGIN } from "../config/plugins";
 import {
@@ -143,7 +144,7 @@ async function executeBackendPluginFunction(
       authConfig,
     }),
     signal,
-    expectedFingerprint === undefined,
+    expectedFingerprint === undefined && !isResearchSourceProvider(plugin.id),
   );
 
   const data = await readJsonResponseOrThrow<PluginExecutionResponse>(
