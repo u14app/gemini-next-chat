@@ -6,11 +6,65 @@ on:
       - "v*"
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  github-release:
+  verify-release:
     runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 10.30.3
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+
+      - name: Validate release version
+        run: |
+          package_version="$(node -p "require('./package.json').version")"
+          if [ "v${package_version}" != "$GITHUB_REF_NAME" ]; then
+            echo "Release tag $GITHUB_REF_NAME does not match package version v${package_version}." >&2
+            exit 1
+          fi
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify source
+        run: |
+          pnpm format:check
+          pnpm hygiene:artifacts
+          pnpm check:imports
+          pnpm lint
+          pnpm typecheck
+          pnpm test
+
+      - name: Build Next.js
+        env:
+          DEPLOYMENT_MODE: hosted
+        run: pnpm build
+
+      - name: Build Cloudflare Worker
+        env:
+          DEPLOYMENT_MODE: hosted
+        run: pnpm build:worker
+
+      - name: Audit production dependencies
+        run: pnpm audit --prod --audit-level moderate
+
+  github-release:
+    needs: verify-release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout

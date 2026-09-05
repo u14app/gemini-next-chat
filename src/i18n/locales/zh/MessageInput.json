@@ -41,6 +41,7 @@
   "searchUnavailableBaseUrl": "{provider} 搜索需要先在设置中填写 Base URL。",
   "searchUnavailableGeneric": "当前配置下无法使用搜索。",
   "chatModeLabel": "模式",
+  "chatModeClose": "关闭模式选择",
   "chatModeAria": "模式：{mode}",
   "chatModeAuto": "自动",
   "chatModeAutoDescription": "根据任务自动选择合适模式。",

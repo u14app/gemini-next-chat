@@ -32,6 +32,7 @@ import {
   buildResearchExecutionSourceContext,
   getInvalidFrozenWorkspaceSource,
   loadSessionMessages,
+  resolveResearchTaskModel,
 } from "./sourceSnapshot";
 import {
   getResearchDependencyError,
@@ -73,11 +74,35 @@ export async function prepareResearchExecution({
   let task = refreshedTask;
   const plan = getActivePlan(task);
   const approvedSnapshot = task.sourceSnapshot;
-  if (!plan || !approvedSnapshot?.model) {
+  if (!plan || !approvedSnapshot) {
     throw new Error("The approved research plan is incomplete.");
   }
-  const researchModel = approvedSnapshot.model;
-  const snapshot: ResearchSourceSnapshot = approvedSnapshot;
+  const researchModel = await resolveResearchTaskModel(task);
+  if (!researchModel) {
+    const modelError: ResearchDependencyError = {
+      code: "RESEARCH_MODEL_UNAVAILABLE",
+      message: dependencyText.modelUnavailable,
+    };
+    await store.updateTask(taskId, (current) => ({
+      ...transitionResearchTask(current, "paused"),
+      error: { ...modelError, recoverable: true },
+    }));
+    store.setActiveTask(null);
+    onNotice?.(modelError.message);
+    return null;
+  }
+  const snapshot: ResearchSourceSnapshot = {
+    ...approvedSnapshot,
+    model: researchModel,
+  };
+  if (approvedSnapshot.model !== researchModel) {
+    const recovered = await store.updateTask(taskId, (current) => ({
+      ...current,
+      requestModel: current.requestModel || researchModel,
+      sourceSnapshot: snapshot,
+    }));
+    task = recovered ?? task;
+  }
   const dependencyError = getResearchDependencyError(task, dependencyText);
   if (dependencyError) {
     await store.updateTask(taskId, (current) => ({

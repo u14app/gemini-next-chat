@@ -22,7 +22,7 @@ import SkillParameterDialog, {
 import AgentUserInputDialog from "@/components/agent/AgentUserInputDialog";
 import type { ModelInfo } from "@/services/api/chatService";
 import { getAgentDetail } from "@/services/api/agentService";
-import type { AgentProfileV2, SessionConfig } from "@/types";
+import type { AgentProfileV2, SessionConfig, Workspace } from "@/types";
 import { Message, LobeAgent, SessionMessageTree, ToolCall } from "@/types";
 import { useChatStore } from "@/store/core/chatStore";
 import { useAgentRunStore } from "@/store/core/agentRunStore";
@@ -851,7 +851,7 @@ const ChatApp = () => {
     assistantSelectRequestRef.current = requestId;
 
     if (isGenerating) {
-      void stopActiveGenerationWithFeedback();
+      await stopActiveGenerationWithFeedback();
     }
 
     if (viewMode === "assistants") {
@@ -1023,20 +1023,38 @@ const ChatApp = () => {
     }
   };
 
-  const handleNewChat = () => {
+  const handleNewChat = async () => {
     abortBackgroundPostProcessing();
     if (isGenerating) {
-      void stopActiveGenerationWithFeedback();
+      await stopActiveGenerationWithFeedback();
     }
 
     createSession();
     navigateToPanel("chat");
   };
 
-  const handleStartTemporaryChat = () => {
+  const handleNewChatInWorkspace = async (workspace: Workspace) => {
+    abortBackgroundPostProcessing();
+    const sessionId = createSession(
+      workspace.systemPrompt,
+      "New Chat",
+      workspace.id,
+      workspace.files,
+      {
+        useSearch: workspace.enableSearch,
+        useReasoning: workspace.enableReasoning,
+        activePlugins: workspace.activePlugins,
+        activeSkills: workspace.activeSkills,
+      },
+    );
+    await selectSession(sessionId);
+    navigateToPanel("chat");
+  };
+
+  const handleStartTemporaryChat = async () => {
     abortBackgroundPostProcessing();
     abortManualCompression();
-    if (isGenerating) void stopActiveGenerationWithFeedback();
+    if (isGenerating) await stopActiveGenerationWithFeedback();
     useChatStore.getState().createTemporarySession();
     navigateToPanel("chat");
   };
@@ -1156,6 +1174,7 @@ const ChatApp = () => {
         stopActiveGenerationWithFeedback={stopActiveGenerationWithFeedback}
         selectSession={handleSelectSession}
         handleNewChat={handleNewChat}
+        handleNewChatInWorkspace={handleNewChatInWorkspace}
         handleStartTemporaryChat={handleStartTemporaryChat}
         handleDeleteSession={handleDeleteSession}
         updateSessionTitle={updateSessionTitle}

@@ -91,7 +91,7 @@ export function buildResearchPlanPrompt({
       : "Return a plan even if retrieval failed or returned no results. Record limits in assumptions instead of inventing facts.",
     PLAN_TIME_RANGE_RULE,
     PLAN_DOMAIN_RULE,
-    "Use 3-8 non-overlapping steps with stable unique IDs. Make query topics distinct, state the evidence threshold for each step, and never claim research has begun.",
+    "Use 2-8 non-overlapping steps with stable unique IDs. Make query topics distinct, state the evidence threshold for each step, and never claim research has begun.",
     `Use this approved strategy exactly: ${JSON.stringify(strategy)}. Do not increase source permissions or budgets.`,
     `Allowed source types for this task: ${(allowedSourceTypes?.length ? allowedSourceTypes : ["web"]).join(", ")}. Include no other types.`,
     preserveInitialContract && template

@@ -3248,6 +3248,102 @@ describe("chat service tool execution", () => {
     expect(searchStatuses).toEqual([]);
   });
 
+  it("offers a dynamically loaded plugin tool on the next Agent round", async () => {
+    mocks.executePluginFunction.mockResolvedValueOnce({ id: "record-1" });
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementationOnce(async (_url, init) => {
+        const body = JSON.parse(String(init?.body));
+        const names = body.tools.map(
+          (tool: { function: { name: string } }) => tool.function.name,
+        );
+        expect(names).toContain("search_tools");
+        expect(names).toContain("load_tools");
+        expect(names).not.toContain("create_record");
+        expect(body.systemInstruction).toContain(
+          "tools the host successfully makes available after load_tools",
+        );
+        return sseResponse([
+          {
+            type: "tool_call",
+            toolCall: {
+              id: "call_load_writer",
+              name: "load_tools",
+              args: { names: ["create_record"] },
+              status: "pending",
+            },
+          },
+          { type: "done" },
+        ]);
+      })
+      .mockImplementationOnce(async (_url, init) => {
+        const body = JSON.parse(String(init?.body));
+        expect(
+          body.tools.map(
+            (tool: { function: { name: string } }) => tool.function.name,
+          ),
+        ).toContain("create_record");
+        return sseResponse([
+          {
+            type: "tool_call",
+            toolCall: {
+              id: "call_dynamic_writer",
+              name: "create_record",
+              args: { title: "Loaded dynamically" },
+              status: "pending",
+            },
+          },
+          { type: "done" },
+        ]);
+      })
+      .mockImplementationOnce(async (_url, init) => {
+        const body = JSON.parse(String(init?.body));
+        expect(body.history.at(-1).toolCalls).toEqual([
+          expect.objectContaining({
+            id: "call_dynamic_writer",
+            name: "create_record",
+            status: "success",
+          }),
+        ]);
+        return sseResponse([
+          { type: "content", content: "Record created." },
+          { type: "done" },
+        ]);
+      });
+
+    const { streamChatResponse } = await import("../services/api/chatService");
+    const result = await streamChatResponse(
+      "session-1",
+      "openai:gpt-4",
+      [],
+      "Create a record with the available plugin.",
+      [],
+      { useAgentMode: true },
+      () => undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      ["writer"],
+      undefined,
+      undefined,
+      createAllowOnceController(),
+    );
+
+    expect(result).toBe("Record created.");
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(mocks.executePluginFunction).toHaveBeenCalledWith(
+      "create_record",
+      { title: "Loaded dynamically" },
+      undefined,
+      ["writer"],
+      undefined,
+      expect.objectContaining({ pluginId: "writer" }),
+    );
+  });
+
   it("restricts registered schemas to the Agent Profile Tool allowlist", async () => {
     const fetchMock = vi
       .spyOn(globalThis, "fetch")

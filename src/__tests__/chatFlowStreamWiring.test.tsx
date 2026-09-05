@@ -49,6 +49,10 @@ import type { Message } from "@/types";
 
 // Positional arguments of `streamChatResponse`.
 const SKILLS_CONTEXT_ARG = 14;
+const SEARCH_STATUS_ARG = 8;
+const TOOL_UPDATE_ARG = 9;
+const USAGE_ARG = 11;
+const OUTPUT_BLOCKS_ARG = 15;
 const TOOL_CONFIRMATION_ARG = 16;
 const STREAM_OPTIONS_ARG = 17;
 
@@ -59,7 +63,8 @@ const conversation = [
 
 describe("skill and tool-confirmation wiring", () => {
   beforeEach(() => {
-    streamChatResponse.mockClear();
+    streamChatResponse.mockReset();
+    streamChatResponse.mockResolvedValue(undefined);
     chatStoreState.activeMessages = conversation;
   });
 
@@ -191,5 +196,221 @@ describe("skill and tool-confirmation wiring", () => {
     expect(streamChatResponse).toHaveBeenCalledTimes(1);
     const args = streamChatResponse.mock.calls[0] as unknown[];
     expect(args[TOOL_CONFIRMATION_ARG]).toBe(deps.toolConfirmationController);
+  });
+
+  it("retains existing structured blocks when continuing without a long-text block", async () => {
+    const initialBlocks: NonNullable<Message["outputBlocks"]> = [
+      {
+        id: "search-1",
+        type: "search",
+        sources: [],
+        images: [],
+      },
+    ];
+    const streamedBlocks: NonNullable<Message["outputBlocks"]> = [
+      ...initialBlocks,
+      { id: "text-1", type: "text", content: "continued" },
+    ];
+    const interrupted = {
+      ...conversation[1],
+      outputBlocks: initialBlocks,
+      generation: {
+        status: "interrupted",
+        requestId: "request-1",
+        model: "test-provider/test-model",
+      },
+    } as Message;
+    chatStoreState.activeMessages = [conversation[0], interrupted];
+    streamChatResponse.mockImplementationOnce(async (...args: unknown[]) => {
+      const onChunk = args[6] as (
+        text: string,
+        reasoning?: string,
+        outputBlocks?: Message["outputBlocks"],
+      ) => void;
+      const onOutputBlocks = args[OUTPUT_BLOCKS_ARG] as (
+        outputBlocks: NonNullable<Message["outputBlocks"]>,
+      ) => void;
+      onChunk("continued", undefined, streamedBlocks);
+      onOutputBlocks(streamedBlocks);
+    });
+    const deps = createChatFlowDeps({
+      activeMessages: [conversation[0], interrupted],
+    });
+    const { handleContinueGeneration } = renderHook(() =>
+      useResponseBranchFlow(deps),
+    ).result.current;
+
+    await handleContinueGeneration("model-1");
+
+    expect(deps.updateMessage).toHaveBeenCalledWith(
+      "session-1",
+      "model-1",
+      expect.objectContaining({ outputBlocks: initialBlocks }),
+    );
+    const args = streamChatResponse.mock.calls[0] as unknown[];
+    expect(args[STREAM_OPTIONS_ARG]).toEqual(
+      expect.objectContaining({ initialOutputBlocks: initialBlocks }),
+    );
+    expect(args[SEARCH_STATUS_ARG]).toEqual(expect.any(Function));
+    expect(args[TOOL_UPDATE_ARG]).toEqual(expect.any(Function));
+    expect(args[USAGE_ARG]).toEqual(expect.any(Function));
+    expect(deps.updateMessageContent).toHaveBeenCalledWith(
+      "session-1",
+      "model-1",
+      "hicontinued",
+      undefined,
+      streamedBlocks,
+    );
+  });
+
+  it("extends only the resumed long-text block and persists the complete block snapshot", async () => {
+    const existingContent =
+      "This is a sufficiently long document introduction for continuation.";
+    const initialBlocks: NonNullable<Message["outputBlocks"]> = [
+      { id: "plain-1", type: "text", content: "Keep this exact text." },
+      {
+        id: "document-1",
+        type: "text",
+        content: existingContent,
+        presentation: {
+          kind: "long_text",
+          title: "Draft",
+          format: "markdown",
+          document: { fileName: "draft.md", mimeType: "text/markdown" },
+        },
+      },
+      {
+        id: "search-1",
+        type: "search",
+        sources: [],
+        images: [],
+      },
+    ];
+    const serviceBlocks: NonNullable<Message["outputBlocks"]> = [
+      initialBlocks[0],
+      {
+        ...initialBlocks[1],
+        type: "text",
+        content: `${existingContent}${existingContent} Added section.`,
+      },
+      initialBlocks[2],
+      { id: "new-text", type: "text", content: "New trailing block." },
+    ];
+    const interrupted = {
+      ...conversation[1],
+      content: existingContent,
+      outputBlocks: initialBlocks,
+      generation: {
+        status: "interrupted",
+        requestId: "request-1",
+        model: "test-provider/test-model",
+      },
+    } as Message;
+    chatStoreState.activeMessages = [conversation[0], interrupted];
+    streamChatResponse.mockImplementationOnce(async (...args: unknown[]) => {
+      const onChunk = args[6] as (
+        text: string,
+        reasoning?: string,
+        outputBlocks?: Message["outputBlocks"],
+      ) => void;
+      const onOutputBlocks = args[OUTPUT_BLOCKS_ARG] as (
+        outputBlocks: NonNullable<Message["outputBlocks"]>,
+      ) => void;
+      onChunk(`${existingContent} Added section.`, undefined, serviceBlocks);
+      onOutputBlocks(serviceBlocks);
+    });
+    const deps = createChatFlowDeps({
+      activeMessages: [conversation[0], interrupted],
+    });
+    const { handleContinueGeneration } = renderHook(() =>
+      useResponseBranchFlow(deps),
+    ).result.current;
+
+    await handleContinueGeneration("model-1");
+
+    const persistedBlocks = vi
+      .mocked(deps.updateMessageContent)
+      .mock.calls.at(-1)?.[4];
+    expect(persistedBlocks).toEqual([
+      initialBlocks[0],
+      {
+        ...initialBlocks[1],
+        content: `${existingContent} Added section.`,
+      },
+      initialBlocks[2],
+      serviceBlocks[3],
+    ]);
+    expect(
+      (streamChatResponse.mock.calls[0] as unknown[])[STREAM_OPTIONS_ARG],
+    ).toEqual(
+      expect.objectContaining({
+        initialOutputBlocks: initialBlocks,
+        resumeLongTextBlockId: "document-1",
+      }),
+    );
+  });
+
+  it("records continuation tool state so a second unsafe continuation is blocked", async () => {
+    const interrupted = {
+      ...conversation[1],
+      generation: {
+        status: "interrupted",
+        requestId: "request-1",
+        agentRunId: "agent-run-1",
+        model: "test-provider/test-model",
+      },
+    } as Message;
+    chatStoreState.activeMessages = [conversation[0], interrupted];
+    const updateMessage = vi.fn(
+      (sessionId: string, messageId: string, updates: Partial<Message>) => {
+        if (sessionId !== chatStoreState.currentSessionId) return;
+        chatStoreState.activeMessages = (
+          chatStoreState.activeMessages as Message[]
+        ).map((message) =>
+          message.id === messageId ? { ...message, ...updates } : message,
+        );
+      },
+    );
+    streamChatResponse.mockImplementationOnce(async (...args: unknown[]) => {
+      const onToolUpdate = args[TOOL_UPDATE_ARG] as (
+        toolCalls: NonNullable<Message["toolCalls"]>,
+      ) => void;
+      onToolUpdate([
+        {
+          id: "tool-1",
+          name: "write_record",
+          args: {},
+          status: "running",
+          risk: "write",
+        },
+      ]);
+      throw new Error("connection lost after tool start");
+    });
+    const deps = createChatFlowDeps({
+      activeMessages: [conversation[0], interrupted],
+      updateMessage,
+    });
+    const effectiveContext = deps.getEffectiveContextForSession(
+      undefined,
+      "test-provider/test-model",
+    );
+    vi.mocked(deps.getEffectiveContextForSession).mockReturnValue({
+      ...effectiveContext,
+      agentModeEnabled: true,
+    });
+    const { handleContinueGeneration } = renderHook(() =>
+      useResponseBranchFlow(deps),
+    ).result.current;
+
+    await handleContinueGeneration("model-1");
+    await handleContinueGeneration("model-1");
+
+    expect(streamChatResponse).toHaveBeenCalledTimes(1);
+    expect(updateMessage).toHaveBeenCalledWith("session-1", "model-1", {
+      toolCalls: [
+        expect.objectContaining({ status: "running", risk: "write" }),
+      ],
+    });
+    expect(deps.showActionError).toHaveBeenCalledWith("errUnsafeContinue");
   });
 });

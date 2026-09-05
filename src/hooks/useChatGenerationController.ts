@@ -35,6 +35,7 @@ export function useChatGenerationController({
   const [isGenerating, setIsGenerating] = useState(false);
   const abortControllerRef = useRef<AbortController | null>(null);
   const generationRunRef = useRef(0);
+  const stopPromiseRef = useRef<Promise<void> | null>(null);
 
   const beginActiveGeneration = useCallback((): ActiveGenerationRun => {
     const runId = getNextGenerationRunId(generationRunRef.current);
@@ -85,25 +86,55 @@ export function useChatGenerationController({
     [isGenerationRunActive],
   );
 
-  const stopActiveGeneration = useCallback(async () => {
-    let state = useChatStore.getState();
+  const stopActiveGeneration = useCallback(() => {
+    if (!abortControllerRef.current && stopPromiseRef.current) {
+      return stopPromiseRef.current;
+    }
+
+    const state = useChatStore.getState();
+    const sourceSessionId = state.currentSessionId;
     const streamingMessage = [...state.activeMessages]
       .reverse()
       .find((message) => message.generation?.status === "streaming");
     const agentRunId = streamingMessage?.generation?.agentRunId;
-    if (agentRunId) {
-      const run = useAgentRunStore.getState().runsById[agentRunId];
-      if (
-        run &&
-        run.status !== "completed" &&
-        run.status !== "failed" &&
-        run.status !== "cancelled"
-      ) {
-        const recovered = recoverInterruptedToolExecutions(run);
-        const hasUnknownEffect = recovered.toolExecutions.some(
-          (record) => record.status === "effect_unknown",
-        );
-        await useAgentRunStore.getState().upsertRun(
+    const agentRun = agentRunId
+      ? useAgentRunStore.getState().runsById[agentRunId]
+      : undefined;
+
+    generationRunRef.current = getNextGenerationRunId(generationRunRef.current);
+    abortControllerRef.current?.abort();
+    abortControllerRef.current = null;
+    setIsGenerating(false);
+
+    if (sourceSessionId && streamingMessage?.generation) {
+      state.updateMessage(
+        sourceSessionId,
+        streamingMessage.id,
+        createInterruptedGenerationUpdate(streamingMessage),
+      );
+    }
+    const sourceState = useChatStore.getState();
+    const syncSnapshot = createActiveGenerationSyncSnapshot({
+      currentSessionId: sourceSessionId,
+      activeMessages:
+        sourceState.currentSessionId === sourceSessionId
+          ? sourceState.activeMessages
+          : state.activeMessages,
+    });
+
+    const persistenceTasks: Promise<unknown>[] = [];
+    if (
+      agentRun &&
+      agentRun.status !== "completed" &&
+      agentRun.status !== "failed" &&
+      agentRun.status !== "cancelled"
+    ) {
+      const recovered = recoverInterruptedToolExecutions(agentRun);
+      const hasUnknownEffect = recovered.toolExecutions.some(
+        (record) => record.status === "effect_unknown",
+      );
+      persistenceTasks.push(
+        useAgentRunStore.getState().upsertRun(
           transitionAgentRunStatus(
             recovered,
             hasUnknownEffect ? "failed" : "cancelled",
@@ -121,38 +152,36 @@ export function useChatGenerationController({
                 }
               : { stop: { reason: "user_stopped" } },
           ),
-        );
-      }
-    }
-    if (state.currentSessionId && streamingMessage?.generation) {
-      state.updateMessage(
-        state.currentSessionId,
-        streamingMessage.id,
-        createInterruptedGenerationUpdate(streamingMessage),
+        ),
       );
-      state = useChatStore.getState();
-    }
-    const syncSnapshot = createActiveGenerationSyncSnapshot({
-      currentSessionId: state.currentSessionId,
-      activeMessages: state.activeMessages,
-    });
-
-    generationRunRef.current = getNextGenerationRunId(generationRunRef.current);
-    abortControllerRef.current?.abort();
-    abortControllerRef.current = null;
-    setIsGenerating(false);
-
-    if (!syncSnapshot) return;
-
-    if (persistStoppedGeneration) {
-      await persistStoppedGeneration(syncSnapshot);
-      return;
     }
 
-    await state.syncActiveSession(
-      syncSnapshot.sessionId,
-      syncSnapshot.messages,
-    );
+    if (syncSnapshot) {
+      persistenceTasks.push(
+        persistStoppedGeneration
+          ? persistStoppedGeneration(syncSnapshot)
+          : state.syncActiveSession(
+              syncSnapshot.sessionId,
+              syncSnapshot.messages,
+            ),
+      );
+    }
+
+    const stopPromise = Promise.allSettled(persistenceTasks)
+      .then((results) => {
+        const failure = results.find(
+          (result): result is PromiseRejectedResult =>
+            result.status === "rejected",
+        );
+        if (failure) throw failure.reason;
+      })
+      .finally(() => {
+        if (stopPromiseRef.current === stopPromise) {
+          stopPromiseRef.current = null;
+        }
+      });
+    stopPromiseRef.current = stopPromise;
+    return stopPromise;
   }, [persistStoppedGeneration]);
 
   return {

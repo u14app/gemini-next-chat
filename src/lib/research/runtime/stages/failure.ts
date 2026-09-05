@@ -9,6 +9,7 @@ import {
 import { logDevError } from "@/lib/utils/devLogger";
 
 import type { ResearchExecutionContext } from "../executionContext";
+import { ResearchWorkspaceUnavailableError } from "../dependencyErrors";
 import { isAbortError } from "../operations";
 import {
   deliverResearchReport,
@@ -28,6 +29,47 @@ export async function handleExecutionFailure(
 ): Promise<void> {
   const current = ctx.store.tasksById[ctx.taskId];
   if (!current || current.status === "cancelled") return;
+  if (error instanceof ResearchWorkspaceUnavailableError) {
+    const pausedAt = Date.now();
+    const pausedRun = {
+      ...applyResearchRunUserStop(ctx.run, "pause", pausedAt),
+      stopReason: {
+        code: "dependency_unavailable" as const,
+        at: pausedAt,
+        detail: error.message,
+      },
+    };
+    const checkpoint: ResearchCheckpoint = current.checkpoint || {
+      createdAt: pausedAt,
+      resumeStatus: "researching",
+      committedEvidenceIds: ctx.evidence.map((item) => item.id),
+      committedToolExecutionIds:
+        pausedRun.checkpoint?.committedToolExecutionIds || [],
+      ...(ctx.imageSources?.length
+        ? {
+            committedImageSourceIds: ctx.imageSources.map((image) => image.id),
+          }
+        : {}),
+      researchRunId: pausedRun.id,
+    };
+    const message = ctx.dependencyText.sourceUnavailable("workspace");
+    await ctx.store.updateTask(ctx.taskId, (latest) => ({
+      ...transitionResearchTask(
+        upsertResearchReportRun(latest, pausedRun),
+        "paused",
+        { checkpoint },
+      ),
+      checkpoint,
+      error: {
+        code: "RESEARCH_WORKSPACE_UNAVAILABLE",
+        message,
+        recoverable: true,
+      },
+    }));
+    ctx.store.setActiveTask(null);
+    ctx.onNotice?.(message);
+    return;
+  }
   if (isAbortError(error) || ctx.controller.signal.aborted) {
     if (
       current.status === "completed" ||

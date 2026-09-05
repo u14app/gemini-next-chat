@@ -1,6 +1,8 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
+import { createResearchTask } from "@/lib/research";
+import { getOriginalResearchGenerationModel } from "@/lib/research/runtime/sourceSnapshot";
 
 describe("Research model routing composition", () => {
   it("persists the request model before the first planning round", () => {
@@ -15,15 +17,74 @@ describe("Research model routing composition", () => {
 
     expect(source).toContain("requestModel?: string");
     expect(source).toMatch(
-      /resolveTaskContext\(\s*initial,\s*requestModel,?\s*\)/u,
+      /resolveTaskContext\(\{\s*\.\.\.initial,\s*sourceSnapshot: provisionalSnapshot,?\s*\}\)/u,
     );
     expect(source).toMatch(
       /createSourceSnapshot\(\s*initial,\s*requestModel,?\s*\)/u,
     );
     expect(source).toContain("sourceSnapshot: provisionalSnapshot");
+    expect(toolBridge.indexOf("requestModel: context.model")).toBeLessThan(
+      toolBridge.indexOf("upsertTask(withRun)"),
+    );
     expect(toolBridge).toContain(
       "void preparePlan(withRun.id, undefined, context.model)",
     );
+  });
+
+  it("recovers a legacy task model only from its linked original generation", () => {
+    const task = createResearchTask({
+      id: "legacy-task",
+      sessionId: "session",
+      cardMessageId: "model-message",
+      goal: "Legacy research",
+    });
+
+    expect(
+      getOriginalResearchGenerationModel(task, [
+        {
+          id: "other-model-message",
+          role: "model",
+          content: "",
+          timestamp: 1,
+          model: "Stale display label",
+          generation: {
+            status: "completed",
+            requestId: "other-request",
+            ownerDeviceId: "device",
+            model: "provider:stale-session-model",
+            attempt: 0,
+            checkpointAt: 1,
+          },
+        },
+        {
+          id: "model-message",
+          role: "model",
+          content: "",
+          timestamp: 2,
+          model: "Original model display label",
+          generation: {
+            status: "interrupted",
+            requestId: "original-request",
+            ownerDeviceId: "device",
+            model: "provider:original-request-model",
+            attempt: 0,
+            checkpointAt: 2,
+          },
+        },
+      ]),
+    ).toBe("provider:original-request-model");
+    expect(getOriginalResearchGenerationModel(task, [])).toBeUndefined();
+    expect(
+      getOriginalResearchGenerationModel(task, [
+        {
+          id: "model-message",
+          role: "model",
+          content: "",
+          timestamp: 3,
+          model: "Display label is not a routing model",
+        },
+      ]),
+    ).toBeUndefined();
   });
 
   it("archives after evidence commit, repairs once, and stops only after repeated degradation", () => {

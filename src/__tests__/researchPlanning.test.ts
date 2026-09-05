@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => ({
   stream: vi.fn<typeof streamChatResponse>(),
   task: null as ResearchTask | null,
   snapshot: {} as ResearchSourceSnapshot,
+  snapshotError: null as Error | null,
   sourceContext: vi.fn(),
 }));
 vi.mock("@/services/api/chatService", () => ({
@@ -53,7 +54,10 @@ vi.mock("@/lib/research/runtime/taskContext", () => ({
   }),
 }));
 vi.mock("@/lib/research/runtime/sourceSnapshot", () => ({
-  createSourceSnapshot: async () => mocks.snapshot,
+  createSourceSnapshot: async () => {
+    if (mocks.snapshotError) throw mocks.snapshotError;
+    return mocks.snapshot;
+  },
   loadSessionMessages: async () => [],
   buildResearchExecutionSourceContext: mocks.sourceContext,
 }));
@@ -61,6 +65,7 @@ vi.mock("@/lib/research/runtime/sourceSnapshot", () => ({
 import { prepareResearchPlan } from "@/lib/research/runtime/preparePlan";
 import { parseResearchPlanningResponse } from "@/lib/research/prompts/planningResponse";
 import { reconSchema } from "@/services/research/taskRepository/schema/primitives";
+import { ResearchModelUnavailableError } from "@/lib/research/runtime/dependencyErrors";
 
 const plan: ResearchPlanDraftV2 = {
   title: "Study the topic",
@@ -109,6 +114,7 @@ const execute = (controller = new AbortController()) =>
 
 beforeEach(() => {
   mocks.stream.mockReset();
+  mocks.snapshotError = null;
   mocks.sourceContext.mockReset();
   mocks.sourceContext.mockReturnValue({
     approvedKnowledgeAttachments: [
@@ -139,6 +145,22 @@ afterEach(() => {
 });
 
 describe("adaptive planning through the runtime", () => {
+  it("pauses when an interrupted legacy task has no reliable request model", async () => {
+    mocks.snapshotError = new ResearchModelUnavailableError();
+
+    await execute();
+
+    expect(mocks.stream).not.toHaveBeenCalled();
+    expect(mocks.task).toMatchObject({
+      status: "paused",
+      error: {
+        code: "RESEARCH_MODEL_UNAVAILABLE",
+        message: "runtime.dependency.modelUnavailable",
+        recoverable: true,
+      },
+    });
+  });
+
   it("bounds stalled web model work to the same 90s stage deadline and still delivers a plan", async () => {
     vi.useFakeTimers();
     mocks.snapshot.knowledgeCollectionIds = [];

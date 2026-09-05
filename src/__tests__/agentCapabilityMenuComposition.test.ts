@@ -48,7 +48,10 @@ describe("AgentCapabilityMenu composition", () => {
     expect(source).not.toContain('title={t("agentSettingsOpen")}');
     expect(source).toContain('mode === "agent" || mode === "research"');
     expect(source).toContain('t("researchSettingsOpen")');
-    expect(source).toContain("max-md:h-9 max-md:w-9 text-research-accent");
+    expect(trigger).toContain("buttonClassName");
+    expect(trigger).toContain('mode === "research"');
+    expect(trigger).not.toContain("h-11");
+    expect(trigger).not.toContain("w-11");
     expect(source).toContain("<Settings2");
     expect(source).toContain("close();");
     expect(source).toContain("onOpenSettings(settingsMode);");
@@ -59,6 +62,9 @@ describe("AgentCapabilityMenu composition", () => {
     expect(source).toContain("desktopTriggerRef.current");
     expect(source).toContain("mobileTriggerRef.current");
     expect(source).toContain("headerAction=");
+    expect(source).toContain('label={t("chatModeClose")}');
+    expect(source).toContain("<X");
+    expect(source).toContain("closeOnBackdropClick");
     expect(source).toContain("showHeader={false}");
     expect(source).toContain('className="w-80 overflow-hidden p-0"');
     expect(source).toContain('align="end"');

@@ -1,6 +1,11 @@
 export const LIGHT_THEME_COLOR = "#ffffff";
 export const DARK_THEME_COLOR = "#09090b";
 
+// Keep this in sync with THEME_INIT_SCRIPT. A Node-only hash implementation
+// cannot be imported by the Edge middleware that builds the hosted CSP.
+export const THEME_INIT_SCRIPT_SHA256 =
+  "59pxpJB78EC3sbPiYSguoILs8SVCJ4xlwfCL/BPOx38=";
+
 export const THEME_INIT_SCRIPT = `
 try {
   var stored = window.localStorage.getItem("neo-chat-core-settings");

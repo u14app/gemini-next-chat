@@ -25,6 +25,10 @@ import { useKnowledgeStore } from "@/store/core/knowledgeStore";
 import { appDb } from "@/store/storage/storageConfig";
 import { listWorkspace } from "@/services/workspace/sessionWorkspace";
 
+import {
+  ResearchModelUnavailableError,
+  ResearchWorkspaceUnavailableError,
+} from "./dependencyErrors";
 import { resolveTaskContext } from "./taskContext";
 
 export async function getInvalidFrozenWorkspaceSource(
@@ -60,13 +64,72 @@ export async function loadSessionMessages(
   return messages;
 }
 
+async function loadSessionMessage(
+  sessionId: string,
+  messageId: string,
+): Promise<Message | undefined> {
+  const state = useChatStore.getState();
+  if (state.currentSessionId === sessionId) {
+    return (
+      state.activeMessageTree.nodesById[messageId]?.message ||
+      state.activeMessages.find((message) => message.id === messageId)
+    );
+  }
+  const stored = await appDb.getItem<Message[] | SessionMessageTree>(
+    `session_messages_${sessionId}`,
+  );
+  return normalizeSessionMessageTree(stored).nodesById[messageId]?.message;
+}
+
+/**
+ * Recovers the immutable request model for legacy tasks created before it was
+ * stored on the task. The linked model message's generation metadata is the
+ * only safe fallback: both session.model and the message's display label are
+ * mutable or non-routing values.
+ */
+export async function resolveResearchTaskModel(
+  task: ResearchTask,
+  requestModel?: string,
+): Promise<string | undefined> {
+  const stored =
+    task.sourceSnapshot?.model?.trim() ||
+    task.requestModel?.trim() ||
+    requestModel?.trim();
+  if (stored) return stored;
+  if (!task.cardMessageId) return undefined;
+  try {
+    const message = await loadSessionMessage(
+      task.sessionId,
+      task.cardMessageId,
+    );
+    return message
+      ? getOriginalResearchGenerationModel(task, [message])
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+export function getOriginalResearchGenerationModel(
+  task: ResearchTask,
+  messages: readonly Message[],
+): string | undefined {
+  if (!task.cardMessageId) return undefined;
+  const origin = messages.find(
+    (message) => message.id === task.cardMessageId && message.role === "model",
+  );
+  return origin?.generation?.model.trim() || undefined;
+}
+
 export async function createSourceSnapshot(
   task: ResearchTask,
   requestModel?: string,
 ): Promise<ResearchSourceSnapshot> {
+  const recoveredModel = await resolveResearchTaskModel(task, requestModel);
+  if (!recoveredModel) throw new ResearchModelUnavailableError();
   const { model, chatConfig, effective, settings } = resolveTaskContext(
     task,
-    requestModel,
+    recoveredModel,
   );
   const messages = await loadSessionMessages(task.sessionId);
   const originMessage = messages.find(
@@ -178,8 +241,17 @@ export async function captureApprovedWorkspaceSources(
   ) {
     return [];
   }
-  const listed = await listWorkspace(sessionId).catch(() => null);
-  if (!listed?.ok) return [];
+  let listed: Awaited<ReturnType<typeof listWorkspace>>;
+  try {
+    listed = await listWorkspace(sessionId);
+  } catch (error) {
+    throw new ResearchWorkspaceUnavailableError(
+      error instanceof Error ? error.message : undefined,
+    );
+  }
+  if (!listed.ok) {
+    throw new ResearchWorkspaceUnavailableError(listed.error.message);
+  }
   return listed.value.files
     .filter((file) => isResearchWorkspaceSnapshotPath(file.path))
     .map((file) => ({

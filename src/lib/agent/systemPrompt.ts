@@ -32,7 +32,7 @@ export function buildAgentSystemInstruction({
   const available = new Set(names);
   const instructions = [
     "<agent-mode>",
-    "You are operating in Agent mode. Use only the tools listed below, and use them only when they materially help complete the user's request.",
+    "You are operating in Agent mode. Use only the tools listed below or tools the host successfully makes available after load_tools, and use them only when they materially help complete the user's request.",
     `Available tools: ${names.join(", ")}`,
   ];
 
@@ -57,7 +57,7 @@ export function buildAgentSystemInstruction({
   }
   if (available.has("search_tools")) {
     instructions.push(
-      "When a Plugin or MCP capability is not listed, call search_tools and then load_tools with exact returned names. Tool aliases and capacity failures are explicit; never guess a provider tool name.",
+      "When a Plugin or MCP capability is not listed, call search_tools and then load_tools with exact returned names. Tools successfully made available by the host after load_tools may be used in subsequent calls in this run. Tool aliases and capacity failures are explicit; never guess a provider tool name.",
     );
   }
   if (available.has("request_user_input")) {

@@ -9,10 +9,28 @@ import {
   isValidAccessSessionCookie,
 } from "./lib/security/accessControl";
 import { applyRequestGuards } from "./lib/security/requestGuards";
+import { getDeploymentMode } from "./lib/security/deployment";
+import { getContentSecurityPolicy } from "./lib/security/headers";
 import { REQUEST_PROOF_SESSION_PATH } from "./lib/security/requestProof";
 import { isPublicShareRead, SHARE_RESPONSE_HEADERS } from "./lib/sharing/types";
 
 const ACCESS_VERIFY_PATH = "/api/access/verify";
+
+function pageResponse(request: NextRequest): NextResponse {
+  const requestHeaders = new Headers(request.headers);
+  const mode = getDeploymentMode();
+  if (mode !== "hosted") {
+    return NextResponse.next({ request: { headers: requestHeaders } });
+  }
+
+  const nonce = crypto.randomUUID().replaceAll("-", "");
+  const contentSecurityPolicy = getContentSecurityPolicy(mode, nonce);
+  requestHeaders.set("x-nonce", nonce);
+  requestHeaders.set("Content-Security-Policy", contentSecurityPolicy);
+  const response = NextResponse.next({ request: { headers: requestHeaders } });
+  response.headers.set("Content-Security-Policy", contentSecurityPolicy);
+  return response;
+}
 
 function jsonError(
   status: number,
@@ -28,11 +46,14 @@ function jsonError(
 
 export async function middleware(request: NextRequest) {
   if (request.nextUrl.pathname.startsWith("/share/")) {
-    const response = NextResponse.next();
+    const response = pageResponse(request);
     for (const [name, value] of Object.entries(SHARE_RESPONSE_HEADERS)) {
       response.headers.set(name, value);
     }
     return response;
+  }
+  if (!request.nextUrl.pathname.startsWith("/api/")) {
+    return pageResponse(request);
   }
   const guardResponse = await applyRequestGuards(request);
   if (guardResponse) return guardResponse;
@@ -75,5 +96,5 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/api/:path*", "/share/:path*"],
+  matcher: ["/", "/api/:path*", "/share/:path*"],
 };

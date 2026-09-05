@@ -25,7 +25,12 @@ import type { ResearchTranslate } from "@/lib/research/runtime/executionContext"
 import {
   captureApprovedWorkspaceSources,
   createSourceSnapshot,
+  resolveResearchTaskModel,
 } from "@/lib/research/runtime/sourceSnapshot";
+import {
+  ResearchModelUnavailableError,
+  ResearchWorkspaceUnavailableError,
+} from "@/lib/research/runtime/dependencyErrors";
 import {
   getResearchDependencyError,
   type ResearchDependencyError,
@@ -74,18 +79,29 @@ export function usePlanActions({
           try {
             const baseSourceSnapshot =
               task.sourceSnapshot || (await createSourceSnapshot(task));
+            const model =
+              baseSourceSnapshot.model ||
+              (await resolveResearchTaskModel(task));
+            if (!model) throw new ResearchModelUnavailableError();
             sourceSnapshot = {
               ...baseSourceSnapshot,
+              model,
               workspaceSources: await captureApprovedWorkspaceSources(
                 task.sessionId,
                 baseSourceSnapshot.toolIds,
               ),
               capturedAt: Date.now(),
             };
-          } catch {
+          } catch (error) {
+            const workspaceUnavailable =
+              error instanceof ResearchWorkspaceUnavailableError;
             const dependencyError: ResearchDependencyError = {
-              code: "RESEARCH_MODEL_UNAVAILABLE",
-              message: t("runtime.dependency.modelUnavailable"),
+              code: workspaceUnavailable
+                ? "RESEARCH_WORKSPACE_UNAVAILABLE"
+                : "RESEARCH_MODEL_UNAVAILABLE",
+              message: workspaceUnavailable
+                ? dependencyText.sourceUnavailable("workspace")
+                : dependencyText.modelUnavailable,
             };
             await store.updateTask(taskId, (current) => ({
               ...transitionResearchTask(current, "paused"),

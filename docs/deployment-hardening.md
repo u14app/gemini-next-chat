@@ -136,7 +136,7 @@ middleware by the current Next.js toolchain, which OpenNext Cloudflare does not
 support. The middleware must also keep `/api/access/verify` and
 `/api/request-proof/session` available as bootstrap routes.
 
-Use Node 22 with Corepack-enabled `pnpm@10.30.3` for local, CI, Docker, and
+Use Node 24 with Corepack-enabled `pnpm@10.30.3` for local, CI, Docker, and
 Cloudflare build parity. Before deploying Worker changes, run:
 
 ```bash

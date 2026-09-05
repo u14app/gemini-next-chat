@@ -24,37 +24,29 @@ Neo Chat is a self-hostable, local-first AI chat application built with Next.js,
 
 It is designed for people who want the power of modern AI workspaces without giving up local data ownership. Chat history, workspace metadata, skills, plugin configuration, memories, search indexes, and files stay in the browser by default; server routes act as controlled proxies for model providers, web search, RAG, document parsing, voice, plugin and MCP execution, and deployment health.
 
-## v2.4.0 Highlights
+## v2.5.0 Highlights
 
-- Added an opt-in, end-to-end encrypted personal vault for convergent WebDAV or
-  S3/MinIO synchronization across devices. Recovery keys, credentials, local
-  baselines, search caches, and vectors never enter remote objects or ZIP files.
-- Added virtualized long-chat timelines, durable streaming checkpoints, bounded
-  retry before visible output, partial-output continuation, reply snapshots, and
-  explicit model selection when regenerating a sibling branch.
-- Added per-chat composer drafts, token and context usage summaries, guarded
-  message-tree mutations during generation, and clearer offline behavior.
-- Added a foreground-only trusted Agent runtime with persisted runs, effect-aware
-  approvals, idempotency records, revisioned workspaces, immutable Artifacts,
-  dynamic Tool/Skill discovery, scoped Memory, and MCP resources/prompts.
-- Added parameterized Skills and ordered bundles of up to four Skills, with
-  validated slot values and reproducible invocation metadata.
-- Added collection-level chunking controls, Markdown heading-aware previews,
-  explicit reindexing, hybrid lexical/vector retrieval, graceful lexical
-  fallback, stable source previews, file filtering, and serial batch operations.
-- Added HEIC/HEIF conversion, staged client-side image compression, and
-  file-backed multimodal uploads for native OpenAI, Google, and Anthropic chat.
-- Added legacy SSE compatibility for remote MCP, connection-stage-only fallback,
-  encrypted install-time credentials, and an authenticated Docker stdio bridge
-  whose commands remain fixed by deployment configuration.
-- Added a local-only offline PWA with strict no-API-cache boundaries, an
-  accessible global-search modal, localized settings search and first-run model
-  guidance, plus read-only local storage health diagnostics.
-- Scoped custom model metadata and locally encrypted server-default credentials
-  to the matching provider, with fail-closed handling for invalid or unavailable
-  defaults.
-- Preserved existing version 3 ZIP compatibility while advancing the local
-  schema to version 6 and adding English, Chinese, and Japanese UI coverage.
+- Expanded Deep Research with reviewable adaptive plans, durable research
+  rounds, evidence audits, partial and versioned reports, built-in and custom
+  templates, specialized scholarly/regulatory sources, frontier steering, and
+  report-version-bound evidence Q&A.
+- Added an opt-in encrypted WebDAV or S3/MinIO personal vault, including
+  per-domain Automerge documents, encrypted OPFS chunks, conflict handling, and
+  protection against overwriting edits made during synchronization.
+- Expanded the foreground Agent runtime with dynamic Tool and Skill discovery,
+  task plans, structured questions, scoped Memory, revisioned workspaces,
+  immutable Artifacts, resumable runs, and effect-aware confirmation.
+- Added customizable keyboard shortcuts, temporary text chats, unified
+  sidebar/titlebar conversation actions, Redis-backed read-only sharing, and
+  safer stop, switch, and continue-generation behavior.
+- Added progressive CommonMark rendering, persistent document blocks,
+  HEIC/HEIF conversion, staged image compression, and file-backed multimodal
+  requests for native OpenAI, Google, and Anthropic providers.
+- Hardened hosted and self-hosted release paths with per-request CSP nonces,
+  explicit Docker access-password setup, Node 24 alignment, tag/version
+  validation, and release-time source, Next.js, Worker, and dependency checks.
+- Kept Research extension records such as custom templates, steering, and report
+  Q&A browser-local; they are not yet included in ZIP backup or encrypted sync.
 
 See [CHANGELOG.md](CHANGELOG.md) for the complete release notes.
 
@@ -116,7 +108,9 @@ See [CHANGELOG.md](CHANGELOG.md) for the complete release notes.
   Research searches run serially with two-second spacing, and Tavily Research
   requests allow up to 90 seconds. Search images and their sources can illustrate
   reports without being counted as verified evidence. Document previews open
-  directly when clicked.
+  directly when clicked. Research extension records such as custom templates,
+  steering and report Q&A remain browser-local and are not yet included in ZIP
+  backup or encrypted sync.
 - Parameterized text Skills with localized public catalogs, install/uninstall
   flows, local edits, custom skills, auto-selection, workspace presets, and
   ordered non-nested bundles of up to four Skills.
@@ -182,7 +176,7 @@ for deployment and trust-boundary details.
 
 ### Requirements
 
-- Node.js 22
+- Node.js 24
 - pnpm 10.30.3
 
 ### Run Locally
@@ -227,16 +221,23 @@ document for core settings.
 ### Docker Compose
 
 ```bash
-docker compose up --build
+ACCESS_PASSWORD='replace-with-a-strong-password' docker compose up --build
 ```
 
-The compose file publishes Neo Chat on `http://localhost:3000` and uses local/self-hosted safety defaults. For production Docker deployments, set stable BYOK values, use shared stores for hosted or multi-instance deployments, and enable `TRUST_PROXY_HEADERS` only behind a proxy that strips spoofed forwarded headers.
+The compose file requires an access password, publishes Neo Chat on
+`http://localhost:3000`, and uses local/self-hosted safety defaults. For
+production Docker deployments, set stable BYOK values, use shared stores for
+hosted or multi-instance deployments, and enable `TRUST_PROXY_HEADERS` only
+behind a proxy that strips spoofed forwarded headers.
 
 ### Docker Image
 
 ```bash
 docker build -t neo-chat:local .
-docker run --rm -p 3000:3000 -e BYOK_ALLOW_EPHEMERAL_KEY=true neo-chat:local
+docker run --rm -p 3000:3000 \
+  -e ACCESS_PASSWORD='replace-with-a-strong-password' \
+  -e BYOK_ALLOW_EPHEMERAL_KEY=true \
+  neo-chat:local
 ```
 
 The Docker workflow builds pull requests and publishes `main` / `v*` tags to GitHub Container Registry:

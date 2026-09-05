@@ -9,58 +9,23 @@ when the matching tag is pushed.
 
 ## Unreleased
 
-- **Progressive rendering:** CommonMark renders immediately while syntax-specific
-  extensions load independently, preserving source placeholders, streaming fences,
-  and existing block controls. HTML styling instructions preserve literal syntax.
-- **Conversation controls:** Sidebar and titlebar share conversation actions and
-  dialogs. Temporary text chats use icon-only entry/exit controls, stay out of
-  the conversation list, and explain their history behavior directly below the
-  welcome composer while preserving desktop bottom spacing. Empty conversations
-  hide the titlebar actions menu.
-- **Read-only sharing:** Redis snapshots include the selected branch, images and
-  research reports, with configurable expiry, explicit updates and revocation
-  before deleting the original conversation. Expiry buttons replace the obscured
-  dropdown in a narrower, scrollable share dialog. Sharing defaults to off and
-  requires `SHARING_ENABLED=true` plus Redis configuration; disabling it blocks
-  public access while preserving authenticated revocation.
-- **Research illustrations:** Search images retain provenance through checkpoints
-  and report versions, without becoming formal evidence merely by discovery.
-  Chat's default instructions use relevant, grounded Markdown images; reports
-  and exports no longer add a separate image-materials section.
-- **Web reading reliability:** Jina service failures can fall back once to a
-  direct public-page read within 30 seconds. Challenge pages and application
-  errors are rejected before evidence creation, and asynchronous plugin failures
-  pass through route error handling.
-
-- **Research search reliability:** Research requests share a serial queue with
-  two-second spacing, preserve partial batch results, distinguish duplicate skips
-  from failures, and respect rate-limit cooldowns. Tavily Research searches and
-  planning web lookup allow 90 seconds and use a lighter summary response profile.
-- **Research evidence recovery:** Archiving receives committed body excerpts;
-  checkpoints preserve recoverable results and verified local references. Source
-  callbacks and the ledger share evidence identity, and all-failed page batches
-  no longer report success.
-- **Research report reading:** Standard headings and fallback text support English,
-  Chinese, and Japanese. Appendices and quality details have a supplementary tab,
-  Markdown/PDF downloads share a menu, and document previews open when clicked.
-- **Research rollback compatibility:** New reconnaissance records can contain
-  `timeoutMs: 90000`; older readers capped at 30000 need the validator update before
-  opening these records. Existing reports are not rewritten.
-
-- **Adaptive Research planning:** Familiar topics now receive a plan without
-  searches. Unclear concepts use bounded selected-knowledge lookup before public
-  search, with public queries fixed before private passages are read.
-- **Research report delivery:** Reports retain unverified findings, labelled model
-  knowledge, quality notices, and interrupted text. Partial reports are visible
-  in chat and the workbench, exports preserve limitations, and auxiliary evidence
-  snapshot failures disable questions without blocking the report.
-- **Research source and activity reliability:** Reread evidence remains in the
-  current source index; registered source IDs map exactly to frozen short aliases.
-  Activity labels and spinners follow actual execution state. The coverage strip
-  is removed and user-facing waves are called research rounds.
-
 ## v2.5.0
 
+- **Agent runtime:** Expanded Agent mode with dynamic Tool and Skill discovery,
+  task plans, structured user questions, scoped Memory, workspace and Artifact
+  operations, MCP resources/prompts, persistent execution records, resumable
+  runs, and effect-aware confirmation. Tools loaded by the host are explicitly
+  authorized for later model rounds.
+- **Chat generation reliability:** Stopping before a conversation switch now
+  captures and persists the originating stream before navigation. Continuing an
+  interrupted response retains existing document, search, image, plan, and Tool
+  blocks while recording new structured output and Tool state.
+- **Deep Research:** Added model-knowledge-first planning, bounded knowledge and
+  public lookup, reviewable plans, adaptive research rounds, durable checkpoints,
+  claim-to-evidence auditing, local citations, partial reports, manual resume,
+  report versions, and the responsive Research workbench. Planning keeps the
+  originally selected model through recovery, and approved workspace failures
+  pause visibly instead of silently removing sources.
 - **Deep Research templates:** Added four built-in research templates for
   competitive analysis, literature review, due diligence, and technical
   evaluation, plus local custom template management, revisioned Profile
@@ -84,7 +49,50 @@ when the matching tag is pushed.
   `neo-chat-research-extensions` v1 sidecar for templates, source contracts,
   steering records, evidence snapshots, and threads. The core Research store
   and existing ZIP format remain unchanged; task deletion, session copies, and
-  orphan cleanup maintain the sidecar lifecycle.
+  orphan cleanup maintain the sidecar lifecycle. These extension records remain
+  browser-local and are not yet included in ZIP backup or encrypted sync.
+- **Research reliability and presentation:** Research searches share a serial
+  queue with two-second spacing, preserve partial batches, respect cooldowns,
+  and allow 90 seconds for Tavily Research and planning summaries. Evidence
+  recovery preserves committed excerpts and stable source identity; report
+  headings, dates, numbers, appendices, quality details, and downloads follow the
+  selected English, Chinese, or Japanese locale. Search images retain provenance
+  without becoming verified evidence merely by discovery.
+- **Research rollback compatibility:** New reconnaissance records can contain
+  `timeoutMs: 90000`; older readers capped at 30000 need the validator update
+  before opening these records. Existing reports are not rewritten.
+- **Encrypted synchronization:** Added opt-in WebDAV and S3/MinIO synchronization
+  using per-domain Automerge documents, browser-side HKDF/AES-GCM encryption,
+  opaque remote names, recovery codes, conflict visibility, transactional local
+  apply, and encrypted OPFS chunks. A local edit made during remote blob download
+  now forces a bounded remerge instead of being overwritten by a stale result.
+- **Conversation controls:** Added customizable page-scoped keyboard shortcuts,
+  shared sidebar/titlebar actions, and icon-only temporary text chats that stay
+  out of saved history. Empty conversations hide titlebar actions, and shared
+  dialogs retain keyboard focus and expose consistent close behavior.
+- **Read-only sharing:** Redis snapshots include the selected branch, images, and
+  Research reports with configurable expiry, explicit updates, and revocation
+  before local deletion. Sharing defaults off behind `SHARING_ENABLED`; disabling
+  publication preserves authenticated revocation while preventing public reads.
+- **Rendering and documents:** CommonMark renders immediately while syntax
+  extensions load independently, preserving streaming fences and source
+  placeholders. Long model output can become persistent document blocks with
+  preview, editing, and export controls.
+- **Providers and media:** Added direct browser requests for configured custom
+  model providers, multi-password deployment access, HEIC/HEIF conversion, and
+  staged image compression with file-backed native OpenAI, Google, and Anthropic
+  multimodal uploads. Loading and shared UI presentation use consistent states.
+- **Web reading reliability:** Jina failures can fall back once to a bounded
+  direct public-page read. Challenge pages and application errors are rejected
+  before evidence creation, and asynchronous plugin failures use route-level
+  error handling.
+- **Deployment and release safety:** Standardized local, CI, Docker, and Worker
+  builds on Node 24. Docker quick starts require an access password and verify API
+  availability. Hosted HTML receives per-request CSP nonces and bounded
+  WebAssembly permission. Compatible framework, provider, sanitizer, validator,
+  and MCP dependency updates clear the production audit; tag releases validate
+  the package version and pass source, Next.js, Worker, and dependency checks
+  before publication.
 
 ## v2.4.0
 

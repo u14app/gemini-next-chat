@@ -35,6 +35,7 @@ import {
   captureLocalSyncSnapshot,
   getBlobManifestPayload,
   type LocalSyncPayloadDocument,
+  type StaleSyncSnapshotError,
 } from "./snapshot";
 import {
   clearLocalSyncDocuments,
@@ -57,6 +58,7 @@ import type * as Automerge from "@automerge/automerge";
 
 export const ROOT_DOCUMENT_ID = "root-index";
 const SYNC_RUN_LOCK = "neo-chat-encrypted-sync";
+const MAX_STALE_APPLY_RETRIES = 2;
 
 type SyncDoc = Automerge.Doc<SyncCrdtDocument>;
 
@@ -396,14 +398,20 @@ async function loadLocalBase(
   return bytes ? loadSyncDocument(bytes, deviceId) : undefined;
 }
 
-async function runSyncUnlocked(
+function isStaleSyncSnapshotError(
+  error: unknown,
+): error is StaleSyncSnapshotError {
+  return (
+    isRecord(error) &&
+    error.code === "SYNC_LOCAL_BASELINE_STALE" &&
+    error.retryable === true
+  );
+}
+
+async function runSyncAttempt(
   configuration: SyncRunConfiguration,
   signal?: AbortSignal,
 ): Promise<SyncRunResult> {
-  // A browser may have closed after app data writes began but before the
-  // materialized snapshot committed. Recover that durable transaction before
-  // taking a new local CRDT capture.
-  await ensureInterruptedBrowserSyncApplyRecovery();
   const rootKey = await getRootKey(configuration);
   const remote = await createSyncRemoteClient(
     configuration.provider,
@@ -568,7 +576,9 @@ async function runSyncUnlocked(
     signal,
   );
   downloadedBytes += remoteFiles.downloadedBytes;
-  const changed = await applySyncedAppData(data, remoteFiles.files);
+  const changed = await applySyncedAppData(data, remoteFiles.files, {
+    baseline: latest,
+  });
 
   const conflicts = (
     await Promise.all([
@@ -625,6 +635,28 @@ async function runSyncUnlocked(
     devices,
     conflicts,
   };
+}
+
+async function runSyncUnlocked(
+  configuration: SyncRunConfiguration,
+  signal?: AbortSignal,
+): Promise<SyncRunResult> {
+  // A browser may have closed after app data writes began but before the
+  // materialized snapshot committed. Recover that durable transaction before
+  // taking a new local CRDT capture.
+  await ensureInterruptedBrowserSyncApplyRecovery();
+  for (let retry = 0; ; retry += 1) {
+    try {
+      return await runSyncAttempt(configuration, signal);
+    } catch (error) {
+      if (
+        !isStaleSyncSnapshotError(error) ||
+        retry >= MAX_STALE_APPLY_RETRIES
+      ) {
+        throw error;
+      }
+    }
+  }
 }
 
 export async function runEncryptedSync(

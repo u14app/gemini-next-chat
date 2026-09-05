@@ -10,7 +10,7 @@ import {
   MessageSquareText,
   RefreshCw,
 } from "lucide-react";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 
 import MarkdownRenderer from "@/components/content/MarkdownRenderer";
 import { CustomSelect } from "@/components/ui/controls";
@@ -26,9 +26,11 @@ import type { Source } from "@/types";
 import { ResearchRunRail } from "../topology";
 import { ActivityList, formatDuration } from "../ui";
 import type { ResearchTaskViewModel } from "../types";
+import { formatResearchDateTime } from "../formatters";
 import { formatTokens } from "./workbenchUtils";
 
 export function ActivityPanel({ task }: { task: ResearchTaskViewModel }) {
+  const locale = useLocale();
   const t = useTranslations("Research");
   return (
     <div className="mx-auto w-full max-w-5xl space-y-5 p-4 sm:p-6">
@@ -53,9 +55,9 @@ export function ActivityPanel({ task }: { task: ResearchTaskViewModel }) {
             <div>
               <dt className="text-muted-foreground">{t("metrics.tokens")}</dt>
               <dd className="mt-0.5 font-mono tabular-nums text-foreground">
-                {formatTokens(task.usage.totalTokens)}
+                {formatTokens(task.usage.totalTokens, locale)}
                 {task.usage.maxTotalTokens
-                  ? `/${formatTokens(task.usage.maxTotalTokens)}`
+                  ? `/${formatTokens(task.usage.maxTotalTokens, locale)}`
                   : ""}
               </dd>
             </div>
@@ -243,6 +245,7 @@ export function SupplementPanel({
   onSelectVersion: (versionId: string) => void;
   onInspectEvidence: (evidenceId: string) => void;
 }) {
+  const locale = useLocale();
   const t = useTranslations("Research");
   if (!report) {
     return (
@@ -268,7 +271,7 @@ export function SupplementPanel({
           <p className="mt-1 text-xs text-muted-foreground">
             {t("report.versionDate", {
               version: report.version,
-              date: new Date(report.createdAt).toLocaleString(),
+              date: formatResearchDateTime(report.createdAt, locale),
             })}
           </p>
         </div>
@@ -336,6 +339,7 @@ export function ReportPanel({
   onAskEvidence?: () => void;
   onUpdateLatest?: () => void;
 }) {
+  const locale = useLocale();
   const t = useTranslations("Research");
   if (!report) {
     return (
@@ -363,7 +367,7 @@ export function ReportPanel({
           <p className="mt-1 text-xs text-muted-foreground">
             {t("report.versionDate", {
               version: report.version,
-              date: new Date(report.createdAt).toLocaleString(),
+              date: formatResearchDateTime(report.createdAt, locale),
             })}
           </p>
         </div>

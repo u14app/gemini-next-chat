@@ -1,4 +1,7 @@
-import type { AppExportPayload } from "@/lib/data/appExport";
+import type {
+  AppExportPayload,
+  BrowserAppExportPayloadOptions,
+} from "@/lib/data/appExport";
 import {
   collectReferencedOpfsUrls,
   createBrowserAppExportPayload,
@@ -37,6 +40,18 @@ export interface CapturedSyncSnapshot {
   exported: AppExportPayload;
   documents: LocalSyncPayloadDocument[];
   referencedOpfsUrls: string[];
+}
+
+export class StaleSyncSnapshotError extends Error {
+  readonly code = "SYNC_LOCAL_BASELINE_STALE";
+  readonly retryable = true;
+
+  constructor() {
+    super(
+      "Local synchronized data changed before the sync result was applied.",
+    );
+    this.name = "StaleSyncSnapshotError";
+  }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -401,8 +416,10 @@ export function splitAppExportIntoSyncDocuments(
   return documents;
 }
 
-export async function captureLocalSyncSnapshot(): Promise<CapturedSyncSnapshot> {
-  const captured = await createBrowserAppExportPayload();
+export async function captureLocalSyncSnapshot(
+  options: BrowserAppExportPayloadOptions = {},
+): Promise<CapturedSyncSnapshot> {
+  const captured = await createBrowserAppExportPayload(options);
   const exported: AppExportPayload = {
     ...captured,
     data: prepareDataForSync(captured.data),
@@ -499,33 +516,54 @@ function serializePersisted(value: unknown): string | null {
   return value === undefined ? null : JSON.stringify(value);
 }
 
+function serializeSyncSnapshot(snapshot: CapturedSyncSnapshot): string {
+  return JSON.stringify(
+    [...snapshot.documents]
+      .sort((left, right) => left.id.localeCompare(right.id))
+      .map(({ id, kind, payload }) => ({ id, kind, payload })),
+  );
+}
+
+export interface ApplySyncedAppDataOptions {
+  baseline?: CapturedSyncSnapshot;
+}
+
 export async function applySyncedAppData(
   data: AppExportPayload["data"],
   downloadedFiles: Map<string, Uint8Array>,
+  options: ApplySyncedAppDataOptions = {},
 ): Promise<boolean> {
   const sessionPrefix = "session_messages_";
-  const [current, currentRaw] = await Promise.all([
-    createBrowserAppExportPayload({ flushMessageWrites: false }),
-    readRawLocalAppData(),
-  ]);
-  const synchronizedData = prepareDataForSync(data);
-  const currentSyncData = prepareDataForSync(current.data);
-  const restoredData = overlayLocalOnlySyncFields(
-    currentRaw,
-    current.data,
-    synchronizedData,
-  ) as AppExportPayload["data"];
-  restoredData.knowledge = restoreCompatibleLocalKnowledgeVectorState(
-    currentRaw.knowledge,
-    restoredData.knowledge,
-    new Set(downloadedFiles.keys()),
-  );
-  const changed =
-    JSON.stringify(currentSyncData) !== JSON.stringify(synchronizedData) ||
-    downloadedFiles.size > 0;
-  if (!changed) return false;
+  return runWithExclusiveAppDataLock(async () => {
+    const currentSnapshot = await captureLocalSyncSnapshot({
+      flushMessageWrites: false,
+    });
+    if (
+      options.baseline &&
+      serializeSyncSnapshot(currentSnapshot) !==
+        serializeSyncSnapshot(options.baseline)
+    ) {
+      throw new StaleSyncSnapshotError();
+    }
 
-  await runWithExclusiveAppDataLock(async () => {
+    const currentRaw = await readRawLocalAppData();
+    const synchronizedData = prepareDataForSync(data);
+    const currentSyncData = prepareDataForSync(currentSnapshot.exported.data);
+    const restoredData = overlayLocalOnlySyncFields(
+      currentRaw,
+      currentSnapshot.exported.data,
+      synchronizedData,
+    ) as AppExportPayload["data"];
+    restoredData.knowledge = restoreCompatibleLocalKnowledgeVectorState(
+      currentRaw.knowledge,
+      restoredData.knowledge,
+      new Set(downloadedFiles.keys()),
+    );
+    const changed =
+      JSON.stringify(currentSyncData) !== JSON.stringify(synchronizedData) ||
+      downloadedFiles.size > 0;
+    if (!changed) return false;
+
     const { withSessionSharesRemoved } =
       await import("@/services/sharing/client");
     const nextSessions = getPersistedState(restoredData.chat).sessions;
@@ -626,8 +664,8 @@ export async function applySyncedAppData(
         }
       },
     );
+    return true;
   });
-  return true;
 }
 
 export function getBlobManifestPayload(

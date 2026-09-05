@@ -9,10 +9,20 @@ import type { SyncRunConfiguration } from "@/lib/sync/types";
 const mocks = vi.hoisted(() => {
   const remoteObjects = new Map<string, Uint8Array>();
   return {
-    applySyncedAppData: vi.fn(async () => false),
+    appliedData: undefined as unknown,
+    applySyncedAppData: vi.fn(async (...args: unknown[]) => {
+      void args;
+      return false;
+    }),
     assembledIds: [] as string[],
     captureLocalSyncSnapshot: vi.fn(),
+    collectReferencedOpfsUrls: vi.fn(() => [] as string[]),
     documents: new Map<string, Uint8Array>(),
+    get: vi.fn(async (path: string) => {
+      const bytes = remoteObjects.get(path);
+      if (!bytes) throw new Error(`Missing remote object: ${path}`);
+      return bytes;
+    }),
     list: vi.fn(async (prefix: string) =>
       [...remoteObjects].flatMap(([path, bytes]) =>
         path.startsWith(prefix) ? [{ path, size: bytes.byteLength }] : [],
@@ -22,11 +32,15 @@ const mocks = vi.hoisted(() => {
       remoteObjects.set(path, bytes);
     }),
     remoteObjects,
+    resolveOPFSBlob: vi.fn(async (...args: unknown[]) => {
+      void args;
+      return undefined as Blob | undefined;
+    }),
   };
 });
 
 vi.mock("@/lib/data/appExport", () => ({
-  collectReferencedOpfsUrls: () => [],
+  collectReferencedOpfsUrls: mocks.collectReferencedOpfsUrls,
 }));
 
 vi.mock("@/lib/security/localSecrets", () => ({
@@ -54,7 +68,7 @@ vi.mock("@/lib/sync/crypto", () => ({
   })),
   parseRecoveryCode: vi.fn(),
   sha256Base64Url: vi.fn(async () => "hash"),
-  splitSyncChunks: vi.fn(() => []),
+  splitSyncChunks: vi.fn((bytes: Uint8Array) => [bytes]),
 }));
 
 vi.mock("@/lib/sync/deviceIdentity", () => ({
@@ -68,11 +82,7 @@ vi.mock("@/lib/sync/remoteClient", () => ({
         test: vi.fn(async () => undefined),
         list: mocks.list,
         head: vi.fn(async () => ({ ok: true as const, exists: false })),
-        get: vi.fn(async (path: string) => {
-          const bytes = mocks.remoteObjects.get(path);
-          if (!bytes) throw new Error(`Missing remote object: ${path}`);
-          return bytes;
-        }),
+        get: mocks.get,
         put: mocks.put,
       }) satisfies SyncRemoteClient,
   ),
@@ -82,10 +92,17 @@ vi.mock("@/lib/sync/snapshot", () => ({
   applySyncedAppData: mocks.applySyncedAppData,
   assembleSyncDocuments: vi.fn((documents: Map<string, unknown>) => {
     mocks.assembledIds = [...documents.keys()];
-    return {};
+    const payload = (id: string) =>
+      (documents.get(id) as { payload?: unknown } | undefined)?.payload;
+    return {
+      session: payload("session:session-1"),
+      messages: payload("session-messages:session-1"),
+    };
   }),
   captureLocalSyncSnapshot: mocks.captureLocalSyncSnapshot,
-  getBlobManifestPayload: vi.fn(() => ({})),
+  getBlobManifestPayload: vi.fn((entries: Array<{ url: string }>) =>
+    Object.fromEntries(entries.map((entry) => [entry.url, entry])),
+  ),
 }));
 
 vi.mock("@/lib/sync/storage", () => ({
@@ -97,7 +114,7 @@ vi.mock("@/lib/sync/storage", () => ({
 }));
 
 vi.mock("@/utils/opfs", () => ({
-  resolveOPFSBlob: vi.fn(async () => undefined),
+  resolveOPFSBlob: mocks.resolveOPFSBlob,
 }));
 
 const configuration = {
@@ -109,11 +126,14 @@ const configuration = {
   deviceName: "Device A",
 } as SyncRunConfiguration;
 
-function captured(documents: LocalSyncPayloadDocument[]): CapturedSyncSnapshot {
+function captured(
+  documents: LocalSyncPayloadDocument[],
+  referencedOpfsUrls: string[] = [],
+): CapturedSyncSnapshot {
   return {
     exported: { data: {} } as CapturedSyncSnapshot["exported"],
     documents,
-    referencedOpfsUrls: [],
+    referencedOpfsUrls,
   };
 }
 
@@ -136,13 +156,20 @@ function remoteDocumentPath(logicalId: string): string {
 
 describe("encrypted sync engine run", () => {
   beforeEach(() => {
-    mocks.applySyncedAppData.mockClear();
+    mocks.appliedData = undefined;
+    mocks.applySyncedAppData.mockReset();
+    mocks.applySyncedAppData.mockResolvedValue(false);
     mocks.assembledIds = [];
     mocks.captureLocalSyncSnapshot.mockReset();
+    mocks.collectReferencedOpfsUrls.mockReset();
+    mocks.collectReferencedOpfsUrls.mockReturnValue([]);
     mocks.documents.clear();
+    mocks.get.mockClear();
     mocks.list.mockClear();
     mocks.put.mockClear();
     mocks.remoteObjects.clear();
+    mocks.resolveOPFSBlob.mockReset();
+    mocks.resolveOPFSBlob.mockResolvedValue(undefined);
   });
 
   it("uploads root and data documents after listing an empty vault", async () => {
@@ -510,5 +537,109 @@ describe("encrypted sync engine run", () => {
     expect(savedRoot.documents.memory.deleted).not.toBe(true);
     expect(mocks.documents.has("memory")).toBe(true);
     expect(mocks.assembledIds).toContain("memory");
+  });
+
+  it("remerges a message and title written while a blob downloads", async () => {
+    const { runEncryptedSync } = await import("@/lib/sync/engine");
+    const fileUrl = "opfs://chat/session-1/image.png";
+    let localRevision: "before" | "after" = "before";
+    let blobLookupCount = 0;
+    const documents = (): LocalSyncPayloadDocument[] => [
+      {
+        id: "session:session-1",
+        kind: "session" as const,
+        payload: {
+          id: "session-1",
+          title: localRevision === "before" ? "Before download" : "New title",
+        },
+      },
+      {
+        id: "session-messages:session-1",
+        kind: "session-messages" as const,
+        payload: {
+          rootMessageIds: localRevision === "before" ? [] : ["message-1"],
+          nodesById:
+            localRevision === "before"
+              ? {}
+              : { "message-1": { id: "message-1", content: "New message" } },
+          activeChildByParentId: {},
+        },
+      },
+    ];
+    mocks.captureLocalSyncSnapshot.mockImplementation(async () =>
+      captured(documents(), [fileUrl]),
+    );
+    mocks.resolveOPFSBlob.mockImplementation(async () => {
+      blobLookupCount += 1;
+      return blobLookupCount % 2 === 1
+        ? new Blob([new Uint8Array([1, 2, 3])], { type: "image/png" })
+        : undefined;
+    });
+    mocks.collectReferencedOpfsUrls.mockReturnValue([fileUrl]);
+    mocks.get.mockImplementation(async (path: string) => {
+      const bytes = mocks.remoteObjects.get(path);
+      if (!bytes) throw new Error(`Missing remote object: ${path}`);
+      if (path.includes("/blobs/")) localRevision = "after";
+      return bytes;
+    });
+    mocks.applySyncedAppData.mockImplementation(
+      async (data: unknown, _files: unknown, options: unknown) => {
+        const baseline = (
+          options as { baseline: CapturedSyncSnapshot }
+        ).baseline.documents.find(
+          (document) => document.id === "session:session-1",
+        );
+        if (
+          localRevision === "after" &&
+          (baseline?.payload as { title?: string }).title === "Before download"
+        ) {
+          throw Object.assign(new Error("stale local baseline"), {
+            code: "SYNC_LOCAL_BASELINE_STALE",
+            retryable: true,
+          });
+        }
+        mocks.appliedData = data;
+        return true;
+      },
+    );
+
+    await runEncryptedSync(configuration);
+
+    expect(mocks.applySyncedAppData).toHaveBeenCalledTimes(2);
+    expect(mocks.captureLocalSyncSnapshot).toHaveBeenCalledTimes(4);
+    expect(mocks.get.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.applySyncedAppData.mock.invocationCallOrder[0],
+    );
+    expect(mocks.appliedData).toEqual({
+      session: { id: "session-1", title: "New title" },
+      messages: {
+        rootMessageIds: ["message-1"],
+        nodesById: {
+          "message-1": { id: "message-1", content: "New message" },
+        },
+        activeChildByParentId: {},
+      },
+    });
+  });
+
+  it("stops after bounded stale-apply retries", async () => {
+    const { runEncryptedSync } = await import("@/lib/sync/engine");
+    const settings = {
+      id: "settings",
+      kind: "settings" as const,
+      payload: { state: { theme: "dark" }, version: 6 },
+    };
+    mocks.captureLocalSyncSnapshot.mockResolvedValue(captured([settings]));
+    const stale = Object.assign(new Error("stale local baseline"), {
+      code: "SYNC_LOCAL_BASELINE_STALE",
+      retryable: true,
+    });
+    mocks.applySyncedAppData.mockRejectedValue(stale);
+
+    await expect(runEncryptedSync(configuration)).rejects.toBe(stale);
+
+    expect(mocks.applySyncedAppData).toHaveBeenCalledTimes(3);
+    expect(mocks.captureLocalSyncSnapshot).toHaveBeenCalledTimes(6);
+    expect(mocks.put).not.toHaveBeenCalled();
   });
 });

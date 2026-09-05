@@ -62,6 +62,7 @@ interface SidebarProps {
   currentSessionId: string | null;
   onSelectSession: (id: string) => void;
   onNewChat: () => void;
+  onNewChatInWorkspace: (workspace: Workspace) => Promise<void>;
   isOpen: boolean;
   isHidden?: boolean;
   toggleSidebar: () => void;
@@ -134,6 +135,7 @@ const Sidebar: React.FC<SidebarProps> = ({
   currentSessionId,
   onSelectSession,
   onNewChat,
+  onNewChatInWorkspace,
   isOpen,
   isHidden = false,
   toggleSidebar,
@@ -158,7 +160,7 @@ const Sidebar: React.FC<SidebarProps> = ({
   const chatT = useTranslations("ChatApp");
   const newChatShortcut = useShortcutPresentation("newChat");
   const toggleSidebarShortcut = useShortcutPresentation("toggleSidebar");
-  const { workspaces, createSession } = useChatStore();
+  const { workspaces } = useChatStore();
   const { theme, setTheme, language } = useCoreSettingsStore();
   const setLocale = useSetLocale();
   const themeDisplayLabel = {
@@ -413,23 +415,6 @@ const Sidebar: React.FC<SidebarProps> = ({
 
   const toggleSection = (section: string) => {
     setExpandedSections((prev) => ({ ...prev, [section]: !prev[section] }));
-  };
-
-  const handleNewChatInWorkspace = async (workspace: Workspace) => {
-    const sessionId = createSession(
-      workspace.systemPrompt,
-      "New Chat",
-      workspace.id,
-      workspace.files,
-      {
-        useSearch: workspace.enableSearch,
-        useReasoning: workspace.enableReasoning,
-        activePlugins: workspace.activePlugins,
-        activeSkills: workspace.activeSkills,
-      },
-    );
-
-    onSelectSession(sessionId);
   };
 
   const now = getNow();
@@ -1353,7 +1338,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                   const ws = workspaces.find(
                     (w) => w.id === workspaceMenu.workspaceId,
                   );
-                  if (ws) handleNewChatInWorkspace(ws);
+                  if (ws) void onNewChatInWorkspace(ws);
                   setWorkspaceMenu(null);
                 }}
               >

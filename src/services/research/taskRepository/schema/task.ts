@@ -85,6 +85,7 @@ export const researchTaskSchema = z
     sessionId: z.string().min(1).max(240),
     userMessageId: z.string().min(1).max(240).optional(),
     cardMessageId: z.string().min(1).max(240).optional(),
+    requestModel: z.string().min(1).max(240).optional(),
     goal: z.string().min(1).max(8_000),
     status: statusSchema,
     createdAt: z.number().finite().nonnegative(),

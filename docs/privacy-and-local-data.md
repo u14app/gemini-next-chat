@@ -12,6 +12,7 @@ Neo Chat uses several browser storage layers:
 | ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `localStorage`                  | Core settings, keyboard shortcut preferences, provider records, selected models, and provider API key envelopes.                                                            |
 | IndexedDB through `localforage` | Chat metadata, messages, app settings, installed plugins, installed/custom skills, skill catalog and definition caches, assistants, knowledge metadata, and local memories. |
+| Research IndexedDB              | Core Research tasks and reports, plus a separate `neo-chat-research-extensions` sidecar for templates, source contracts, steering, evidence snapshots, and Q&A threads.     |
 | OPFS                            | Uploaded chat/workspace files, knowledge originals and extracted text, and file-backed user-sent or model-generated images.                                                 |
 
 Deep Research tasks use a separate versioned IndexedDB database. Their
@@ -22,6 +23,12 @@ checkpoints, and unreferenced Research report Artifacts are removed. Chats,
 settings, knowledge, ordinary Agent data, and user workspace files are not part
 of that reset. Old chat output blocks remain visible as removable “legacy
 record cleared” placeholders.
+
+Core Research tasks and referenced report Artifacts are included in versioned
+ZIP backups. The `neo-chat-research-extensions` sidecar is currently excluded
+from ZIP backup and encrypted cross-device sync, so custom templates, source
+contracts, pending steering, evidence snapshots, and report Q&A threads remain
+only in the browser where they were created.
 
 Clearing browser data can remove local chats, settings, plugin configuration,
 assistant records, memories, and uploaded files.

@@ -2,7 +2,7 @@
 
 import React, { useId, useMemo, useState } from "react";
 import { ExternalLink, Search, SearchCheck } from "lucide-react";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 
 import { CustomSelect } from "@/components/ui/controls";
 import { Button, Input } from "@/components/ui/primitives";
@@ -10,6 +10,7 @@ import { getSafeExternalHref } from "@/lib/security/clientUrl";
 import { cn } from "@/lib/utils/cn";
 
 import type { ResearchEvidenceView, ResearchTaskViewModel } from "../types";
+import { formatResearchDateTime } from "../formatters";
 
 import { EVIDENCE_STANCES, type EvidenceStance } from "./workbenchUtils";
 
@@ -20,6 +21,7 @@ function EvidenceListItem({
   evidence: ResearchEvidenceView;
   questionTitles: string[];
 }) {
+  const locale = useLocale();
   const t = useTranslations("Research");
   const safeHref = evidence.url ? getSafeExternalHref(evidence.url) : null;
   const relatedQuestions = (evidence.questionIndexes ?? []).flatMap((index) =>
@@ -45,7 +47,7 @@ function EvidenceListItem({
               : evidence.domain || t(`sourceType.${evidence.sourceType}`)}
           </span>
           <time dateTime={new Date(evidence.retrievedAt).toISOString()}>
-            {new Date(evidence.retrievedAt).toLocaleString()}
+            {formatResearchDateTime(evidence.retrievedAt, locale)}
           </time>
           {evidence.stance ? (
             <span>{t(`stance.${evidence.stance}`)}</span>

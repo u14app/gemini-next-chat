@@ -40,6 +40,20 @@ describe("Agent system instruction", () => {
     expect(instruction).toContain("no plan step pending or in progress");
   });
 
+  it("allows only tools that the host successfully loads at runtime", () => {
+    const instruction = buildAgentSystemInstruction({
+      toolNames: ["search_tools", "load_tools"],
+    });
+
+    expect(instruction).toContain(
+      "tools the host successfully makes available after load_tools",
+    );
+    expect(instruction).toContain(
+      "may be used in subsequent calls in this run",
+    );
+    expect(instruction).toContain("never guess a provider tool name");
+  });
+
   it("does not append Agent instructions when no tools are offered", () => {
     const instruction = buildAgentSystemInstruction({ toolNames: [] });
 

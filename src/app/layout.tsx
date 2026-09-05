@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import { headers } from "next/headers";
 import { NextIntlClientProvider } from "next-intl";
 import { getLocale } from "next-intl/server";
 import PwaLifecycle from "@/components/pwa/PwaLifecycle";
@@ -83,12 +84,20 @@ export default async function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  const locale = normalizeSeoLocale(await getLocale());
+  const [resolvedLocale, requestHeaders] = await Promise.all([
+    getLocale(),
+    headers(),
+  ]);
+  const locale = normalizeSeoLocale(resolvedLocale);
+  const nonce = requestHeaders.get("x-nonce") || undefined;
 
   return (
     <html lang={locale} suppressHydrationWarning>
       <body className="antialiased">
-        <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
+        <script
+          nonce={nonce}
+          dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }}
+        />
         <NextIntlClientProvider>
           {children}
           <SyncLifecycleLoader />

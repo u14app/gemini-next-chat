@@ -11,6 +11,7 @@ const data = vi.hoisted(() => ({
   saves: vi.fn(),
   list: vi.fn(),
   capture: vi.fn(),
+  resolveModel: vi.fn(),
   pruneFiles: vi.fn(),
   deleteArtifact: vi.fn(),
 }));
@@ -43,6 +44,7 @@ vi.mock("@/services/research/runtime", () => ({
 vi.mock("@/lib/research/runtime/sourceSnapshot", () => ({
   captureApprovedWorkspaceSources: data.capture,
   createSourceSnapshot: vi.fn(),
+  resolveResearchTaskModel: data.resolveModel,
 }));
 vi.mock("@/lib/research/runtime/taskContext", () => ({
   getResearchDependencyError: vi.fn(() => undefined),
@@ -59,6 +61,7 @@ import { useResearchOperations } from "@/hooks/research/useResearchOperations";
 import { runResearchTaskAction } from "@/lib/research/runtime/taskLifecycle";
 import { useResearchTaskActions } from "@/hooks/research/useResearchTaskActions";
 import { usePlanActions } from "@/hooks/research/usePlanActions";
+import { ResearchWorkspaceUnavailableError } from "@/lib/research/runtime/dependencyErrors";
 import {
   isResearchTaskExecutionLease,
   isResearchTaskLocallyLocked,
@@ -182,6 +185,7 @@ beforeEach(() => {
   data.saves.mockClear();
   data.list.mockReset();
   data.capture.mockReset().mockResolvedValue([]);
+  data.resolveModel.mockReset().mockResolvedValue("provider:model");
   data.pruneFiles.mockReset();
   data.deleteArtifact.mockReset();
   repository.get.mockClear();
@@ -354,6 +358,63 @@ describe("fresh task ownership across tabs", () => {
     await waitFor(() =>
       expect(isResearchTaskLocallyLocked("task")).toBe(false),
     );
+  });
+  it("pauses plan confirmation when the approved workspace cannot be read", async () => {
+    const saved = task("plan_ready");
+    data.tasks.set("task", saved);
+    hydrateLocal(saved);
+    data.capture.mockRejectedValue(
+      new ResearchWorkspaceUnavailableError("OPFS unavailable"),
+    );
+    const deps = {
+      ...dependencies(),
+      dependencyText: {
+        modelUnavailable: "Model unavailable",
+        sourceUnavailable: (source: string) => `${source} unavailable`,
+      } as Parameters<typeof usePlanActions>[0]["dependencyText"],
+      pauseTask: vi.fn(async () => {}),
+      t: ((key: string) => key) as Parameters<typeof usePlanActions>[0]["t"],
+    };
+    const { result } = renderHook(() => usePlanActions(deps));
+
+    await act(() => result.current.confirmPlan("task"));
+
+    expect(data.tasks.get("task")).toMatchObject({
+      status: "paused",
+      error: {
+        code: "RESEARCH_WORKSPACE_UNAVAILABLE",
+        message: "workspace unavailable",
+        recoverable: true,
+      },
+    });
+    expect(deps.launchResearch).not.toHaveBeenCalled();
+    expect(deps.onNotice).toHaveBeenCalledWith("workspace unavailable");
+  });
+  it("restores a legacy plan's model from the linked original generation", async () => {
+    const saved = task("plan_ready");
+    delete saved.sourceSnapshot!.model;
+    data.tasks.set("task", saved);
+    hydrateLocal(saved);
+    data.resolveModel.mockResolvedValue("provider:original-request-model");
+    const deps = {
+      ...dependencies(),
+      dependencyText: {
+        modelUnavailable: "Model unavailable",
+        sourceUnavailable: (source: string) => `${source} unavailable`,
+      } as Parameters<typeof usePlanActions>[0]["dependencyText"],
+      pauseTask: vi.fn(async () => {}),
+      t: ((key: string) => key) as Parameters<typeof usePlanActions>[0]["t"],
+    };
+    const { result } = renderHook(() => usePlanActions(deps));
+
+    await act(() => result.current.confirmPlan("task"));
+
+    expect(data.resolveModel).toHaveBeenCalledWith(saved);
+    expect(data.tasks.get("task")).toMatchObject({
+      status: "researching",
+      sourceSnapshot: { model: "provider:original-request-model" },
+    });
+    expect(deps.launchResearch).toHaveBeenCalledOnce();
   });
   it("loads another tab's active task without writing a recovery checkpoint", async () => {
     const active = task("researching");

@@ -14,7 +14,7 @@ services:
       DEPLOYMENT_MODE: ${DEPLOYMENT_MODE:-local}
       ALLOW_INSECURE_LOCAL_PRODUCTION: ${ALLOW_INSECURE_LOCAL_PRODUCTION:-false}
       NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-http://localhost:3000}
-      ACCESS_PASSWORD: ${ACCESS_PASSWORD:-}
+      ACCESS_PASSWORD: ${ACCESS_PASSWORD:?Set ACCESS_PASSWORD before starting Neo Chat}
       BYOK_PRIVATE_KEY_PEM: ${BYOK_PRIVATE_KEY_PEM:-}
       BYOK_KEY_ID: ${BYOK_KEY_ID:-}
       BYOK_ALLOW_EPHEMERAL_KEY: ${BYOK_ALLOW_EPHEMERAL_KEY:-true}
@@ -31,7 +31,7 @@ services:
       test:
         [
           "CMD-SHELL",
-          'node -e "fetch(''http://127.0.0.1:3000/'').then((response) => process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))"',
+          'node -e "fetch(''http://127.0.0.1:3000/api/health'').then((response) => process.exit([200, 401].includes(response.status) ? 0 : 1)).catch(() => process.exit(1))"',
         ]
       interval: 30s
       timeout: 10s

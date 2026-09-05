@@ -6,6 +6,7 @@ import {
   type ResearchTask,
 } from "@/lib/research";
 import type { ResearchExecutionContext } from "@/lib/research/runtime/executionContext";
+import { ResearchWorkspaceUnavailableError } from "@/lib/research/runtime/dependencyErrors";
 
 const mocks = vi.hoisted(() => ({
   stream: vi.fn(),
@@ -115,6 +116,9 @@ function context() {
       setActiveTask: vi.fn(),
     },
     t: (key: string) => key,
+    dependencyText: {
+      sourceUnavailable: (source: string) => `Unavailable: ${source}`,
+    },
     localizedRuntimeError: () => "Connection interrupted",
     onNotice: vi.fn(),
   } as unknown as ResearchExecutionContext;
@@ -223,6 +227,38 @@ describe("research report delivery", () => {
     await handleExecutionFailure(ctx, new Error("Source failed"), onError);
     expect(ctx.store.tasksById.task.status).toBe("paused");
     expect(onError).not.toHaveBeenCalled();
+  });
+
+  it("pauses with a retryable dependency error when the workspace read fails", async () => {
+    const ctx = context();
+    const onError = vi.fn();
+
+    await handleExecutionFailure(
+      ctx,
+      new ResearchWorkspaceUnavailableError("OPFS read failed"),
+      onError,
+    );
+
+    expect(ctx.store.tasksById.task).toMatchObject({
+      status: "paused",
+      error: {
+        code: "RESEARCH_WORKSPACE_UNAVAILABLE",
+        message: "Unavailable: workspace",
+        recoverable: true,
+      },
+      checkpoint: { resumeStatus: "researching" },
+      reportRuns: [
+        expect.objectContaining({
+          phase: "paused",
+          stopReason: expect.objectContaining({
+            code: "dependency_unavailable",
+          }),
+        }),
+      ],
+    });
+    expect(ctx.onNotice).toHaveBeenCalledWith("Unavailable: workspace");
+    expect(onError).not.toHaveBeenCalled();
+    expect(mocks.publish).not.toHaveBeenCalled();
   });
 
   it("retains the draft but does not retry publication after a core save failure", async () => {

@@ -28,7 +28,11 @@ export function trapModalFocus(
   if (!dialog.contains(document.activeElement)) {
     event.preventDefault();
     firstElement.focus({ preventScroll: true });
-  } else if (event.shiftKey && document.activeElement === firstElement) {
+  } else if (
+    event.shiftKey &&
+    (document.activeElement === firstElement ||
+      document.activeElement === dialog)
+  ) {
     event.preventDefault();
     lastElement.focus({ preventScroll: true });
   } else if (!event.shiftKey && document.activeElement === lastElement) {

@@ -8,6 +8,7 @@ import {
   Route,
   Settings2,
   Telescope,
+  X,
 } from "lucide-react";
 import { useTranslations } from "next-intl";
 
@@ -196,9 +197,7 @@ export default function AgentCapabilityMenu({
       aria-label={label}
       aria-keyshortcuts={modeShortcut.ariaKeyShortcuts}
       className={`${buttonClassName} ${
-        mode === "research"
-          ? "max-md:h-9 max-md:w-9 text-research-accent"
-          : "max-md:h-11 max-md:w-11"
+        mode === "research" ? "text-research-accent" : ""
       }`}
       disabled={disabled}
     >
@@ -260,21 +259,35 @@ export default function AgentCapabilityMenu({
         onClose={() => setMobileOpen(false)}
         title={t("chatModeLabel")}
         headerAction={
-          mode === "agent" || mode === "research" ? (
-            <SettingsButton
-              label={
-                mode === "research"
-                  ? t("researchSettingsOpen")
-                  : t("agentSettingsOpen")
-              }
-              onClick={() => {
-                setMobileOpen(false);
-                onOpenSettings(mode, mobileTriggerRef.current);
-              }}
-            />
-          ) : undefined
+          <div className="flex items-center gap-1">
+            {mode === "agent" || mode === "research" ? (
+              <SettingsButton
+                label={
+                  mode === "research"
+                    ? t("researchSettingsOpen")
+                    : t("agentSettingsOpen")
+                }
+                onClick={() => {
+                  setMobileOpen(false);
+                  onOpenSettings(mode, mobileTriggerRef.current);
+                }}
+              />
+            ) : null}
+            <Tooltip content={t("chatModeClose")} position="left" portal>
+              <Button
+                variant="bare"
+                type="button"
+                aria-label={t("chatModeClose")}
+                onClick={() => setMobileOpen(false)}
+                className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                <X size={16} aria-hidden="true" />
+              </Button>
+            </Tooltip>
+          </div>
         }
         placement="responsive-sheet"
+        closeOnBackdropClick
         className="max-w-md"
       >
         <ModePanel

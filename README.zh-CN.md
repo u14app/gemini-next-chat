@@ -24,30 +24,22 @@ Neo Chat 是一个可自托管、本地优先的 AI 对话应用，基于 Next.j
 
 它适合想使用现代 AI 工作台、同时保持本地数据所有权的用户。默认情况下，对话历史、工作区元数据、技能、插件配置、记忆、搜索索引和文件都保存在浏览器内；服务端路由作为受控代理，连接模型供应商、联网搜索、RAG、文档解析、语音、插件与 MCP 执行和部署健康检查。
 
-## v2.4.0 亮点
+## v2.5.0 亮点
 
-- 新增显式启用的端到端加密个人保险库，通过 WebDAV 或 S3/MinIO 在多设备间
-  收敛同步；恢复密钥、凭据、本地基线、搜索缓存和向量不会进入远端或 ZIP。
-- 新增长对话虚拟列表、流式 checkpoint、首字前有限重试、部分输出续写、消息
-  引用回复，以及重新生成兄弟分支时的显式模型选择。
-- 新增会话级输入草稿、Token 与上下文用量摘要、生成期间的消息树变更保护，
-  并明确离线状态下的交互边界。
-- 新增仅浏览器前台运行的可信 Agent Runtime：持久化运行、按副作用授权、幂等
-  执行账本、revision 工作区、不可变 Artifact、动态 Tool/Skill、分 Scope Memory
-  与 MCP Resources/Prompts。
-- 技能升级为参数化 schema，并支持最多四个普通技能组成的有序 bundle；参数在
-  发送前校验，调用记录可复现。
-- 新增集合级分块策略、Markdown 标题感知预览、显式重建索引、关键词与向量混合
-  检索、关键词降级、稳定来源预览、文件筛选和串行批处理。
-- 新增 HEIC/HEIF 转换、分阶段客户端图片压缩，以及 OpenAI、Google、Anthropic
-  原生对话的文件化多模态上传。
-- 远程 MCP 新增 legacy SSE 兼容、仅限连接阶段的安全降级和加密的安装时凭据，
-  同时提供命令由部署配置固定的鉴权 Docker stdio 桥接。
-- 新增严格不缓存 API 的本地部署离线 PWA、可访问的全局搜索模态框、本地化设置
-  搜索、首次模型配置引导，以及只读的本地存储健康诊断。
-- 自定义模型 metadata 和本地加密的 server-default 凭据改为按供应商隔离；无效、
-  缺失或不匹配的默认配置会 fail closed。
-- 本地存储 schema 升至 6，同时继续兼容版本 3 ZIP，并补齐中英日界面文案。
+- 深度研究新增可审阅的自适应计划、持久化研究轮次、论据审计、部分及版本化报告、
+  内置与自定义模板、专业学术/监管来源、前沿节点调整，以及绑定报告版本的论据问答。
+- 新增显式启用的 WebDAV 或 S3/MinIO 加密个人保险库，包含按领域拆分的 Automerge
+  文档、加密 OPFS 分块、冲突处理，并避免同步覆盖下载期间产生的本地编辑。
+- 扩展仅在浏览器前台运行的 Agent Runtime：动态 Tool/Skill、任务计划、结构化提问、
+  分 Scope Memory、revision 工作区、不可变 Artifact、可恢复运行和按副作用授权。
+- 新增可自定义快捷键、临时文本会话、统一的侧栏/标题栏会话操作、Redis 只读分享，
+  并修复停止后切换及继续生成时的状态保留。
+- 新增渐进式 CommonMark 渲染、持久化文档块、HEIC/HEIF 转换、分阶段图片压缩，
+  以及 OpenAI、Google、Anthropic 原生供应商的文件化多模态请求。
+- 通过逐请求 CSP nonce、Docker 访问密码配置、Node 24 对齐、tag/版本校验，
+  以及发布前源码、Next.js、Worker 与依赖检查加强托管和自托管发布流程。
+- 自定义模板、前沿调整、报告问答等研究扩展记录仍只保存在当前浏览器，
+  尚不进入 ZIP 备份或端到端加密同步。
 
 完整发布说明见 [CHANGELOG.md](CHANGELOG.md)。
 
@@ -98,7 +90,9 @@ Neo Chat 是一个可自托管、本地优先的 AI 对话应用，基于 Next.j
   导出保留限制说明；问答快照失败不阻碍报告交付。完整报告以不可变 Artifact 保存，
   聊天保留其引用。报告标准标题支持中英日文，附录放入补充材料标签页，Markdown/PDF
   共用下载菜单；研究搜索串行执行并至少间隔两秒，Tavily 研究请求最多等待 90 秒。
-  搜索图片及其来源可作为报告配图，不计为已验证论据。点击文档标题或正文预览即可打开阅读。
+  搜索图片及其来源可作为报告配图，不计为已验证论据。点击文档标题或正文预览即可
+  打开阅读。自定义模板、前沿调整、报告问答等研究扩展记录仍只保存在当前浏览器，
+  尚不进入 ZIP 备份或端到端加密同步。
 - 支持参数化文本技能：本地化公共目录、安装/卸载、编辑内置技能、本地自定义
   技能、自动选择、工作区预设，以及最多四个普通技能组成的有序非嵌套 bundle。
 - 支持 OpenAPI 风格插件工具，以及 remote Streamable HTTP 与 legacy SSE MCP
@@ -148,7 +142,7 @@ Neo Chat 是一个可自托管、本地优先的 AI 对话应用，基于 Next.j
 
 ### 环境要求
 
-- Node.js 22
+- Node.js 24
 - pnpm 10.30.3
 
 ### 本地运行
@@ -168,21 +162,45 @@ cp .env.example .env.local
 
 大多数设置都可以在浏览器中管理。服务端环境变量适用于共享默认模型供应商、托管部署安全、访问密码保护、共享运行时存储，或统一管理搜索、RAG、文档解析、语音、记忆和 HTML 视觉渲染等默认能力。
 
+## 键盘快捷键
+
+Neo Chat 页面获得焦点时快捷键才会生效。可在**设置 > 快捷键**中修改或清除；
+`Mod` 在 macOS 上表示 `Command`，在其他平台表示 `Ctrl`。
+
+| 操作           | 默认快捷键  |
+| -------------- | ----------- |
+| 全局搜索       | `Mod+K`     |
+| 新建会话       | `Mod+Alt+N` |
+| 聚焦输入框     | `Mod+/`     |
+| 切换会话模式   | `Mod+M`     |
+| 展开或收起侧栏 | `Mod+\\`    |
+| 打开快捷键设置 | `Mod+Alt+S` |
+| 停止生成       | `Mod+Alt+.` |
+
+快捷键偏好属于核心设置，会进入版本化应用备份；启用端到端加密同步时，
+也会进入加密的核心设置同步文档。
+
 ## 部署
 
 ### Docker Compose
 
 ```bash
-docker compose up --build
+ACCESS_PASSWORD='请替换为高强度密码' docker compose up --build
 ```
 
-Compose 会在 `http://localhost:3000` 暴露 Neo Chat，并使用本地/自托管安全默认值。生产 Docker 部署应设置稳定的 BYOK 值，托管或多实例部署应使用共享存储，并且只有在代理会剥离伪造转发头时才启用 `TRUST_PROXY_HEADERS`。
+Compose 要求设置访问密码，会在 `http://localhost:3000` 暴露 Neo Chat，
+并使用本地/自托管安全默认值。生产 Docker 部署应设置稳定的 BYOK 值，
+托管或多实例部署应使用共享存储，并且只有在代理会剥离伪造转发头时才启用
+`TRUST_PROXY_HEADERS`。
 
 ### Docker 镜像
 
 ```bash
 docker build -t neo-chat:local .
-docker run --rm -p 3000:3000 -e BYOK_ALLOW_EPHEMERAL_KEY=true neo-chat:local
+docker run --rm -p 3000:3000 \
+  -e ACCESS_PASSWORD='请替换为高强度密码' \
+  -e BYOK_ALLOW_EPHEMERAL_KEY=true \
+  neo-chat:local
 ```
 
 Docker workflow 会为 pull request 构建镜像，并将 `main` / `v*` 标签发布到 GitHub Container Registry：

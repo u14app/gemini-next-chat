@@ -41,6 +41,7 @@
   "searchUnavailableBaseUrl": "{provider} 検索を使用するには、設定でベース URL を入力する必要があります。",
   "searchUnavailableGeneric": "現在の構成では検索機能を利用できません。",
   "chatModeLabel": "モード",
+  "chatModeClose": "モード選択を閉じる",
   "chatModeAria": "モード: {mode}",
   "chatModeAuto": "自動",
   "chatModeAutoDescription": "タスクに合わせて適切なモードを選びます。",

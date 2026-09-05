@@ -159,6 +159,9 @@ export function createResearchTask(
     sessionId: input.sessionId,
     ...(input.userMessageId ? { userMessageId: input.userMessageId } : {}),
     ...(input.cardMessageId ? { cardMessageId: input.cardMessageId } : {}),
+    ...(input.requestModel?.trim()
+      ? { requestModel: input.requestModel.trim() }
+      : {}),
     goal: input.goal.trim(),
     status: "draft",
     createdAt: now,

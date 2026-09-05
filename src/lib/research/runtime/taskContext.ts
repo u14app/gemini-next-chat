@@ -6,6 +6,8 @@ import { useSettingsStore } from "@/store/core/settingsStore";
 import { useCoreSettingsStore } from "@/store/core/coreSettingsStore";
 import { useKnowledgeStore } from "@/store/core/knowledgeStore";
 
+import { ResearchModelUnavailableError } from "./dependencyErrors";
+
 function getSessionConfig(session: Session): ChatConfig {
   const base = useChatStore.getState().chatConfig;
   return {
@@ -34,7 +36,9 @@ export function resolveTaskContext(task: ResearchTask, requestModel?: string) {
   const core = useCoreSettingsStore.getState();
   const session = chatState.sessions.find((item) => item.id === task.sessionId);
   if (!session) throw new Error("The research chat no longer exists.");
-  const model = task.sourceSnapshot?.model || requestModel || session.model;
+  const model =
+    task.sourceSnapshot?.model || task.requestModel || requestModel?.trim();
+  if (!model) throw new ResearchModelUnavailableError();
   const workspace = session.workspaceId
     ? chatState.workspaces.find((item) => item.id === session.workspaceId)
     : undefined;
@@ -76,6 +80,7 @@ export interface ResearchDependencyError {
   code:
     | "RESEARCH_OFFLINE"
     | "RESEARCH_MODEL_UNAVAILABLE"
+    | "RESEARCH_WORKSPACE_UNAVAILABLE"
     | "RESEARCH_SOURCE_SCOPE_WARNING"
     | "RESEARCH_SOURCE_REVOKED"
     | "RESEARCH_CHECKPOINT_UNAVAILABLE";

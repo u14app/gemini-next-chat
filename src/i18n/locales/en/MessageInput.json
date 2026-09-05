@@ -41,6 +41,7 @@
   "searchUnavailableBaseUrl": "{provider} search requires a base URL in Settings.",
   "searchUnavailableGeneric": "Search is unavailable with the current configuration.",
   "chatModeLabel": "Mode",
+  "chatModeClose": "Close mode picker",
   "chatModeAria": "Mode: {mode}",
   "chatModeAuto": "Auto",
   "chatModeAutoDescription": "Chooses the right mode for the task.",

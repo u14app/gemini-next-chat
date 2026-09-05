@@ -303,8 +303,8 @@ describe("access proxy", () => {
     clearRequestRateLimitBuckets();
   });
 
-  it("matches API and public reading routes", () => {
-    expect(proxyConfig.matcher).toEqual(["/api/:path*", "/share/:path*"]);
+  it("matches application HTML, API, and public reading routes", () => {
+    expect(proxyConfig.matcher).toEqual(["/", "/api/:path*", "/share/:path*"]);
   });
 
   it("keeps public reading pages uncached and unindexed behind a site password", async () => {

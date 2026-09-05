@@ -629,14 +629,40 @@ export function useResponseBranchFlow(deps: ChatFlowDeps) {
     );
     const resumableLongTextBlock =
       interruptedLongTextBlocks[interruptedLongTextBlocks.length - 1];
-    const continuationOutputBlocks = resumableLongTextBlock
-      ? interruptedMessage.outputBlocks
-      : undefined;
+    const continuationOutputBlocks = interruptedMessage.outputBlocks;
+    const continuationUserMessage = sessionMessages
+      .slice(0, messageIndex)
+      .reverse()
+      .find((message) => message.role === "user");
     const previousRequestId = interruptedMessage.generation.requestId;
     const requestId = uuidv7();
     const startedAt = Date.now();
     const generation = beginActiveGeneration();
     let receivedVisibleOutput = false;
+    let receivedToolActivity = false;
+    let latestContent = existingContent;
+    let latestReasoning = existingReasoning;
+    let latestContinuationContent = "";
+    let latestOutputBlocks = continuationOutputBlocks;
+    const normalizeContinuationOutputBlocks = (
+      outputBlocks: NonNullable<Message["outputBlocks"]>,
+    ) => {
+      const completeOutputBlocks =
+        outputBlocks.length === 0 && continuationOutputBlocks?.length
+          ? continuationOutputBlocks
+          : outputBlocks;
+      return resumableLongTextBlock
+        ? completeOutputBlocks.map((block) =>
+            block.type === "text" && block.id === resumableLongTextBlock.id
+              ? {
+                  ...block,
+                  content:
+                    resumableLongTextBlock.content + latestContinuationContent,
+                }
+              : block,
+          )
+        : completeOutputBlocks;
+    };
     let streamCheckpoint: ReturnType<
       typeof createStreamCheckpointController
     > | null = null;
@@ -704,7 +730,7 @@ export function useResponseBranchFlow(deps: ChatFlowDeps) {
       await runWithPreOutputRetry({
         signal: generation.controller.signal,
         hasVisibleOutput: () => receivedVisibleOutput,
-        hasToolActivity: () => false,
+        hasToolActivity: () => receivedToolActivity,
         onAttempt: (attempt) => {
           const current = useChatStore
             .getState()
@@ -735,49 +761,101 @@ export function useResponseBranchFlow(deps: ChatFlowDeps) {
             },
             (streamText, streamReasoning, outputBlocks) => {
               if (!isGenerationRunActive(generation)) return;
-              const continuationContent = trimContinuationOverlap(
+              latestContinuationContent = trimContinuationOverlap(
                 existingContent,
                 streamText,
               );
               receivedVisibleOutput =
                 receivedVisibleOutput ||
                 Boolean(streamText || streamReasoning || outputBlocks?.length);
-              const content = existingContent + continuationContent;
-              const reasoning = streamReasoning
+              latestContent = existingContent + latestContinuationContent;
+              latestReasoning = streamReasoning
                 ? existingReasoning +
                   trimContinuationOverlap(existingReasoning, streamReasoning)
                 : existingReasoning;
-              const normalizedOutputBlocks = resumableLongTextBlock
-                ? outputBlocks?.map((block) =>
-                    block.type === "text" &&
-                    block.id === resumableLongTextBlock.id
-                      ? {
-                          ...block,
-                          content:
-                            resumableLongTextBlock.content +
-                            continuationContent,
-                        }
-                      : block,
-                  )
-                : undefined;
+              if (outputBlocks !== undefined) {
+                latestOutputBlocks =
+                  normalizeContinuationOutputBlocks(outputBlocks);
+              }
               streamRenderer?.schedule({
-                content,
-                reasoning: reasoning || undefined,
-                outputBlocks: normalizedOutputBlocks,
+                content: latestContent,
+                reasoning: latestReasoning || undefined,
+                outputBlocks: latestOutputBlocks,
               });
-              streamCheckpoint?.record(content.length + reasoning.length);
+              streamCheckpoint?.record(
+                latestContent.length + latestReasoning.length,
+              );
             },
             [effectiveContext.systemInstruction, continuationSkillContext]
               .filter(Boolean)
               .join("\n\n"),
-            undefined,
-            undefined,
-            undefined,
-            undefined,
+            (isSearching, results) => {
+              if (!isGenerationRunActive(generation)) return;
+              streamRenderer?.flush();
+              receivedVisibleOutput = receivedVisibleOutput || isSearching;
+              const currentMessage = useChatStore
+                .getState()
+                .activeMessages.find((message) => message.id === messageId);
+              updateMessage(
+                sessionId,
+                messageId,
+                buildSearchUpdate(currentMessage, isSearching, results, {
+                  replaceResults: Boolean(resumableAgentRunId),
+                }),
+              );
+            },
+            (toolCalls) => {
+              if (!isGenerationRunActive(generation)) return;
+              streamRenderer?.flush();
+              receivedToolActivity =
+                receivedToolActivity || toolCalls.length > 0;
+              updateMessage(sessionId, messageId, { toolCalls });
+            },
+            (images) => {
+              if (!isGenerationRunActive(generation)) return;
+              streamRenderer?.flush();
+              receivedVisibleOutput =
+                receivedVisibleOutput || images.length > 0;
+              const currentMessage = useChatStore
+                .getState()
+                .activeMessages.find((message) => message.id === messageId);
+              updateMessage(sessionId, messageId, {
+                attachments: [
+                  ...(currentMessage?.attachments || []),
+                  ...images,
+                ],
+              });
+            },
+            (usage) => {
+              if (!isGenerationRunActive(generation)) return;
+              const currentMessages = useChatStore.getState().activeMessages;
+              handleTokenUsageUpdate(
+                usage,
+                currentMessages,
+                continuationUserMessage?.id || "",
+                messageId,
+                sessionId,
+                updateMessage,
+              );
+            },
             generation.controller.signal,
             resumableAgentRunId ? effectiveContext.activePluginIds : [],
             undefined,
-            undefined,
+            (outputBlocks) => {
+              if (!isGenerationRunActive(generation)) return;
+              streamRenderer?.flush();
+              latestOutputBlocks =
+                normalizeContinuationOutputBlocks(outputBlocks);
+              receivedVisibleOutput =
+                receivedVisibleOutput || outputBlocks.length > 0;
+              updateMessageContent(
+                sessionId,
+                messageId,
+                latestContent,
+                latestReasoning || undefined,
+                latestOutputBlocks,
+              );
+            },
             toolConfirmationController,
             resumableAgentRunId
               ? {

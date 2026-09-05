@@ -18,6 +18,7 @@ function createV2TaskFixture(): ResearchTask {
   const task = createResearchTask({
     id: "research-v2",
     sessionId: "session-v2",
+    requestModel: "provider:request-model",
     goal: "Persist a v2 task",
     requestedStrategy: {
       initialBreadth: 3,
@@ -364,6 +365,7 @@ describe("ResearchTask repository", () => {
     await repository.save(task);
 
     const restored = await repository.get(task.id);
+    expect(restored?.requestModel).toBe("provider:request-model");
     expect(restored?.planVersions[0].steps[0]).toMatchObject({ id: "step-v2" });
     expect(restored?.planVersions[0].scope).toMatchObject({
       preferredDomains: ["docs.example.com"],
@@ -407,6 +409,9 @@ describe("ResearchTask repository", () => {
       },
     });
     expect(parseResearchTaskValue(task)).toEqual(task);
+    const taskWithoutRequestModel = structuredClone(task);
+    delete taskWithoutRequestModel.requestModel;
+    expect(parseResearchTaskValue(taskWithoutRequestModel)).not.toBeNull();
     const oldV2Task = structuredClone(task);
     for (const wave of oldV2Task.reportRuns[0].waves) {
       delete wave.packetStatus;

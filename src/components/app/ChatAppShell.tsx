@@ -43,6 +43,7 @@ import type {
   ToolCall,
   ToolConfirmationDecision,
   ToolConfirmationRequest,
+  Workspace,
 } from "@/types";
 import { getActiveMessagePath } from "@/lib/chat/messageTree";
 import { getSessionDisplayTitle } from "@/lib/chat/sessionTitle";
@@ -153,8 +154,9 @@ interface ChatAppShellProps {
   handleSettingsTabChange: (tab: SettingsTabId) => void;
   stopActiveGenerationWithFeedback: () => Promise<void>;
   selectSession: (id: string) => Promise<void>;
-  handleNewChat: () => void;
-  handleStartTemporaryChat: () => void;
+  handleNewChat: () => Promise<void>;
+  handleNewChatInWorkspace: (workspace: Workspace) => Promise<void>;
+  handleStartTemporaryChat: () => Promise<void>;
   handleDeleteSession: (sessionId: string) => Promise<void>;
   updateSessionTitle: (id: string, title: string) => void;
   toggleSessionPin: (id: string) => void;
@@ -228,6 +230,7 @@ const ChatAppShell = ({
   stopActiveGenerationWithFeedback,
   selectSession,
   handleNewChat,
+  handleNewChatInWorkspace,
   handleStartTemporaryChat,
   handleDeleteSession,
   updateSessionTitle,
@@ -341,6 +344,7 @@ const ChatAppShell = ({
       pendingToolConfirmation?.sessionId &&
       pendingToolConfirmation.sessionId !== currentSessionId
     ) {
+      if (isGenerating) await stopActiveGenerationWithFeedback();
       await selectSession(pendingToolConfirmation.sessionId);
     }
     navigateToPanel("chat");
@@ -356,9 +360,11 @@ const ChatAppShell = ({
     }
   }, [
     currentSessionId,
+    isGenerating,
     navigateToPanel,
     pendingToolConfirmation,
     selectSession,
+    stopActiveGenerationWithFeedback,
   ]);
 
   const openGlobalSearch = React.useCallback(() => {
@@ -396,7 +402,7 @@ const ChatAppShell = ({
         return true;
       },
       newChat: () => {
-        handleNewChat();
+        void handleNewChat();
         return true;
       },
       focusComposer,
@@ -632,6 +638,13 @@ const ChatAppShell = ({
       stopActiveGenerationWithFeedback,
     ],
   );
+  const handleSidebarNewChatInWorkspace = React.useCallback(
+    async (workspace: Workspace) => {
+      if (isGenerating) await stopActiveGenerationWithFeedback();
+      await handleNewChatInWorkspace(workspace);
+    },
+    [handleNewChatInWorkspace, isGenerating, stopActiveGenerationWithFeedback],
+  );
   return (
     <SessionActionsProvider
       onDelete={handleDeleteSession}
@@ -660,14 +673,15 @@ const ChatAppShell = ({
         <Sidebar
           sessions={sessions}
           currentSessionId={currentSessionId}
-          onSelectSession={(id) => {
+          onSelectSession={async (id) => {
             if (isGenerating) {
-              void stopActiveGenerationWithFeedback();
+              await stopActiveGenerationWithFeedback();
             }
-            void selectSession(id);
+            await selectSession(id);
             navigateToPanel("chat");
           }}
           onNewChat={handleNewChat}
+          onNewChatInWorkspace={handleSidebarNewChatInWorkspace}
           isOpen={isSidebarOpen}
           isHidden={isNonDesktopViewport && !isSidebarOpen}
           toggleSidebar={() => setIsSidebarOpen((open) => !open)}

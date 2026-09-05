@@ -2,11 +2,12 @@
 
 import React from "react";
 import { ExternalLink, SearchCheck } from "lucide-react";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 
 import { getSafeExternalHref } from "@/lib/security/clientUrl";
 
 import type { ResearchEvidenceView } from "../types";
+import { formatResearchDateTime } from "../formatters";
 
 export function EvidenceInspector({
   evidence,
@@ -15,6 +16,7 @@ export function EvidenceInspector({
   evidence: ResearchEvidenceView | undefined;
   idPrefix?: string;
 }) {
+  const locale = useLocale();
   const t = useTranslations("Research");
   if (!evidence) {
     return (
@@ -70,7 +72,7 @@ export function EvidenceInspector({
         <div className="flex justify-between gap-3">
           <dt className="text-muted-foreground">{t("evidence.retrieved")}</dt>
           <dd className="text-right text-foreground">
-            {new Date(evidence.retrievedAt).toLocaleString()}
+            {formatResearchDateTime(evidence.retrievedAt, locale)}
           </dd>
         </div>
         {evidence.locator ? (

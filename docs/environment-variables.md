@@ -24,7 +24,7 @@ Build command: pnpm build:worker
 Deploy command: pnpm exec opennextjs-cloudflare deploy -- --keep-vars
 ```
 
-Use Node 22 and Corepack-managed `pnpm@10.30.3` for local builds, CI, Docker,
+Use Node 24 and Corepack-managed `pnpm@10.30.3` for local builds, CI, Docker,
 and Workers Builds. Worker PRs should also pass `pnpm worker:size` and
 `pnpm worker:dry-run` after `pnpm build:worker`.
 

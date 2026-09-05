@@ -8,6 +8,7 @@ import {
 } from "@/lib/research/reportSections";
 
 import type { ResearchEvidenceView } from "../types";
+import { formatResearchTokens } from "../formatters";
 
 export type WorkbenchTab =
   | "plan"
@@ -145,9 +146,6 @@ export function createReportPresentation(
   };
 }
 
-export function formatTokens(value: number): string {
-  return new Intl.NumberFormat(undefined, {
-    notation: value >= 1_000 ? "compact" : "standard",
-    maximumFractionDigits: 1,
-  }).format(value);
+export function formatTokens(value: number, locale: string): string {
+  return formatResearchTokens(value, locale);
 }

@@ -1,18 +1,23 @@
-import { createHash } from "node:crypto";
 import type { DeploymentMode } from "./deployment";
 import { getDeploymentMode } from "./deployment";
-import { THEME_INIT_SCRIPT } from "../themeInitScript";
+import { THEME_INIT_SCRIPT_SHA256 } from "../themeInitScript";
 
 export interface SecurityHeader {
   key: string;
   value: string;
 }
 
-function buildCsp(mode: DeploymentMode): string {
+export function getContentSecurityPolicy(
+  mode: DeploymentMode,
+  nonce?: string,
+): string {
   const isHosted = mode === "hosted";
-  const themeScriptHash = createHash("sha256")
-    .update(THEME_INIT_SCRIPT)
-    .digest("base64");
+  const hostedScriptSources = [
+    "script-src 'self'",
+    `'sha256-${THEME_INIT_SCRIPT_SHA256}'`,
+    "'wasm-unsafe-eval'",
+    ...(nonce ? [`'nonce-${nonce}'`] : []),
+  ].join(" ");
 
   return [
     "default-src 'self'",
@@ -21,7 +26,7 @@ function buildCsp(mode: DeploymentMode): string {
     "frame-ancestors 'none'",
     "form-action 'self'",
     isHosted
-      ? `script-src 'self' 'sha256-${themeScriptHash}'`
+      ? hostedScriptSources
       : "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
     "style-src 'self' 'unsafe-inline'",
     `img-src 'self' data: blob: https:${isHosted ? "" : " http:"}`,
@@ -39,7 +44,7 @@ export function getSecurityHeaders(
   return [
     {
       key: "Content-Security-Policy",
-      value: buildCsp(mode),
+      value: getContentSecurityPolicy(mode),
     },
     { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
     { key: "X-Content-Type-Options", value: "nosniff" },

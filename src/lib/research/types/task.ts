@@ -32,6 +32,8 @@ export interface ResearchTask {
   sessionId: string;
   userMessageId?: string;
   cardMessageId?: string;
+  /** Exact model selected for the request that created this task. */
+  requestModel?: string;
   goal: string;
   status: ResearchTaskStatus;
   createdAt: number;
@@ -63,6 +65,7 @@ export interface CreateResearchTaskInput {
   sessionId: string;
   userMessageId?: string;
   cardMessageId?: string;
+  requestModel?: string;
   goal: string;
   budgetPreset?: ResearchBudgetPreset;
   requestedStrategy?: ResearchStrategy;

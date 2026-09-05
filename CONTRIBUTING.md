@@ -8,7 +8,7 @@ storage behavior, and hosted deployment safety.
 
 Requirements:
 
-- Node.js 22
+- Node.js 24
 - pnpm 10.30.3
 
 Install dependencies and start the app:

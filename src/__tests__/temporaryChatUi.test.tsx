@@ -180,8 +180,9 @@ function renderShell(
     handleSettingsTabChange: vi.fn(),
     stopActiveGenerationWithFeedback: vi.fn(async () => undefined),
     selectSession: vi.fn(async () => undefined),
-    handleNewChat: vi.fn(),
-    handleStartTemporaryChat: vi.fn(),
+    handleNewChat: vi.fn(async () => undefined),
+    handleNewChatInWorkspace: vi.fn(async () => undefined),
+    handleStartTemporaryChat: vi.fn(async () => undefined),
     handleDeleteSession: vi.fn(async () => undefined),
     updateSessionTitle: vi.fn(),
     toggleSessionPin: vi.fn(),
@@ -229,6 +230,7 @@ function renderSidebar(sessions: Session[], workspaces: Workspace[] = []) {
         currentSessionId={null}
         onSelectSession={vi.fn()}
         onNewChat={vi.fn()}
+        onNewChatInWorkspace={vi.fn(async () => undefined)}
         isOpen
         toggleSidebar={vi.fn()}
         onOpenPluginMarket={vi.fn()}
@@ -374,6 +376,93 @@ describe("temporary chat shell controls", () => {
         name: "More actions for Temporary with messages",
       }),
     ).toBeTruthy();
+  });
+});
+
+describe("generation navigation ordering", () => {
+  it("waits for exactly one stop before selecting a sidebar session", async () => {
+    const user = userEvent.setup();
+    const target = makeSession("Target session", { messageCount: 1 });
+    let finishStop!: () => void;
+    const stopActiveGenerationWithFeedback = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          finishStop = resolve;
+        }),
+    );
+    const selectSession = vi.fn(async () => undefined);
+    const navigateToPanel = vi.fn();
+    renderShell({
+      sessions: [target],
+      currentSessionId: "Current session",
+      isGenerating: true,
+      stopActiveGenerationWithFeedback,
+      selectSession,
+      navigateToPanel,
+    });
+
+    await user.click(screen.getByRole("button", { name: target.title }));
+
+    expect(stopActiveGenerationWithFeedback).toHaveBeenCalledOnce();
+    expect(selectSession).not.toHaveBeenCalled();
+
+    finishStop();
+    await waitFor(() => {
+      expect(selectSession).toHaveBeenCalledOnce();
+    });
+    expect(selectSession).toHaveBeenCalledWith(target.id);
+    expect(navigateToPanel).toHaveBeenCalledWith("chat");
+    expect(
+      stopActiveGenerationWithFeedback.mock.invocationCallOrder[0],
+    ).toBeLessThan(selectSession.mock.invocationCallOrder[0]);
+    expect(selectSession.mock.invocationCallOrder[0]).toBeLessThan(
+      navigateToPanel.mock.invocationCallOrder.at(-1)!,
+    );
+  });
+
+  it("stops before delegating workspace session creation", async () => {
+    const user = userEvent.setup();
+    const workspace: Workspace = {
+      id: "workspace-generation",
+      name: "Generation workspace",
+      knowledgeCollectionIds: [],
+      files: [],
+      createdAt: now,
+    };
+    mocks.chatState.workspaces = [workspace];
+    let finishStop!: () => void;
+    const stopActiveGenerationWithFeedback = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          finishStop = resolve;
+        }),
+    );
+    const handleNewChatInWorkspace = vi.fn(async () => undefined);
+    renderShell({
+      isGenerating: true,
+      stopActiveGenerationWithFeedback,
+      handleNewChatInWorkspace,
+    });
+
+    await user.click(
+      screen.getByRole("button", {
+        name: "More actions for workspace Generation workspace",
+      }),
+    );
+    await user.click(screen.getByRole("menuitem", { name: "New Chat" }));
+
+    expect(stopActiveGenerationWithFeedback).toHaveBeenCalledOnce();
+    expect(handleNewChatInWorkspace).not.toHaveBeenCalled();
+    expect(mocks.chatState.createSession).not.toHaveBeenCalled();
+
+    finishStop();
+    await waitFor(() => {
+      expect(handleNewChatInWorkspace).toHaveBeenCalledOnce();
+    });
+    expect(handleNewChatInWorkspace).toHaveBeenCalledWith(workspace);
+    expect(
+      stopActiveGenerationWithFeedback.mock.invocationCallOrder[0],
+    ).toBeLessThan(handleNewChatInWorkspace.mock.invocationCallOrder[0]);
   });
 });
 

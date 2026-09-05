@@ -49,6 +49,7 @@ import type { BuiltinKnowledgeScope } from "@/services/api/chat/builtinTools";
 import { resolveTaskContext } from "./taskContext";
 import { RESEARCH_RECON_LIMITS } from "../orchestration/strategy";
 import { createQuerySignal } from "@/services/api/chat/builtinTools/researchQueryBudget";
+import { ResearchModelUnavailableError } from "./dependencyErrors";
 
 /**
  * Extra closed-book model rounds spent repairing a plan the host could not fix
@@ -87,10 +88,14 @@ export async function prepareResearchPlan({
   const initial = store.tasksById[taskId];
   if (!initial) throw new Error("Research task was not found.");
   try {
-    const { model, chatConfig, effective, settings } = resolveTaskContext(
+    const provisionalSnapshot = await createSourceSnapshot(
       initial,
       requestModel,
     );
+    const { model, chatConfig, effective, settings } = resolveTaskContext({
+      ...initial,
+      sourceSnapshot: provisionalSnapshot,
+    });
     const frozenTemplate = await freezeResearchTaskTemplate(
       taskId,
       effective.researchTemplate,
@@ -100,10 +105,6 @@ export async function prepareResearchPlan({
     const template: ResearchTemplate | null = frozenTemplate.template;
     const preserveInitialTemplateContract = Boolean(
       template && initial.planVersions.length === 0 && !adjustment?.trim(),
-    );
-    const provisionalSnapshot = await createSourceSnapshot(
-      initial,
-      requestModel,
     );
     const allowedSourceTypes =
       getResearchSourceSnapshotTypes(provisionalSnapshot);
@@ -531,6 +532,23 @@ export async function prepareResearchPlan({
               ...current,
               error: {
                 code: "AGENT_RUN_LEASE_CONFLICT",
+                message,
+                recoverable: true,
+              },
+            },
+      );
+      onError?.(message);
+      return;
+    }
+    if (error instanceof ResearchModelUnavailableError) {
+      const message = t("runtime.dependency.modelUnavailable");
+      await store.updateTask(taskId, (current) =>
+        current.status === "cancelled"
+          ? current
+          : {
+              ...transitionResearchTask(current, "paused"),
+              error: {
+                code: error.code,
                 message,
                 recoverable: true,
               },

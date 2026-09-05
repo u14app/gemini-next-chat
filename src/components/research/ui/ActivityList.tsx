@@ -9,10 +9,12 @@ import {
   CircleX,
   LoaderCircle,
 } from "lucide-react";
+import { useLocale } from "next-intl";
 
 import { cn } from "@/lib/utils/cn";
 
 import type { ResearchActivityView } from "../types";
+import { formatResearchTime } from "../formatters";
 
 /**
  * The run's activity timeline. Shared by the workbench panel and the progress
@@ -25,6 +27,7 @@ export function ActivityList({
   activities: ResearchActivityView[];
   limit?: number;
 }) {
+  const locale = useLocale();
   const items = limit ? activities.slice(-limit) : activities;
   return (
     <ol className="border-l border-border pl-4">
@@ -90,7 +93,7 @@ export function ActivityList({
                   {item.title}
                 </h3>
                 <time className="shrink-0 text-[11px] text-muted-foreground">
-                  {new Date(item.createdAt).toLocaleTimeString()}
+                  {formatResearchTime(item.createdAt, locale)}
                 </time>
               </div>
               {item.detail ? (

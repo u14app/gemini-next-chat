@@ -2,7 +2,7 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import { ArrowLeft, ArrowUpRight, Telescope, Trash2 } from "lucide-react";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 
 import MarkdownRenderer from "@/components/content/MarkdownRenderer";
 import { Button } from "@/components/ui/primitives";
@@ -19,6 +19,7 @@ import { useTaskActions } from "@/hooks/research/useTaskActions";
 import { useResearchRuntime } from "./ResearchRuntimeProvider";
 import { createReportSectionLabels } from "@/lib/research/reportSectionLabels";
 import { createReportPresentation } from "./workbench/workbenchUtils";
+import { formatResearchDateTime } from "./formatters";
 
 export function ConnectedResearchTaskCard({
   taskId,
@@ -88,6 +89,7 @@ export function ConnectedResearchTaskList({
 }: {
   onClose: () => void;
 }) {
+  const locale = useLocale();
   const t = useTranslations("Research");
   const currentSessionId = useChatStore((state) => state.currentSessionId);
   const tasksById = useResearchStore((state) => state.tasksById);
@@ -174,7 +176,9 @@ export function ConnectedResearchTaskList({
                       </span>
                       <span className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
                         <StatusLabel status={task.status} />
-                        <span>{new Date(task.updatedAt).toLocaleString()}</span>
+                        <span>
+                          {formatResearchDateTime(task.updatedAt, locale)}
+                        </span>
                       </span>
                     </span>
                     <ArrowUpRight

@@ -79,6 +79,7 @@ export function useResearchToolBridge({
           sessionId: context.sessionId,
           userMessageId: context.userMessageId,
           cardMessageId: context.modelMessageId,
+          requestModel: context.model,
           goal: args.query,
           budgetPreset,
           requestedStrategy: effectiveStrategy,

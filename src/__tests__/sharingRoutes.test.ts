@@ -165,6 +165,21 @@ describe("share handlers", () => {
 });
 
 describe("site password sharing exception", () => {
+  it("adds a per-request hosted CSP nonce to application HTML", async () => {
+    vi.stubEnv("DEPLOYMENT_MODE", "hosted");
+    const response = await middleware(new NextRequest("https://neo.test/"));
+    const csp = response.headers.get("content-security-policy") || "";
+    const nextResponse = await middleware(new NextRequest("https://neo.test/"));
+    const nextCsp = nextResponse.headers.get("content-security-policy") || "";
+    const scriptSrc = csp.match(/script-src[^;]+/)?.[0] || "";
+
+    expect(csp).toMatch(/'nonce-[a-f0-9]{32}'/);
+    expect(nextCsp).toMatch(/'nonce-[a-f0-9]{32}'/);
+    expect(nextCsp).not.toBe(csp);
+    expect(scriptSrc).toContain("'wasm-unsafe-eval'");
+    expect(scriptSrc).not.toContain("'unsafe-inline'");
+  });
+
   it("marks the public HTML page no-store and no-referrer without requiring the site password", async () => {
     const response = await middleware(
       new NextRequest(`https://neo.test/share/${id}`),
