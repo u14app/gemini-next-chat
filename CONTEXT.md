@@ -1,4 +1,6 @@
-# Research terminology
+# Product terminology
+
+## Research
 
 - **Research plan / 研究计划:** The user-reviewable objective, scope, steps,
   sources, and deliverable that must be approved before research begins.
@@ -20,3 +22,17 @@
 - **Evidence snapshot / 证据快照:** The report's fixed evidence and claims used for
   questions about that exact version. Its availability is independent of whether
   the report can be read or exported.
+
+- **Image material / 图片资料:** A discovered image with its available description
+  and source, used to illustrate a report. An unexamined image is not verified
+  evidence for a claim.
+
+## Conversations
+
+- **Share snapshot / 分享快照:** A read-only publication of the selected
+  conversation branch at a particular moment. Later conversation changes become
+  public only after an explicit update; deleting the original conversation
+  cancels its share.
+- **Temporary conversation / 临时会话:** A chat whose contents are retained only
+  while it is active, without saved history or persistent memory. Leaving the
+  conversation discards its contents.

@@ -42,7 +42,7 @@ describe("chat timeline virtualization", () => {
     expect(shell).toContain("[focusedMessageId, messages.length, viewMode]");
   });
 
-  it("defers expensive markdown work until it is near the chat viewport", () => {
+  it("loads detected Markdown extensions without waiting for the chat viewport", () => {
     const markdown = readProjectFile(
       "src/components/content/MarkdownRendererClient.tsx",
     );
@@ -50,9 +50,30 @@ describe("chat timeline virtualization", () => {
       "src/components/content/markdown/DiagramBlock.tsx",
     );
 
-    expect(markdown).toContain('rootMargin: "600px 0px"');
-    expect(markdown).toContain("shouldUseHeavyMarkdown");
-    expect(diagrams).toContain('rootMargin: "600px 0px"');
+    const resources = readProjectFile(
+      "src/components/content/markdown/extensionResources.ts",
+    );
+    const nodes = readProjectFile(
+      "src/components/content/markdown/MarkdownNodes.tsx",
+    );
+
+    expect(markdown).toContain(
+      "useExtension(gfmResource, prepared.candidates.gfm)",
+    );
+    expect(markdown).toContain(
+      "useExtension(mathSyntaxResource, prepared.candidates.math)",
+    );
+    expect(markdown).toContain(
+      "useExtension(htmlResource, prepared.candidates.html)",
+    );
+    expect(nodes).toContain(
+      "useExtension(diagramResource, Boolean(diagramType))",
+    );
+    expect(resources).toContain("if (enabled) void resource.load()");
+    expect(resources).toContain('() => import("./highlightExtension")');
+    expect(markdown).not.toContain("IntersectionObserver");
+    expect(markdown).not.toContain("shouldUseHeavyMarkdown");
+    expect(diagrams).not.toContain("IntersectionObserver");
   });
 
   it("avoids smooth page scrolling while reasoning streams", () => {

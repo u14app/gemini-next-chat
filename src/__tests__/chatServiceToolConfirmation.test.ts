@@ -1,3 +1,7 @@
+import {
+  registerTemporarySession,
+  endTemporarySession,
+} from "@/lib/chat/sessionRetention";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { PLUGIN_EXECUTION_LIMITS } from "../config/limits";
 import type {
@@ -387,6 +391,133 @@ describe("chat service tool execution", () => {
     mocks.readWorkspaceText.mockReset();
     mocks.searchCompatibility = { enabled: true, mode: "native" };
     vi.mocked(createSearchProvider).mockReset();
+  });
+
+  it("enforces text-only temporary requests despite inherited workflow, plugins and image events", async () => {
+    const sessionId = "temporary-stream-policy";
+    registerTemporarySession(sessionId);
+    mocks.supportsImageGeneration.mockReturnValue(true);
+    mocks.searchCompatibility = { enabled: true, mode: "openai-web" };
+    const snapshots: MessageOutputBlock[][] = [];
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(async () =>
+        sseResponse([
+          {
+            type: "image",
+            image: {
+              id: "private-image",
+              fileName: "private.png",
+              mimeType: "image/png",
+              data: "AAAA",
+            },
+          },
+          { type: "content", content: "temporary answer" },
+          { type: "done" },
+        ]),
+      );
+    const { streamChatResponse } = await import("../services/api/chatService");
+    await streamChatResponse(
+      sessionId,
+      "openai:gpt-test",
+      [],
+      "private request",
+      [
+        {
+          id: "attachment",
+          fileName: "secret.txt",
+          mimeType: "text/plain",
+          data: "c2VjcmV0",
+        },
+      ],
+      { chatMode: "auto", useSearch: true },
+      () => {},
+      undefined,
+      () => {},
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      ["writer"],
+      "private skill",
+      (blocks) => snapshots.push(blocks),
+      undefined,
+      { executionWorkflow: { kind: "agent" }, forcedPluginIds: ["writer"] },
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const payload = JSON.parse(String(fetchMock.mock.calls[0][1]?.body));
+    expect(payload.tools).toEqual([]);
+    expect(payload.attachments).toEqual([]);
+    expect(payload.enableImageGeneration).toBe(false);
+    expect(payload.enableOpenAIWebSearch).toBe(true);
+    expect(JSON.stringify(payload)).not.toContain("private skill");
+    expect(snapshots.flat().some((block) => block.type === "image")).toBe(
+      false,
+    );
+    expect(mocks.executePluginFunction).not.toHaveBeenCalled();
+    expect(mocks.writeWorkspaceText).not.toHaveBeenCalled();
+    endTemporarySession(sessionId);
+    await expect(
+      streamChatResponse(
+        sessionId,
+        "openai:gpt-test",
+        [],
+        "late request",
+        [],
+        {},
+        () => {},
+      ),
+    ).rejects.toMatchObject({ name: "AbortError" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps large temporary external search results in memory without creating workspace files", async () => {
+    const sessionId = "temporary-search-policy";
+    registerTemporarySession(sessionId);
+    mocks.searchCompatibility = { enabled: true, mode: "external" };
+    vi.mocked(createSearchProvider).mockResolvedValue({
+      sources: [
+        {
+          title: "Source",
+          url: "https://example.com",
+          content: "evidence ".repeat(7000),
+        },
+      ],
+      images: [],
+    });
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementationOnce(async () =>
+        sseResponse([
+          {
+            type: "content",
+            content: '{"shouldSearch":true,"query":"lookup"}',
+          },
+          { type: "done" },
+        ]),
+      )
+      .mockImplementation(async () =>
+        sseResponse([
+          { type: "content", content: "Sourced answer" },
+          { type: "done" },
+        ]),
+      );
+    const { streamChatResponse } = await import("../services/api/chatService");
+    await streamChatResponse(
+      sessionId,
+      "openai:gpt-test",
+      [],
+      "lookup",
+      [],
+      { useSearch: true },
+      () => {},
+      undefined,
+      () => {},
+    );
+    expect(createSearchProvider).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(mocks.writeWorkspaceText).not.toHaveBeenCalled();
+    endTemporarySession(sessionId);
   });
 
   it("keeps evidence answers text-only on an image-capable model", async () => {

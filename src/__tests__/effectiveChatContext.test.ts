@@ -89,6 +89,12 @@ describe("effective chat context", () => {
     expect(context.systemInstruction).toContain("Answer in project voice.");
     expect(context.systemInstruction).toContain("Workspace context.");
     expect(context.systemInstruction).toContain("<diagram-rendering>");
+    expect(context.systemInstruction).toContain("<image-citation>");
+    expect(context.systemInstruction).toContain(
+      "standalone Markdown image paragraph",
+    );
+    expect(context.systemInstruction).toContain("Never use `>` to wrap");
+    expect(context.systemInstruction).toContain("raw `<img>` HTML tag");
     expect(context.systemInstruction).toContain("Current date and time");
     expect(context.systemInstruction).toContain("2026-07-01T02:03:04.000Z");
     expect(context.activePluginIds).toEqual(["free-plugin"]);
@@ -300,7 +306,7 @@ describe("effective chat context", () => {
 
     expect(context.systemInstruction).not.toContain("<html-visual>");
     expect(context.systemInstruction).toContain("<diagram-rendering>");
-    expect(context.systemInstruction).not.toContain("<diagram-visual-polish>");
+    expect(context.systemInstruction).toContain("<diagram-visual-polish>");
     expect(context.systemInstruction).not.toContain("<format_instructions");
   });
 

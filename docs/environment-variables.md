@@ -92,13 +92,31 @@ does not protect credentials or responses in transit.
 
 ## Shared Stores
 
-| Variable                   | Purpose                                                                                               |
-| -------------------------- | ----------------------------------------------------------------------------------------------------- |
-| `RATE_LIMIT_STORE`         | Store for rate-limit state. Use `upstash` for hosted or multi-instance deployments.                   |
-| `DOCUMENT_PARSE_JOB_STORE` | Store for document parsing jobs. Use `upstash` for hosted or multi-instance deployments.              |
-| `PLUGIN_REGISTRY_STORE`    | Store for server-registered plugin manifests. Use `upstash` for hosted or multi-instance deployments. |
-| `UPSTASH_REDIS_REST_URL`   | Upstash Redis REST endpoint used by shared stores.                                                    |
-| `UPSTASH_REDIS_REST_TOKEN` | Upstash Redis REST token used by shared stores.                                                       |
+| Variable                   | Purpose                                                                                                         |
+| -------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `RATE_LIMIT_STORE`         | Store for rate-limit state. Use `upstash` for hosted or multi-instance deployments.                             |
+| `DOCUMENT_PARSE_JOB_STORE` | Store for document parsing jobs. Use `upstash` for hosted or multi-instance deployments.                        |
+| `PLUGIN_REGISTRY_STORE`    | Store for server-registered plugin manifests. Use `upstash` for hosted or multi-instance deployments.           |
+| `UPSTASH_REDIS_REST_URL`   | Upstash Redis REST endpoint used by shared stores.                                                              |
+| `UPSTASH_REDIS_REST_TOKEN` | Upstash Redis REST token used by shared stores.                                                                 |
+| `SHARING_ENABLED`          | Enables conversation sharing only when set to `true` and both Redis values are configured. Defaults to `false`. |
+
+Conversation sharing is disabled by default. Set `SHARING_ENABLED=true` and
+configure both `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` to enable
+it; sharing has no memory fallback. This is a server runtime variable: set it
+in `.env.local` for local development, the environment passed to Docker Compose,
+or Cloudflare **Settings -> Variables and Secrets**, then restart or redeploy
+as appropriate. Only `true` enables it (case and surrounding whitespace are
+ignored); unset, empty or other values keep it disabled.
+
+When disabled, the menu entry is hidden and publication, updates, public reads
+and share image requests return `SHARING_UNAVAILABLE`. Existing Redis snapshots
+are not deleted. Authenticated revocation remains available while Redis is
+configured, so deleting the original conversation can still cancel its share.
+When enabled, anyone holding a share link can read it, including on
+password-protected deployments; publishing and revocation keep the normal write
+guards. See [conversation sharing](conversation-sharing.md) for lifetime, image
+limits and deletion behavior.
 
 All three stores may use in-memory state for one local process. Hosted,
 Cloudflare Workers, and multi-instance Docker deployments should use `upstash`

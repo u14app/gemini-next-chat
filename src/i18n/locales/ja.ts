@@ -1,3 +1,4 @@
+import Sharing from "./ja/Sharing.json";
 import Common from "./ja/Common.json";
 import AccessPassword from "./ja/AccessPassword.json";
 import SettingsPage from "./ja/SettingsPage.json";
@@ -40,6 +41,7 @@ import ResearchSteering from "./ja/ResearchSteering.json";
 import EvidenceQuestions from "./ja/EvidenceQuestions.json";
 
 const messages = {
+  Sharing,
   Common,
   AccessPassword,
   SettingsPage,

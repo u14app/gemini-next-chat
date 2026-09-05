@@ -12,6 +12,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { NextIntlClientProvider } from "next-intl";
 import EvidenceQuestionsPanel from "@/components/research/workbench/EvidenceQuestionsPanel";
 import messages from "@/i18n/locales/en/EvidenceQuestions.json";
+import contentMessages from "@/i18n/locales/en/Content.json";
 
 const state = vi.hoisted(() => ({
   selectedId: "topic-a",
@@ -60,7 +61,7 @@ vi.mock("@/hooks/research/useEvidenceConversation", () => ({
 const renderPanel = () => (
   <NextIntlClientProvider
     locale="en"
-    messages={{ EvidenceQuestions: messages }}
+    messages={{ EvidenceQuestions: messages, Content: contentMessages }}
   >
     <EvidenceQuestionsPanel
       taskId="task"
@@ -125,4 +126,19 @@ it("submits an explicitly labelled question using the selected report topic", as
   });
   await user.click(screen.getByRole("button", { name: "Ask" }));
   expect(state.ask).toHaveBeenCalledExactlyOnceWith("Explain the limitations");
+});
+
+it("renders completed answers through the restricted shared Markdown entry", () => {
+  state.answer = "Saved **answer**\n\n```mermaid\ngraph TD\nA-->B\n```";
+  const view = render(renderPanel());
+  expect(screen.getByText("answer").tagName).toBe("STRONG");
+  expect(
+    view.container.querySelector(".markdown-body.markdown-content"),
+  ).not.toBeNull();
+  expect(view.container.textContent).toContain("graph TD");
+  expect(
+    view.container.querySelector(
+      "[data-markdown-diagram], [data-readonly-code]",
+    ),
+  ).toBeNull();
 });

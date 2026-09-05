@@ -9,6 +9,29 @@ when the matching tag is pushed.
 
 ## Unreleased
 
+- **Progressive rendering:** CommonMark renders immediately while syntax-specific
+  extensions load independently, preserving source placeholders, streaming fences,
+  and existing block controls. HTML styling instructions preserve literal syntax.
+- **Conversation controls:** Sidebar and titlebar share conversation actions and
+  dialogs. Temporary text chats use icon-only entry/exit controls, stay out of
+  the conversation list, and explain their history behavior directly below the
+  welcome composer while preserving desktop bottom spacing. Empty conversations
+  hide the titlebar actions menu.
+- **Read-only sharing:** Redis snapshots include the selected branch, images and
+  research reports, with configurable expiry, explicit updates and revocation
+  before deleting the original conversation. Expiry buttons replace the obscured
+  dropdown in a narrower, scrollable share dialog. Sharing defaults to off and
+  requires `SHARING_ENABLED=true` plus Redis configuration; disabling it blocks
+  public access while preserving authenticated revocation.
+- **Research illustrations:** Search images retain provenance through checkpoints
+  and report versions, without becoming formal evidence merely by discovery.
+  Chat's default instructions use relevant, grounded Markdown images; reports
+  and exports no longer add a separate image-materials section.
+- **Web reading reliability:** Jina service failures can fall back once to a
+  direct public-page read within 30 seconds. Challenge pages and application
+  errors are rejected before evidence creation, and asynchronous plugin failures
+  pass through route error handling.
+
 - **Research search reliability:** Research requests share a serial queue with
   two-second spacing, preserve partial batch results, distinguish duplicate skips
   from failures, and respect rate-limit cooldowns. Tavily Research searches and

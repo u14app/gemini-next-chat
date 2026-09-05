@@ -97,7 +97,9 @@ describe("dark theme token contract", () => {
       expect(globals).toContain(`--html-visual-${tone}-border:`);
       expect(globals).toContain(`--html-visual-${tone}-accent:`);
     }
-    expect(globals).toContain(".markdown-html-visual");
+    expect(
+      readProjectFile("src/components/content/markdown/html.css"),
+    ).toContain(".markdown-html-visual");
     expect(globals).toContain(".glass-shell");
     expect(globals).toContain(".glass-popover");
   });
@@ -143,40 +145,46 @@ describe("dark theme token contract", () => {
   });
 
   it("keeps diagram render containers borderless in normal and enhanced modes", () => {
-    const globals = readProjectFile("src/app/globals.css");
+    const diagramStyles = readProjectFile(
+      "src/components/content/markdown/diagram.css",
+    );
 
-    expect(globals).toMatch(/\.markdown-diagram-body\s*\{[^}]*border:\s*0;/u);
-    expect(globals).not.toMatch(
+    expect(diagramStyles).toMatch(
+      /\.markdown-diagram-body\s*\{[^}]*border:\s*0;/u,
+    );
+    expect(diagramStyles).not.toMatch(
       /\.markdown-diagram-body\s*\{[^}]*border:\s*1px/u,
     );
-    expect(globals).not.toMatch(
+    expect(diagramStyles).not.toMatch(
       /\.markdown-diagram-enhanced \.markdown-diagram-body\s*\{[^}]*box-shadow/u,
     );
   });
 
   it("defines passive inline SVG diagrams and fullscreen zoom surfaces", () => {
-    const globals = readProjectFile("src/app/globals.css");
+    const diagramStyles = readProjectFile(
+      "src/components/content/markdown/diagram.css",
+    );
 
-    expect(globals).toContain(".markdown-diagram-viewport");
-    expect(globals).toContain(".markdown-diagram-zoom-controls");
-    expect(globals).toContain(".markdown-diagram-svg-static");
-    expect(globals).toMatch(
+    expect(diagramStyles).toContain(".markdown-diagram-viewport");
+    expect(diagramStyles).toContain(".markdown-diagram-zoom-controls");
+    expect(diagramStyles).toContain(".markdown-diagram-svg-static");
+    expect(diagramStyles).toMatch(
       /\.markdown-diagram-svg-static\s*\{[^}]*pointer-events:\s*none;/u,
     );
-    expect(globals).toContain(".markdown-diagram-svg-interactive");
-    expect(globals).toMatch(
+    expect(diagramStyles).toContain(".markdown-diagram-svg-interactive");
+    expect(diagramStyles).toMatch(
       /\.markdown-diagram-svg-interactive\s*\{[^}]*width:\s*max-content;/u,
     );
-    expect(globals).toMatch(
+    expect(diagramStyles).toMatch(
       /\.markdown-diagram-transform-wrapper\s*\{[^}]*height:\s*100% !important;/u,
     );
-    expect(globals).toMatch(
+    expect(diagramStyles).toMatch(
       /\.markdown-diagram-transform-content\s*\{[^}]*width:\s*max-content;/u,
     );
-    expect(globals).toMatch(
+    expect(diagramStyles).toMatch(
       /\.markdown-diagram-fullscreen \.markdown-diagram-svg svg\s*\{[^}]*max-height:\s*none;/u,
     );
-    expect(globals).not.toContain(".markdown-mindmap-exporter");
+    expect(diagramStyles).not.toContain(".markdown-mindmap-exporter");
   });
 
   it("uses direct mindmap SVG export and the shared SVG diagram viewer", () => {
@@ -207,15 +215,20 @@ describe("dark theme token contract", () => {
   });
 
   it("keeps HTML visual scope structural instead of framed", () => {
-    const globals = readProjectFile("src/app/globals.css");
+    const htmlStyles = readProjectFile(
+      "src/components/content/markdown/html.css",
+    );
+    const tableStyles = readProjectFile(
+      "src/components/content/markdown/table.css",
+    );
 
-    expect(globals).toMatch(
+    expect(htmlStyles).toMatch(
       /\.markdown-html-visual\s*\{[^}]*color:\s*inherit;[^}]*background:\s*transparent;[^}]*border:\s*0;[^}]*box-shadow:\s*none;/u,
     );
-    expect(globals).toMatch(
+    expect(tableStyles).toMatch(
       /\.markdown-body :where\(\.markdown-table-wrap\)\s*\{[^}]*border:\s*0;[^}]*background:\s*transparent;[^}]*box-shadow:\s*none;/u,
     );
-    expect(globals).not.toContain(
+    expect(htmlStyles).not.toContain(
       ".markdown-html-visual :where(table) {\n  border-color:",
     );
   });
@@ -293,15 +306,25 @@ describe("dark theme token contract", () => {
     );
     expect(renderer).toContain('lineColor: dark ? "#34d399" : "#10b981"');
     expect(renderer).toContain('tertiaryColor: dark ? "#221a3a" : "#f5f3ff"');
-    expect(globals).toMatch(
+    expect(
+      readProjectFile("src/components/content/markdown/table.css"),
+    ).toMatch(
       /\.markdown-body :where\(th\)\s*\{[^}]*color:\s*var\(--markdown-table-head-text\);[^}]*font-weight:\s*700;/u,
     );
   });
 
   it("keeps MarkdownRenderer color styling on semantic CSS classes", () => {
-    const renderer = readProjectFile(
+    const renderer = [
       "src/components/content/MarkdownRendererClient.tsx",
-    );
+      "src/components/content/markdown/MarkdownNodes.tsx",
+      "src/components/content/markdown/CitationLink.tsx",
+      "src/components/content/markdown/FileCard.tsx",
+      "src/components/content/markdown/ArtifactBlock.tsx",
+      "src/components/content/markdown/ReadOnlyCodeBlock.tsx",
+      "src/components/content/markdown/highlightExtension.ts",
+    ]
+      .map(readProjectFile)
+      .join("\n");
 
     expect(renderer).not.toContain("highlight.js/styles/github-dark.min.css");
     expect(renderer).toContain('className="markdown-citation-card"');
@@ -311,6 +334,56 @@ describe("dark theme token contract", () => {
     expect(renderer).not.toMatch(
       /\b(?:text|bg|border|from|to|fill|shadow)-(?:gray|slate|zinc|red|rose|blue|purple|green|amber|yellow|violet)-/u,
     );
+  });
+
+  it("loads dedicated extension styles with their renderer resources", () => {
+    const globals = readProjectFile("src/app/globals.css");
+    const resources = readProjectFile(
+      "src/components/content/markdown/extensionResources.ts",
+    );
+    const baseRenderer = [
+      "src/components/content/MarkdownRenderer.tsx",
+      "src/components/content/MarkdownRendererClient.tsx",
+      "src/components/content/markdown/MarkdownNodes.tsx",
+      "src/components/content/markdown/markdownDocument.ts",
+    ]
+      .map(readProjectFile)
+      .join("\n");
+
+    for (const [module, stylesheet, selector] of [
+      [
+        "highlightExtension",
+        "highlight",
+        ":where(.markdown-body, .markdown-codeblock) .hljs {",
+      ],
+      ["mathExtension", "math", ".katex-display {"],
+      ["DiagramBlock", "diagram", ".markdown-diagram {"],
+      ["htmlExtension", "html", ".markdown-html-visual {"],
+      ["gfmExtension", "table", ".markdown-body :where(table) {"],
+    ]) {
+      const extension = readProjectFile(
+        `src/components/content/markdown/${module}.${
+          module === "DiagramBlock" || module === "htmlExtension" ? "tsx" : "ts"
+        }`,
+      );
+      expect(resources).toContain(`() => import("./${module}")`);
+      expect(extension).toContain(`import "./${stylesheet}.css";`);
+      expect(
+        readProjectFile(`src/components/content/markdown/${stylesheet}.css`),
+      ).toContain(selector);
+      expect(globals).not.toContain(selector);
+      expect(baseRenderer).not.toContain(`${stylesheet}.css`);
+    }
+
+    expect(
+      readProjectFile("src/components/content/markdown/htmlExtension.tsx"),
+    ).toContain('import "./table.css";');
+    expect(globals).toContain(".markdown-codeblock {");
+    expect(globals).toContain(".markdown-file-card {");
+    expect(globals).toContain(
+      ".message-export-content-root .markdown-diagram-header",
+    );
+    expect(globals).toContain(".message-pdf-print-root .markdown-table-wrap");
   });
 
   it("uses muted semantic tokens for inline search citations", () => {
@@ -325,14 +398,20 @@ describe("dark theme token contract", () => {
 
   it("defines lightweight markdown body rhythm for common HTML elements", () => {
     const globals = readProjectFile("src/app/globals.css");
+    const tableStyles = readProjectFile(
+      "src/components/content/markdown/table.css",
+    );
+    const mathStyles = readProjectFile(
+      "src/components/content/markdown/math.css",
+    );
 
     expect(globals).toContain(".markdown-body :where(p)");
     expect(globals).toContain(".markdown-body :where(blockquote)");
-    expect(globals).toContain(".markdown-body :where(table)");
-    expect(globals).toContain(".markdown-body :where(th)");
-    expect(globals).toContain(".markdown-body :where(td)");
+    expect(tableStyles).toContain(".markdown-body :where(table)");
+    expect(tableStyles).toContain(".markdown-body :where(th)");
+    expect(tableStyles).toContain(".markdown-body :where(td)");
     expect(globals).toContain(".markdown-body :where(:not(pre) > code)");
-    expect(globals).toContain(".markdown-body :where(.katex-display)");
+    expect(mathStyles).toContain(".markdown-body :where(.katex-display)");
   });
 
   it("does not use the legacy GitHub dark color as the app dark base", () => {

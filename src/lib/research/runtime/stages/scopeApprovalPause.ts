@@ -20,6 +20,9 @@ export async function pauseForScopeApproval(
     committedEvidenceIds: ctx.evidence.map((item) => item.id),
     committedToolExecutionIds:
       ctx.run.checkpoint?.committedToolExecutionIds || [],
+    ...(ctx.imageSources?.length
+      ? { committedImageSourceIds: ctx.imageSources.map((image) => image.id) }
+      : {}),
     researchRunId: ctx.run.id,
   };
   await ctx.store.updateTask(ctx.taskId, (current) => {

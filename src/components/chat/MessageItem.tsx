@@ -68,6 +68,7 @@ import {
 } from "lucide-react";
 import { BubblesLoading } from "../ui/Icons";
 import { useChatStore } from "@/store/core/chatStore";
+import { isTemporarySession } from "@/lib/chat/sessionRetention";
 import { useUIStore } from "@/store/core/uiStore";
 import { useSettingsStore } from "@/store/core/settingsStore";
 import { synthesizeSpeech } from "@/services/api/voiceService";
@@ -1260,6 +1261,7 @@ const MessageItem: React.FC<MessageItemProps> = ({
             data-print-job-id={pdfPrintJob.id}
           >
             <MessageOutputRenderer
+              readOnly={isTemporarySession(getCurrentSession())}
               message={pdfPrintJob.message}
               displayedContent={pdfPrintJob.message.content}
               searchSources={pdfPrintJob.searchSources}
@@ -1285,6 +1287,7 @@ const MessageItem: React.FC<MessageItemProps> = ({
             >
               <div className="message-export-content-root">
                 <MessageOutputRenderer
+                  readOnly={isTemporarySession(getCurrentSession())}
                   message={imageExportJob.message}
                   displayedContent={imageExportJob.message.content}
                   searchSources={imageExportJob.searchSources}
@@ -1411,6 +1414,7 @@ const MessageItem: React.FC<MessageItemProps> = ({
                   )
                 ) : (
                   <MessageOutputRenderer
+                    readOnly={isTemporarySession(getCurrentSession())}
                     message={message}
                     displayedContent={message.content}
                     searchSources={readingMode === "message" ? sources : []}
@@ -1515,6 +1519,7 @@ const MessageItem: React.FC<MessageItemProps> = ({
             <div className="flex flex-wrap gap-3 mb-2">
               {message.attachments.map((att, idx) => (
                 <MessageAttachmentView
+                  readOnly={isTemporarySession(getCurrentSession())}
                   key={att.id}
                   attachment={att}
                   onImageClick={() => handleAttachmentClick(idx)}
@@ -1629,6 +1634,7 @@ const MessageItem: React.FC<MessageItemProps> = ({
               ) : null}
 
               <MessageOutputRenderer
+                readOnly={isTemporarySession(getCurrentSession())}
                 message={message}
                 displayedContent={displayedContent}
                 isTyping={isTyping}

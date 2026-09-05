@@ -319,6 +319,50 @@ describe("web_search built-in binding", () => {
     ]);
   });
 
+  it("keeps research images inside the approved source scope", async () => {
+    const emitSearch = vi.fn<(event: BuiltinSearchEvent) => void>();
+    mocks.createSearchProvider.mockResolvedValue({
+      sources: [],
+      images: [
+        {
+          url: "https://cdn.example.com/approved.png",
+          sourceUrl: "https://docs.example.com/article",
+        },
+        {
+          url: "https://cdn.example.com/outside.png",
+          sourceUrl: "https://outside.example/article",
+        },
+        {
+          url: "https://docs.example.com/direct.png",
+        },
+        {
+          url: "https://cdn.example.com/excluded.png",
+          sourceUrl: "https://archive.example.com/article",
+        },
+      ],
+    });
+    const binding = createWebSearchBinding({
+      queryBudget: {
+        remainingQueries: 1,
+        maxResultsPerQuery: 5,
+        searchPolicy: {
+          preferredDomains: ["docs.example.com"],
+          excludedDomains: ["archive.example.com"],
+        },
+      },
+    });
+
+    const result = (await binding.execute(
+      { query: "approved image" },
+      createContext(emitSearch),
+    )) as { images: Array<{ url: string }> };
+
+    expect(result.images.map((image) => image.url)).toEqual([
+      "https://cdn.example.com/approved.png",
+      "https://docs.example.com/direct.png",
+    ]);
+  });
+
   it("refuses reconnaissance after its hard deadline", async () => {
     const emitSearch = vi.fn<(event: BuiltinSearchEvent) => void>();
     const binding = createWebSearchBinding({

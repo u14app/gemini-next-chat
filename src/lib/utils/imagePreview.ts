@@ -1,5 +1,6 @@
 import { IMAGE_PREVIEW_LIMITS } from "@/config/limits";
 import { getSafeMarkdownImageSrc } from "../security/clientUrl";
+import { getRegisteredShareImageSrc } from "../security/shareImageUrl";
 
 export interface PreviewImageInput {
   url: string;
@@ -24,18 +25,22 @@ function trimOptionalText(
 export function normalizeImagePreviewState(
   images: PreviewImageInput[],
   startIndex = 0,
+  registeredImageUrls: readonly string[] = [],
 ): NormalizedImagePreview | null {
   if (!Array.isArray(images) || images.length === 0) return null;
 
   const requestedIndex = Math.max(0, Math.floor(startIndex));
   const requestedImage = images[requestedIndex];
-  const requestedUrl = getSafeMarkdownImageSrc(requestedImage?.url);
+  const resolveUrl = (url: string | undefined) =>
+    getRegisteredShareImageSrc(url, registeredImageUrls) ||
+    getSafeMarkdownImageSrc(url);
+  const requestedUrl = resolveUrl(requestedImage?.url);
   const normalized: Array<PreviewImageInput & { originalIndex: number }> = [];
   const seen = new Set<string>();
 
   for (let index = 0; index < images.length; index += 1) {
     const image = images[index];
-    const safeUrl = getSafeMarkdownImageSrc(image?.url);
+    const safeUrl = resolveUrl(image?.url);
     if (!safeUrl || seen.has(safeUrl)) continue;
 
     normalized.push({

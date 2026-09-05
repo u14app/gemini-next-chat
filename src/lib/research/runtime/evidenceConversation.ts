@@ -25,35 +25,16 @@ import { streamChatResponse } from "@/services/api/chatService";
 import { readReportMarkdown } from "./reportPublication";
 import { resolveTaskContext } from "./taskContext";
 
-interface LiveAnswer {
-  requestId: string;
-  text: string;
-}
-interface AnswerOperation {
-  taskId: string;
-  requestId: string;
-  controller: AbortController;
-  live: LiveAnswer;
-}
-const operations = new Map<string, AnswerOperation>();
-const listeners = new Set<() => void>();
-const notify = () => listeners.forEach((listener) => listener());
-export function subscribeEvidenceAnswers(listener: () => void) {
-  listeners.add(listener);
-  return () => {
-    listeners.delete(listener);
-  };
-}
-export function getLiveEvidenceAnswer(
-  threadId: string | null,
-): LiveAnswer | null {
-  return threadId ? (operations.get(threadId)?.live ?? null) : null;
-}
-export function cancelAllEvidenceAnswers(taskId?: string) {
-  for (const operation of operations.values()) {
-    if (!taskId || operation.taskId === taskId) operation.controller.abort();
-  }
-}
+import {
+  evidenceAnswerOperations as operations,
+  notifyEvidenceAnswers as notify,
+  type AnswerOperation,
+} from "./evidenceAnswerRegistry";
+export {
+  subscribeEvidenceAnswers,
+  getLiveEvidenceAnswer,
+  cancelAllEvidenceAnswers,
+} from "./evidenceAnswerRegistry";
 
 export async function getOrCreateEvidenceSnapshot(
   taskId: string,

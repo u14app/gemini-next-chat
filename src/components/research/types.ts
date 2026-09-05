@@ -1,5 +1,6 @@
 import type {
   ResearchBudgetPreset,
+  ResearchImageSource,
   ResearchSourceType,
   ResearchTaskError,
   ResearchTaskStatus,
@@ -213,6 +214,7 @@ export interface ResearchReportVersionView {
     missingSectionCount: number;
   };
   claims?: ResearchClaimView[];
+  imageSources?: ResearchImageSource[];
 }
 
 /**
@@ -265,6 +267,7 @@ export interface ResearchTaskViewModel {
   completedQuestions: number;
   totalQuestions: number;
   evidence: ResearchEvidenceView[];
+  imageSources?: ResearchImageSource[];
   claims?: ResearchClaimView[];
   activities: ResearchActivityView[];
   reportVersions: ResearchReportVersionView[];

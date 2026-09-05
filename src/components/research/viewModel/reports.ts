@@ -73,6 +73,11 @@ export async function loadReports(
               },
             }
           : {}),
+        ...(report.imageSources
+          ? {
+              imageSources: report.imageSources.map((image) => ({ ...image })),
+            }
+          : {}),
         claims: buildClaimViews(run?.claims ?? []),
       };
     }),

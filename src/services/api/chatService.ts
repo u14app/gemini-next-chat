@@ -1,4 +1,9 @@
 import {
+  getTemporarySessionSignal,
+  isTemporarySessionId,
+  TEMPORARY_CHAT_CONFIG,
+} from "@/lib/chat/sessionRetention";
+import {
   getResearchSourceOperation,
   isResearchSourceProvider,
 } from "@/lib/plugin/researchSources/catalog";
@@ -173,10 +178,8 @@ import {
 import type { RagQueryError } from "@/lib/knowledge/retrieveKnowledgeSources";
 import { writeWorkspaceText } from "@/services/workspace/sessionWorkspace";
 import { getResearchToolEmitters } from "@/services/research/runtime";
-import {
-  DEEP_RESEARCH_QUERY_MAX_CHARS,
-  type ResearchBudgetPreset,
-} from "@/lib/research";
+import { DEEP_RESEARCH_QUERY_MAX_CHARS } from "@/lib/research/toolArguments";
+import { type ResearchBudgetPreset } from "@/lib/research/types";
 import {
   ChatStreamEventError,
   ChatStreamSizeLimitError,
@@ -502,6 +505,33 @@ export const streamChatResponse = async (
   toolConfirmationController?: ToolConfirmationController,
   options?: StreamChatResponseOptions,
 ): Promise<string> => {
+  const temporary = isTemporarySessionId(sessionId);
+  if (temporary) {
+    const lifetime = getTemporarySessionSignal(sessionId)!;
+    lifetime.throwIfAborted();
+    signal = signal ? AbortSignal.any([signal, lifetime]) : lifetime;
+    config = { ...config, ...TEMPORARY_CHAT_CONFIG };
+    attachments = [];
+    activePlugins = [];
+    skillsContext = "";
+    options = {
+      ...options,
+      executionWorkflow: undefined,
+      disableTools: true,
+      disableImageGeneration: true,
+      forcedPluginIds: [],
+      allowedSkillIds: [],
+      allowedToolIds: [],
+      enforceAllowedToolIds: true,
+      agentRun: undefined,
+      resumeAgentRun: false,
+      resumeLongTextBlockId: undefined,
+      knowledgeScope: undefined,
+      memoryScopes: [],
+      memoryScopeIds: {},
+      onChatModeChange: undefined,
+    };
+  }
   const imageCompressionConfig = getImageCompressionConfig(
     useSettingsStore.getState().system,
   );
@@ -514,6 +544,9 @@ export const streamChatResponse = async (
 
   if (!provider) throw new Error("No provider available");
   const selectedModelMetadata = resolveModelMetadata(modelName, providerId);
+  if (temporary && !supportsTextOutput(selectedModelMetadata)) {
+    throw new Error("Temporary conversations require a text-output model.");
+  }
   const toolCallsSupported = supportsToolCalls(selectedModelMetadata);
   const normalizedChatMode = normalizeChatMode(
     config?.chatMode,
@@ -1400,6 +1433,7 @@ export const streamChatResponse = async (
       });
 
       const handleMessage = async (parsed: any) => {
+        if (temporary) signal?.throwIfAborted();
         switch (parsed.type) {
           case "content":
             if (researchPhase === "start") return false;
@@ -1470,6 +1504,7 @@ export const streamChatResponse = async (
             return false;
 
           case "image":
+            if (temporary) return false;
             if (parsed.image) {
               const [image] = await prepareGeneratedImageAttachments(
                 [parsed.image],

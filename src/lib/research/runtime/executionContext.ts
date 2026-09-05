@@ -10,6 +10,7 @@ import {
   upsertResearchReportRun,
   type ResearchCheckpoint,
   type ResearchEvidence,
+  type ResearchImageSource,
   type ResearchPlanVersion,
   type ResearchReportRun,
   type ResearchSourceSnapshot,
@@ -71,6 +72,8 @@ export interface ResearchExecutionContext {
   sourceContext: ResearchExecutionSourceContext;
   run: ResearchReportRun;
   evidence: ResearchEvidence[];
+  /** Illustrative search material; never added to the evidence or budget ledgers. */
+  imageSources: ResearchImageSource[];
   /** Best generated text retained until this run's report is durably published. */
   reportDraft?: string;
   lastAgentRunId?: string;
@@ -84,16 +87,31 @@ export async function persistRun(
   evidence: ResearchEvidence[] = ctx.evidence,
   checkpoint?: ResearchCheckpoint,
 ) {
+  const imageSources = ctx.imageSources ?? [];
   const savedTask = await ctx.store.updateTask(ctx.taskId, (current) => {
-    const withRun = upsertResearchReportRun(current, nextRun);
+    const runWithImages = {
+      ...nextRun,
+      ...(imageSources.length
+        ? { imageSources: imageSources.map((image) => ({ ...image })) }
+        : {}),
+    };
+    const withRun = upsertResearchReportRun(current, runWithImages);
     return {
       ...withRun,
       evidence,
+      ...(imageSources.length
+        ? { imageSources: imageSources.map((image) => ({ ...image })) }
+        : {}),
       usage: aggregateTaskUsage(withRun),
       ...(checkpoint ? { checkpoint } : { checkpoint: undefined }),
     };
   });
-  ctx.run = nextRun;
+  ctx.run = {
+    ...nextRun,
+    ...(imageSources.length
+      ? { imageSources: imageSources.map((image) => ({ ...image })) }
+      : {}),
+  };
   ctx.evidence = evidence;
   if (savedTask) ctx.task = savedTask;
 }

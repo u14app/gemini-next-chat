@@ -7,6 +7,7 @@ import {
   getPluginFunctionPathError,
 } from "./manifest";
 import { safeFetchText } from "../security/safeFetch";
+import { readJinaWebPage } from "./jinaReader";
 import {
   getProviderGoogleSdkOptions,
   getSafeUrlPolicy,
@@ -711,6 +712,18 @@ export async function executePluginFunctionRequest({
         headers[authName] = authValue;
       }
     }
+  }
+
+  if (plugin.id === "jina-web-reader") {
+    return NextResponse.json({
+      result: await readJinaWebPage({
+        readerUrl: urlObj.toString(),
+        targetUrl: getTrimmedStringArg(outboundArgs, "url")!,
+        headers,
+        signal,
+        fetchText,
+      }),
+    });
   }
 
   const { response: res, text } = await fetchText(

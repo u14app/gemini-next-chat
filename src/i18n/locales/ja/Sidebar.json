@@ -57,5 +57,11 @@
   "workspaceActions": "ワークスペースの操作",
   "moveToWorkspaceAria": "チャットをワークスペースに移動",
   "skillMarket": "スキル",
-  "openSkillMarket": "スキルを開く"
+  "openSkillMarket": "スキルを開く",
+  "share": "共有",
+  "chatTitle": "会話のタイトル",
+  "actionError": "操作を完了できませんでした。再試行してください。",
+  "you": "ユーザー",
+  "assistant": "アシスタント",
+  "endTemporary": "一時的な会話を終了"
 }

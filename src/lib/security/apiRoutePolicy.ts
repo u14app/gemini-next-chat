@@ -37,6 +37,34 @@ const MUTATING_METHODS = ["POST", "PUT", "PATCH", "DELETE"] as const;
 
 const API_ROUTE_POLICIES: readonly ApiRoutePolicy[] = [
   {
+    pattern: /^\/api\/shares(?:\/[A-Za-z0-9_-]{43})?$/,
+    requestProofMethods: MUTATING_METHODS,
+    rateLimitMethods: ["POST", "PUT", "PATCH"],
+    rateLimit: {
+      routeFamily: "/api/shares/write",
+      windowMs: 60_000,
+      maxRequests: 12,
+    },
+  },
+  {
+    pattern: /^\/api\/shares\/[A-Za-z0-9_-]{43}$/,
+    rateLimitMethods: ["DELETE"],
+    rateLimit: {
+      routeFamily: "/api/shares/revoke",
+      windowMs: 60_000,
+      maxRequests: 120,
+    },
+  },
+  {
+    pattern: /^\/api\/shares\/[A-Za-z0-9_-]{43}(?:\/assets\/[a-f0-9]{64})?$/,
+    rateLimitMethods: ["GET"],
+    rateLimit: {
+      routeFamily: "/api/shares/read",
+      windowMs: 60_000,
+      maxRequests: 600,
+    },
+  },
+  {
     pattern: /^\/api\/access\/verify$/,
     rateLimitMethods: MUTATING_METHODS,
     rateLimit: {

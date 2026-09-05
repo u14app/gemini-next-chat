@@ -4,7 +4,8 @@ import {
 } from "@/services/research/taskExecutionLock";
 import { create } from "zustand";
 
-import { recoverResearchTask, type ResearchTask } from "@/lib/research";
+import { recoverResearchTask } from "@/lib/research/task";
+import { type ResearchTask } from "@/lib/research/types";
 import { logDevError } from "@/lib/utils/devLogger";
 import { getResearchExtensionRepository } from "@/services/research/extensionRepository";
 import { pruneResearchExtensions } from "@/services/research/extensionLifecycle";

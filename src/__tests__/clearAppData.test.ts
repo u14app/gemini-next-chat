@@ -10,6 +10,7 @@ const {
   syncStorageClearMock,
   removeMock,
   tokenSecret,
+  revokeSharesMock,
 } = vi.hoisted(() => {
   const tokenSecret = {
     v: 1,
@@ -49,6 +50,7 @@ const {
     syncStorageClearMock: vi.fn(() => Promise.resolve()),
     removeMock,
     tokenSecret,
+    revokeSharesMock: vi.fn(async () => undefined),
   };
 });
 
@@ -97,6 +99,10 @@ vi.mock("../services/research", () => ({
   getResearchTaskRepository: () => researchRepositoryMock,
 }));
 
+vi.mock("@/services/sharing/client", () => ({
+  revokeAllSessionSharesBeforeDelete: revokeSharesMock,
+}));
+
 const { clearBrowserAppData, clearBrowserAppDataSources } =
   await import("../lib/data/clearAppData");
 const { APP_RESTORE_WRITE_LOCK_KEY, runWithAppDataWriteLock } =
@@ -142,6 +148,7 @@ const ragConfig: RAGConfig = {
 describe("clear app data", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    revokeSharesMock.mockReset().mockResolvedValue(undefined);
     encryptSecretMock.mockResolvedValue(tokenSecret);
     vi.stubGlobal(
       "fetch",
@@ -366,6 +373,29 @@ describe("clear app data", () => {
     ).rejects.toThrow("simulated clear failure");
 
     expect(localStorage.values.has(APP_RESTORE_WRITE_LOCK_KEY)).toBe(false);
+  });
+
+  it("keeps all local data when share revocation fails", async () => {
+    revokeSharesMock.mockRejectedValueOnce(
+      new Error("Share revocation failed"),
+    );
+    await expect(clearBrowserAppData(ragConfig)).rejects.toThrow(
+      "Share revocation failed",
+    );
+    expect(appDbMock.clear).not.toHaveBeenCalled();
+    expect(appDbMock.removeItem).not.toHaveBeenCalled();
+    expect(removeMock).not.toHaveBeenCalled();
+    expect(researchRepositoryMock.clear).not.toHaveBeenCalled();
+  });
+
+  it("revokes shares before clearing settings and their local encryption key", async () => {
+    revokeSharesMock.mockRejectedValueOnce(
+      new Error("Share revocation failed"),
+    );
+    await expect(
+      clearBrowserAppDataSources({ sources: ["settings"], rag: ragConfig }),
+    ).rejects.toThrow("Share revocation failed");
+    expect(appDbMock.removeItem).not.toHaveBeenCalled();
   });
 
   it("clears chat metadata and per-session message records when requested", async () => {

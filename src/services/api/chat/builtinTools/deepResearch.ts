@@ -6,9 +6,6 @@ import {
   RESEARCH_SESSION_ID_MAX_CHARS,
   RESEARCH_TASK_ID_MAX_CHARS,
   RESEARCH_TASK_LIST_MAX_ITEMS,
-  filterResearchEvidence,
-  getResearchEvidenceQuestionIndexes,
-  getResearchVerificationQueryReserve,
   parseAdjustResearchPlanArgs,
   parseConfirmResearchPlanArgs,
   parseGetResearchStatusArgs,
@@ -16,8 +13,13 @@ import {
   parseListResearchTasksArgs,
   parseReadResearchReportArgs,
   parseStartDeepResearchArgs,
-  type ResearchTask,
-} from "@/lib/research";
+} from "@/lib/research/toolArguments";
+import {
+  filterResearchEvidence,
+  getResearchEvidenceQuestionIndexes,
+} from "@/lib/research/evidence";
+import { getResearchVerificationQueryReserve } from "@/lib/research/orchestration/strategy";
+import { type ResearchTask } from "@/lib/research/types";
 import {
   getResearchTaskRepository,
   readResearchReportArtifact,

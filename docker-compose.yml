@@ -25,6 +25,7 @@ services:
       PLUGIN_REGISTRY_STORE: ${PLUGIN_REGISTRY_STORE:-memory}
       UPSTASH_REDIS_REST_URL: ${UPSTASH_REDIS_REST_URL:-}
       UPSTASH_REDIS_REST_TOKEN: ${UPSTASH_REDIS_REST_TOKEN:-}
+      SHARING_ENABLED: ${SHARING_ENABLED:-false}
     restart: unless-stopped
     healthcheck:
       test:

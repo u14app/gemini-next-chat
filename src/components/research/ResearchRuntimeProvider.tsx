@@ -10,8 +10,8 @@ import type {
 import {
   isTerminalResearchStatus,
   transitionResearchTask,
-  type ResearchStrategy,
-} from "@/lib/research";
+} from "@/lib/research/task";
+import { type ResearchStrategy } from "@/lib/research/types";
 import { useResearchStore } from "@/store/core/researchStore";
 
 import { usePlanActions } from "@/hooks/research/usePlanActions";
@@ -21,7 +21,7 @@ import { useResearchOperations } from "@/hooks/research/useResearchOperations";
 import { useResearchRuntimeText } from "@/hooks/research/useResearchRuntimeText";
 import { useResearchTaskActions } from "@/hooks/research/useResearchTaskActions";
 import { useResearchToolBridge } from "@/hooks/research/useResearchToolBridge";
-import { cancelAllEvidenceAnswers } from "@/lib/research/runtime/evidenceConversation";
+import { cancelAllEvidenceAnswers } from "@/lib/research/runtime/evidenceAnswerRegistry";
 import { createAbortError } from "@/lib/research/runtime/operations";
 
 interface ResearchRuntimeProviderProps {

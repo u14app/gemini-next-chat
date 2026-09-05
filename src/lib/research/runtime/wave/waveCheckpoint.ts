@@ -16,6 +16,7 @@ import type { ResearchWaveContext } from "./waveContext";
  */
 export function persistWaveCheckpoint(wave: ResearchWaveContext) {
   const { ctx } = wave;
+  const imageSources = wave.imageSources ?? [];
   const payload: SavedResearchCheckpoint = {
     version: 1,
     taskId: ctx.task.id,
@@ -26,6 +27,9 @@ export function persistWaveCheckpoint(wave: ResearchWaveContext) {
       .filter(isCommittedCheckpointToolCall)
       .map(sanitizeCheckpointToolCall),
     outputBlocks: [],
+    ...(imageSources.length
+      ? { imageSources: imageSources.map((image) => ({ ...image })) }
+      : {}),
   };
   wave.checkpointQueue = wave.checkpointQueue
     .catch(() => undefined)
@@ -49,6 +53,11 @@ export function persistWaveCheckpoint(wave: ResearchWaveContext) {
           agentRun?.toolExecutions
             .filter((execution) => execution.status === "committed")
             .map((execution) => execution.id) || [],
+        ...(imageSources.length
+          ? {
+              committedImageSourceIds: imageSources.map((image) => image.id),
+            }
+          : {}),
       };
       wave.activeRun = { ...wave.activeRun, checkpoint: runCheckpoint };
       await ctx.store.updateTask(ctx.taskId, (current) => ({
@@ -59,6 +68,11 @@ export function persistWaveCheckpoint(wave: ResearchWaveContext) {
             wave.phase === "verifying" ? "verifying" : "researching",
           committedEvidenceIds: runCheckpoint.committedEvidenceIds,
           committedToolExecutionIds: runCheckpoint.committedToolExecutionIds,
+          ...(runCheckpoint.committedImageSourceIds
+            ? {
+                committedImageSourceIds: runCheckpoint.committedImageSourceIds,
+              }
+            : {}),
           researchRunId: wave.activeRun.id,
           historyPath: wave.checkpointPath,
         },

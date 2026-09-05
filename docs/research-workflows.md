@@ -162,7 +162,7 @@ The planning web stage has a fixed 90-second total deadline, including model
 waiting and queueing; selected knowledge lookup retains its 30-second deadline.
 Execution requests also obey the remaining task budget. Research Tavily requests
 use a 90-second timeout and the optional `research_summary` profile: advanced
-search with summaries, without raw page content, images, or image descriptions.
+search with summaries and image descriptions, without raw page content.
 Page bodies are obtained through the separate read tools. Pause or cancellation
 aborts queue waits and active requests.
 
@@ -296,3 +296,27 @@ use](https://info.arxiv.org/help/api/tou.html), [NCBI E-utilities
 documentation](https://dataguide.nlm.nih.gov/eutilities/utilities.html),
 [EPO OPS documentation](https://developers.epo.org/), and [SEC EDGAR access
 guidance](https://www.sec.gov/search-filings/edgar-search-assistance/accessing-edgar-data).
+
+## Image materials
+
+Research preserves normalized search images and available source-page URLs in
+an illustration catalog, separate from the formal evidence ledger. The catalog
+is checkpointed and each report version retains the images available to its
+synthesis pass. Older saved tasks without a catalog continue to load normally.
+
+The synthesis prompt encourages relevant images from that catalog, with captions
+and available provenance. It does not require a quota, invent image URLs, or
+claim to have visually examined an image. Image discovery does not raise claim
+verification, evidence counts or source-body usage. A report still completes
+when no suitable images are available or an image cannot be displayed.
+
+Report illustrations use standalone Markdown image syntax, `![description](url)`,
+with available source links. They are not wrapped in blockquotes or HTML image
+tags. The workbench and Markdown/PDF exports do not add a separate image-materials
+gallery or appendix. Inline images retain previews and source links.
+
+Chat's default system instructions apply the same Markdown-image guidance when
+an illustration helps the answer and its real URL is available in the conversation
+or tool results. Report readers, exports and read-only conversation shares preserve
+the applicable report version rather than consulting a later run's image catalog.
+Existing report Markdown and share snapshots are not rewritten.

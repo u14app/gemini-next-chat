@@ -1,5 +1,9 @@
 import { getFrozenResearchSourceContracts } from "@/lib/plugin/researchSources/contracts";
-import { type ResearchReportRun } from "@/lib/research";
+import {
+  mergeResearchImageSources,
+  normalizeResearchImageSources,
+  type ResearchReportRun,
+} from "@/lib/research";
 import { streamChatResponse } from "@/services/api/chatService";
 
 import { collectTaskEvidence } from "../evidenceCollection";
@@ -48,6 +52,21 @@ export async function runWaveStream(
     (isSearching, results) => {
       if (!isSearching && results?.sources) {
         wave.webSources = results.sources;
+        const nextImages = normalizeResearchImageSources(
+          results.images,
+          // Images belong to the durable ResearchReportRun, not the
+          // transient model execution run used to collect this wave.
+          wave.activeRun.id,
+        );
+        wave.imageSources = mergeResearchImageSources(
+          wave.imageSources ?? [],
+          nextImages,
+        );
+        ctx.imageSources = mergeResearchImageSources(
+          ctx.imageSources ?? [],
+          nextImages,
+        );
+        void persistWaveCheckpoint(wave);
       }
     },
     (toolCalls) => {
@@ -140,6 +159,13 @@ export async function runWaveStream(
   const evidenceArchivedAt = Date.now();
   const learnedRun: ResearchReportRun = {
     ...wave.activeRun,
+    ...(wave.imageSources?.length
+      ? {
+          imageSources: (wave.imageSources ?? []).map((image) => ({
+            ...image,
+          })),
+        }
+      : {}),
     nodes: wave.activeRun.nodes.map((node) => {
       if (!nodeIds.includes(node.id)) return node;
       const nodeEvidence = collected.evidence.filter(
@@ -172,5 +198,14 @@ export async function runWaveStream(
     collected.evidence,
     currentTaskAfterWave.checkpoint,
   );
-  return collected;
+  return {
+    ...collected,
+    ...(wave.imageSources?.length
+      ? {
+          imageSources: (wave.imageSources ?? []).map((image) => ({
+            ...image,
+          })),
+        }
+      : {}),
+  };
 }

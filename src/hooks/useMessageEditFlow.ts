@@ -1,4 +1,5 @@
 "use client";
+import { isTemporarySessionId } from "@/lib/chat/sessionRetention";
 import { v7 as uuidv7 } from "uuid";
 import type { Message } from "@/types";
 import { useChatStore } from "@/store/core/chatStore";
@@ -172,25 +173,32 @@ export function useMessageEditFlow(deps: ChatFlowDeps) {
       if (!isGenerationRunActive(generation)) return;
       commitInjectedMemoryContext(sessionId, sessionMeta, injectedMemoryIds);
 
-      const skillResolution = await resolveSkillsForMessage({
-        message: newContent,
-        selectedModel,
-        locale,
-        installedSkills,
-        activeSkillIds: effectiveContext.orchestratedModeEnabled
-          ? []
-          : effectiveContext.activeSkillIds,
-        skillBundles,
-        activeSkillBundleIds: effectiveContext.researchModeEnabled
-          ? []
-          : activeSkillBundleIds,
-        skillParameterValues: editSkillParameters.skillParameterValues,
-        skillBundleParameterValues:
-          editSkillParameters.skillBundleParameterValues,
-        autoSelect:
-          skillAutoSelect && !effectiveContext.orchestratedModeEnabled,
-        signal: generation.controller.signal,
-      });
+      const skillResolution = isTemporarySessionId(sessionId)
+        ? {
+            context: "",
+            appliedSkills: [],
+            invocations: [],
+            skippedSkillIds: [],
+          }
+        : await resolveSkillsForMessage({
+            message: newContent,
+            selectedModel,
+            locale,
+            installedSkills,
+            activeSkillIds: effectiveContext.orchestratedModeEnabled
+              ? []
+              : effectiveContext.activeSkillIds,
+            skillBundles,
+            activeSkillBundleIds: effectiveContext.researchModeEnabled
+              ? []
+              : activeSkillBundleIds,
+            skillParameterValues: editSkillParameters.skillParameterValues,
+            skillBundleParameterValues:
+              editSkillParameters.skillBundleParameterValues,
+            autoSelect:
+              skillAutoSelect && !effectiveContext.orchestratedModeEnabled,
+            signal: generation.controller.signal,
+          });
       if (!isGenerationRunActive(generation)) return;
       if (skillResolution.skippedSkillIds.length > 0) {
         showActionError(

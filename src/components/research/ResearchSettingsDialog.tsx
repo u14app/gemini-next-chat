@@ -6,14 +6,16 @@ import { useTranslations } from "next-intl";
 
 import AgentArtifactWorkspace from "@/components/agent/AgentArtifactDrawer";
 import { Button, Dialog, IconButton } from "@/components/ui/primitives";
+import { RESEARCH_BUDGET_PRESETS } from "@/lib/research/task";
 import {
-  RESEARCH_BUDGET_PRESETS,
   RESEARCH_STRATEGY_LIMITS,
   RESEARCH_STRATEGY_PRESETS,
   resolveResearchStrategy,
+} from "@/lib/research/orchestration/strategy";
+import {
   type ResearchBudgetPreset,
   type ResearchStrategy,
-} from "@/lib/research";
+} from "@/lib/research/types";
 import ResearchTemplatePicker, {
   type ResearchTemplatePickerLabels,
 } from "./ResearchTemplatePicker";

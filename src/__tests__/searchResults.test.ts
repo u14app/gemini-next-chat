@@ -82,6 +82,7 @@ describe("search result normalization", () => {
         description: "d".repeat(
           SEARCH_RESULT_LIMITS.maxImageDescriptionChars + 10,
         ),
+        sourceUrl: "https://example.com/article",
       },
       {
         url: "https://example.com/image.png",
@@ -98,6 +99,22 @@ describe("search result normalization", () => {
     expect(images[0]?.description).toHaveLength(
       SEARCH_RESULT_LIMITS.maxImageDescriptionChars,
     );
+    expect(images[0]?.sourceUrl).toBe("https://example.com/article");
     expect(images[1]?.url).toBe("https://127.0.0.1/private.png");
+  });
+
+  it("accepts provider image URL strings and drops unsafe source pages", () => {
+    expect(
+      normalizeImageSources([
+        "https://example.com/image.png",
+        {
+          url: "https://example.com/other.png",
+          sourceUrl: "javascript:alert(1)",
+        },
+      ]),
+    ).toEqual([
+      { url: "https://example.com/image.png" },
+      { url: "https://example.com/other.png" },
+    ]);
   });
 });

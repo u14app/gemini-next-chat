@@ -13,11 +13,18 @@ describe("HTML visual prompt helpers", () => {
     expect(instruction).toContain("<html-visual>");
     expect(instruction).toContain("actively use safe inline HTML");
     expect(instruction).toContain("raw HTML");
+    expect(instruction).not.toContain("and img");
+    expect(instruction).toContain(
+      "only to narrative prose in any final user-facing answer",
+    );
+    expect(instruction).toContain("Never apply HTML beautification");
+    expect(instruction).toContain("Mermaid, mindmap");
+    expect(instruction).toContain("outside HTML containers");
     expect(instruction).toContain(
       "Do not wrap HTML visual fragments in code fences",
     );
     expect(instruction).toContain("Do not use class attributes");
-    expect(instruction).toContain("semantic neon diagram palette");
+    expect(instruction).toContain("semantic article palette");
     expect(instruction).toContain("cyan, mint, violet, amber, and rose");
     expect(instruction).toContain("var(--html-visual-surface)");
     expect(instruction).toContain("var(--html-visual-info-surface)");

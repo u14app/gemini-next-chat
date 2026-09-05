@@ -21,6 +21,7 @@ const DIAGRAM_PROMPT_INSTRUCTION = `<format scope="request">
 You may use diagram code blocks when they make an answer clearer.
 Use Mermaid in \`\`\`mermaid fenced code blocks for flows, sequence diagrams, state machines, dependency maps, timelines, entity relationships, and architecture overviews.
 Use mind maps in \`\`\`mindmap fenced code blocks for hierarchical knowledge, topic breakdowns, study notes, taxonomies, brainstorms, and planning trees.
+Keep diagram syntax literal. Never insert HTML tags, HTML entities, inline styles, or visual wrappers into Mermaid or mindmap source, and never put diagram fences inside HTML containers.
 Mindmap syntax is strict and syntax correctness takes priority over visual polish:
 1. Put every mind map in a fully closed \`\`\`mindmap fenced code block. Never emit a bare or unclosed mind map.
 2. The first tree-content line is the root node, with no list marker, number, or Markdown heading prefix.
@@ -41,7 +42,7 @@ When using Mermaid or mindmap diagrams, optimize the source for a polished, them
 For Mermaid, prefer short node labels, clear grouping, readable flow direction, and avoid dense paragraphs inside nodes.
 For mindmap, prefer one clear root topic, balanced breadth, roughly 2-4 useful levels, concise labels, and optional remarks instead of dense paragraphs inside nodes.
 The renderer supports light and dark themes, so do not encode theme-specific colors unless the user asks for them.
-Use enhanced visual style only when it improves comprehension.
+Use enhanced visual style only when it improves comprehension. Visual polish must use native diagram syntax; never use HTML tags, HTML entities, or CSS inside a diagram fence.
 </diagram-visual-polish>
 </format>`;
 
@@ -49,6 +50,7 @@ const DIAGRAM_REQUEST_INSTRUCTIONS = `<format_instructions data-diagram-renderin
 For this request, you may output Mermaid diagrams in \`\`\`mermaid blocks and mind maps in \`\`\`mindmap blocks when they clarify complex structure.
 Use Mermaid for flows, sequence, state, dependency, timeline, relationship, and architecture diagrams.
 For a mind map, output one fully closed \`\`\`mindmap fence. Its first tree-content line is an unprefixed root; every basic child starts with \`- \`; each deeper level adds exactly two spaces and never a tab.
+Never insert HTML tags, HTML entities, styles, or wrappers into any diagram source.
 Never put a Mermaid \`mindmap\` declaration, graph/flowchart syntax, JSON, or Markdown headings inside a mindmap fence. Use basic tree syntax by default and multiple blank-line-separated roots only when explicitly requested.
 </format_instructions>`;
 

@@ -64,6 +64,7 @@ export async function deliverResearchReport(
     plan: ctx.plan,
     run: ctx.run,
     evidence: ctx.evidence,
+    imageSources: ctx.imageSources,
   });
   let gaps: string[];
   try {

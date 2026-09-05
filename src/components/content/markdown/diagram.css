@@ -1,0 +1,214 @@
+.markdown-diagram {
+  margin: 1rem 0;
+  max-width: 100%;
+  min-width: 0;
+  color: var(--foreground);
+}
+
+.markdown-diagram-header {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.25rem 0;
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.markdown-diagram-body {
+  min-height: 13rem;
+  overflow: hidden;
+  border: 0;
+  border-radius: var(--radius-lg);
+  background: transparent;
+}
+
+.markdown-diagram-enhanced .markdown-diagram-body {
+  background: transparent;
+}
+
+.markdown-diagram-status {
+  display: flex;
+  min-height: 10rem;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--muted) 24%, transparent);
+  color: var(--muted-foreground);
+  padding: 1.25rem;
+  text-align: center;
+  font-size: 0.75rem;
+}
+
+.markdown-diagram-status-error {
+  background: color-mix(in srgb, var(--destructive) 7%, transparent);
+  color: color-mix(in srgb, var(--destructive) 78%, var(--foreground));
+}
+
+.markdown-diagram-svg {
+  display: flex;
+  min-height: 13rem;
+  align-items: center;
+  justify-content: center;
+  overflow: auto;
+  padding: 1rem;
+  background: transparent;
+}
+
+.markdown-diagram-svg-static {
+  pointer-events: none;
+  touch-action: pan-y;
+  user-select: none;
+}
+
+.markdown-diagram-svg-static svg {
+  pointer-events: none;
+}
+
+.markdown-diagram-svg-interactive {
+  cursor: grab;
+  width: max-content;
+  max-width: none;
+  min-width: 18rem;
+  overflow: visible;
+  pointer-events: auto;
+}
+
+.markdown-diagram-svg-interactive:active {
+  cursor: grabbing;
+}
+
+.markdown-diagram-svg svg {
+  display: block;
+  width: auto;
+  max-width: 100%;
+  height: auto;
+  max-height: 28rem;
+  margin: 0 auto;
+  background: transparent !important;
+}
+
+.markdown-diagram-svg svg .mindmap-node-root .mindmap-node-bg {
+  fill: var(--diagram-root-bg);
+}
+
+.markdown-diagram-svg svg .mindmap-node-root text {
+  fill: var(--diagram-root-text);
+}
+
+.markdown-diagram-svg svg .mindmap-node-child text {
+  fill: var(--markdown-foreground);
+}
+
+.markdown-diagram-svg svg .mindmap-edge,
+.markdown-diagram-svg svg .mindmap-node-underline {
+  stroke-opacity: 0.85;
+}
+
+.markdown-diagram-viewport {
+  position: relative;
+  display: flex;
+  width: 100%;
+  height: 100%;
+  min-height: calc(100dvh - 7rem);
+  min-width: 0;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  background: transparent;
+}
+
+.markdown-diagram-zoom-controls {
+  position: absolute;
+  top: 0.75rem;
+  right: 0.75rem;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  border: 1px solid var(--html-visual-border);
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--html-visual-surface) 88%, transparent);
+  box-shadow: var(--html-visual-shadow);
+  padding: 0.25rem;
+  backdrop-filter: blur(16px);
+}
+
+.markdown-diagram-zoom-controls button {
+  display: inline-flex;
+  width: 2rem;
+  height: 2rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-md);
+  color: var(--muted-foreground);
+  transition:
+    background-color 140ms ease,
+    color 140ms ease;
+}
+
+.markdown-diagram-zoom-controls button:hover {
+  background: var(--markdown-soft-surface);
+  color: var(--markdown-foreground);
+}
+
+.markdown-diagram-zoom-controls button:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--diagram-line) 44%, transparent);
+  outline-offset: 2px;
+}
+
+.markdown-diagram-transform-wrapper {
+  width: 100% !important;
+  height: 100% !important;
+  min-height: 18rem;
+  background: transparent !important;
+  cursor: grab;
+}
+
+.markdown-diagram-transform-wrapper:active {
+  cursor: grabbing;
+}
+
+.markdown-diagram-transform-content {
+  display: flex;
+  width: max-content;
+  min-width: 100%;
+  min-height: 100%;
+  align-items: center;
+  justify-content: center;
+}
+
+.markdown-diagram-fullscreen {
+  display: flex;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.markdown-diagram-fullscreen .markdown-diagram,
+.markdown-diagram-fullscreen .markdown-diagram-body {
+  display: flex;
+  width: 100%;
+  min-height: 0;
+  flex: 1 1 auto;
+  margin: 0;
+}
+
+.markdown-diagram-fullscreen .markdown-diagram-body {
+  overflow: hidden;
+}
+
+.markdown-diagram-fullscreen .markdown-diagram-svg {
+  min-height: auto;
+  padding: 2.75rem 1rem 1rem;
+  overflow: visible;
+}
+
+.markdown-diagram-fullscreen .markdown-diagram-svg svg {
+  width: auto;
+  max-width: none;
+  height: auto;
+  max-height: none;
+}

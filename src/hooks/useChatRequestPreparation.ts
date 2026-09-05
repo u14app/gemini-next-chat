@@ -1,4 +1,10 @@
 "use client";
+import {
+  getTemporarySessionSignal,
+  isTemporarySession,
+  isTemporarySessionId,
+  TEMPORARY_CHAT_CONFIG,
+} from "@/lib/chat/sessionRetention";
 import type React from "react";
 import { useTranslations } from "next-intl";
 import type {
@@ -145,7 +151,8 @@ export function useChatRequestPreparation({
       ? workspaces.find((item) => item.id === session.workspaceId)
       : null;
 
-    return resolveEffectiveChatContext({
+    const temporary = isTemporarySession(session);
+    const context = resolveEffectiveChatContext({
       session,
       workspace,
       systemPrompt: system.systemPrompt,
@@ -155,7 +162,9 @@ export function useChatRequestPreparation({
       provider,
       modelMetadata,
       customModelMetadata,
-      chatConfig,
+      chatConfig: temporary
+        ? { ...chatConfig, ...TEMPORARY_CHAT_CONFIG }
+        : chatConfig,
       search: {
         provider: search.provider,
         configs: search.configs,
@@ -166,6 +175,22 @@ export function useChatRequestPreparation({
       pluginConfigs,
       activePlugins,
     });
+    return temporary
+      ? {
+          ...context,
+          workspaceFiles: [],
+          workspaceKnowledgeCollectionIds: [],
+          activePluginIds: [],
+          activeSkillIds: [],
+          agentSkillIds: [],
+          agentToolIds: [],
+          memoryScopes: [],
+          memoryScopeIds: {},
+          agentModeEnabled: false,
+          researchModeEnabled: false,
+          orchestratedModeEnabled: false,
+        }
+      : context;
   };
 
   const prepareComposerSkillParameters = async (
@@ -173,6 +198,8 @@ export function useChatRequestPreparation({
     requestModel = selectedModel,
     forcedSkillIds: readonly string[] = [],
   ): Promise<ComposerSkillParameterValues | null> => {
+    if (isTemporarySession(session))
+      return { skillParameterValues: {}, skillBundleParameterValues: {} };
     const effectiveContext = getEffectiveContextForSession(
       session,
       requestModel,
@@ -311,6 +338,9 @@ export function useChatRequestPreparation({
       session,
       requestModel,
     );
+    const temporary = isTemporarySession(session);
+    getTemporarySessionSignal(session?.id)?.throwIfAborted();
+    if (temporary) attachments = [];
     const preparedAttachments = effectiveContext.researchModeEnabled
       ? attachments
       : await prepareConversationImageAttachments(
@@ -325,7 +355,7 @@ export function useChatRequestPreparation({
       modelMetadata,
       customModelMetadata,
       ragConfig: rag,
-      ragEnabled: chatConfig.useRAG !== false,
+      ragEnabled: !temporary && chatConfig.useRAG !== false,
       deferKnowledgeRetrieval: effectiveContext.orchestratedModeEnabled,
       deferAttachmentReading: effectiveContext.researchModeEnabled,
       knowledgeCollections,
@@ -335,31 +365,32 @@ export function useChatRequestPreparation({
     });
 
     const memoryState = useMemoryStore.getState();
-    const directMemoryContext = effectiveContext.researchModeEnabled
-      ? { text: "", injectedMemoryIds: [] }
-      : existingMemoryContext?.promptContext
-        ? {
-            text: existingMemoryContext.promptContext,
-            injectedMemoryIds: existingMemoryContext.injectedMemoryIds,
-          }
-        : memoryState._hasHydrated &&
-            memoryState.settings.enabled &&
-            memoryState.settings.searchEnabled
-          ? buildDirectMemoryPromptContext({
-              memories: memoryState.memories.filter((memory) =>
-                isMemoryVisibleInScopes(
-                  memory,
-                  effectiveContext.memoryScopes,
-                  effectiveContext.memoryScopeIds,
+    const directMemoryContext =
+      temporary || effectiveContext.researchModeEnabled
+        ? { text: "", injectedMemoryIds: [] }
+        : existingMemoryContext?.promptContext
+          ? {
+              text: existingMemoryContext.promptContext,
+              injectedMemoryIds: existingMemoryContext.injectedMemoryIds,
+            }
+          : memoryState._hasHydrated &&
+              memoryState.settings.enabled &&
+              memoryState.settings.searchEnabled
+            ? buildDirectMemoryPromptContext({
+                memories: memoryState.memories.filter((memory) =>
+                  isMemoryVisibleInScopes(
+                    memory,
+                    effectiveContext.memoryScopes,
+                    effectiveContext.memoryScopeIds,
+                  ),
                 ),
-              ),
-              query: text,
-              alreadyInjectedMemoryIds: getSuppressedMemoryIds(
-                session,
-                useChatStore.getState().activeMessages,
-              ),
-            })
-          : { text: "", injectedMemoryIds: [] };
+                query: text,
+                alreadyInjectedMemoryIds: getSuppressedMemoryIds(
+                  session,
+                  useChatStore.getState().activeMessages,
+                ),
+              })
+            : { text: "", injectedMemoryIds: [] };
     const memoryContext =
       directMemoryContext.text &&
       directMemoryContext.injectedMemoryIds.length > 0
@@ -509,7 +540,8 @@ export function useChatRequestPreparation({
     session: Session | null | undefined,
     injectedMemoryIds: string[],
   ) => {
-    if (injectedMemoryIds.length === 0) return;
+    if (isTemporarySessionId(sessionId) || injectedMemoryIds.length === 0)
+      return;
     const merged = Array.from(
       new Set([
         ...(session?.memoryContext?.injectedMemoryIds || []),

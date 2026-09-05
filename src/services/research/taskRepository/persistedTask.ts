@@ -15,6 +15,11 @@ export function toPersistedResearchTask(task: ResearchTask): ResearchTask {
     ...task,
     budget: { ...task.budget },
     usage: { ...task.usage },
+    ...(task.imageSources
+      ? {
+          imageSources: task.imageSources.map((image) => ({ ...image })),
+        }
+      : {}),
     sourceSnapshot: task.sourceSnapshot
       ? {
           ...task.sourceSnapshot,
@@ -66,6 +71,11 @@ export function toPersistedResearchTask(task: ResearchTask): ResearchTask {
         ? { coveredStepIds: [...report.coveredStepIds] }
         : {}),
       ...(report.evidenceIds ? { evidenceIds: [...report.evidenceIds] } : {}),
+      ...(report.imageSources
+        ? {
+            imageSources: report.imageSources.map((image) => ({ ...image })),
+          }
+        : {}),
       ...(report.diff
         ? {
             diff: {
@@ -94,6 +104,13 @@ export function toPersistedResearchTask(task: ResearchTask): ResearchTask {
           committedToolExecutionIds: [
             ...task.checkpoint.committedToolExecutionIds,
           ],
+          ...(task.checkpoint.committedImageSourceIds
+            ? {
+                committedImageSourceIds: [
+                  ...task.checkpoint.committedImageSourceIds,
+                ],
+              }
+            : {}),
         }
       : undefined,
     error: sanitizeError(task.error),

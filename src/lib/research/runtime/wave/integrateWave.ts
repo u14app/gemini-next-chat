@@ -75,6 +75,9 @@ export async function integrateWave(
       : undefined;
   const completedRun: ResearchReportRun = {
     ...integrated.run,
+    ...(ctx.imageSources?.length
+      ? { imageSources: ctx.imageSources.map((image) => ({ ...image })) }
+      : {}),
     phase,
     usage: baseUsage,
     executedQueries: [
@@ -116,6 +119,9 @@ export async function integrateWave(
             (execution) => execution.status === "committed",
           )
           .map((execution) => execution.id) || [],
+      ...(ctx.imageSources?.length
+        ? { committedImageSourceIds: ctx.imageSources.map((image) => image.id) }
+        : {}),
     },
     updatedAt: Date.now(),
   };

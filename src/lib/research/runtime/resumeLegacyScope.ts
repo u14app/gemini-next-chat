@@ -165,6 +165,11 @@ export async function resumeLegacyScopeApproval({
       task.checkpoint?.committedEvidenceIds ??
       task.evidence.map((item) => item.id),
     committedToolExecutionIds: task.checkpoint?.committedToolExecutionIds ?? [],
+    ...(task.checkpoint?.committedImageSourceIds
+      ? {
+          committedImageSourceIds: [...task.checkpoint.committedImageSourceIds],
+        }
+      : {}),
     researchRunId: resumedRun.id,
   };
   await store.updateTask(taskId, (current) => {

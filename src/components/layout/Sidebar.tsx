@@ -1,19 +1,12 @@
 "use client";
 import React, { useState, useRef, useEffect, useId } from "react";
 import { useTranslations } from "next-intl";
-import {
-  AppSettings,
-  Session,
-  Message,
-  Workspace,
-  SessionMessageTree,
-} from "@/types";
+import { AppSettings, Session, Workspace } from "@/types";
 import { Logo } from "../ui/Icons";
 import { PRODUCT_NAME } from "@/lib/product";
 import { useChatStore } from "@/store/core/chatStore";
 import { useCoreSettingsStore } from "@/store/core/coreSettingsStore";
 import { useSetLocale } from "@/i18n/useSetLocale";
-import { appDb } from "@/store/storage/storageConfig";
 import Tooltip from "../ui/Tooltip";
 import {
   ShortcutTooltipContent,
@@ -29,14 +22,6 @@ import {
   MessageSquarePlus,
   MoreVertical,
   Pin,
-  Copy,
-  FileOutput,
-  PenLine,
-  Trash2,
-  Sparkles,
-  PinOff,
-  Check,
-  X,
   FolderOpen,
   Settings,
   Cable,
@@ -46,7 +31,6 @@ import {
   FolderPlus,
   EllipsisVertical,
   FolderCog,
-  FolderInput,
   Folder,
   PanelLeftClose,
   PanelLeftOpen,
@@ -56,11 +40,8 @@ import {
   Languages,
   ScrollText,
 } from "lucide-react";
-import { CHAT_ENTITY_LIMITS } from "@/config/limits";
-import { sanitizeDownloadFilename } from "@/lib/utils/filename";
-import { createSessionExportPayload } from "@/lib/chat/sessionExport";
 import { getSessionDisplayTitle } from "@/lib/chat/sessionTitle";
-import { logDevError } from "@/lib/utils/devLogger";
+import { isTemporarySession } from "@/lib/chat/sessionRetention";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -74,18 +55,13 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/primitives";
+import { SessionActionsMenu } from "@/components/chat/SessionActions";
 
 interface SidebarProps {
   sessions: Session[];
   currentSessionId: string | null;
   onSelectSession: (id: string) => void;
   onNewChat: () => void;
-  onDeleteSession: (id: string) => void | Promise<void>;
-  onRenameSession: (id: string, newTitle: string) => void;
-  onTogglePin?: (id: string) => void;
-  onDuplicate?: (id: string) => void | Promise<void>;
-  isDuplicateDisabled?: boolean;
-  onSmartRename?: (id: string) => void;
   isOpen: boolean;
   isHidden?: boolean;
   toggleSidebar: () => void;
@@ -158,12 +134,6 @@ const Sidebar: React.FC<SidebarProps> = ({
   currentSessionId,
   onSelectSession,
   onNewChat,
-  onDeleteSession,
-  onRenameSession,
-  onTogglePin,
-  onDuplicate,
-  isDuplicateDisabled = false,
-  onSmartRename,
   isOpen,
   isHidden = false,
   toggleSidebar,
@@ -188,7 +158,7 @@ const Sidebar: React.FC<SidebarProps> = ({
   const chatT = useTranslations("ChatApp");
   const newChatShortcut = useShortcutPresentation("newChat");
   const toggleSidebarShortcut = useShortcutPresentation("toggleSidebar");
-  const { workspaces, createSession, moveSessionToWorkspace } = useChatStore();
+  const { workspaces, createSession } = useChatStore();
   const { theme, setTheme, language } = useCoreSettingsStore();
   const setLocale = useSetLocale();
   const themeDisplayLabel = {
@@ -207,16 +177,13 @@ const Sidebar: React.FC<SidebarProps> = ({
     x: number;
     y: number;
     sessionId: string;
+    trigger?: HTMLElement;
   } | null>(null);
   const [workspaceMenu, setWorkspaceMenu] = useState<{
     x: number;
     y: number;
     workspaceId: string;
   } | null>(null);
-  const [pendingDeleteSessionId, setPendingDeleteSessionId] = useState<
-    string | null
-  >(null);
-  const [exportError, setExportError] = useState<string | null>(null);
   const [isSettingsMenuOpen, setIsSettingsMenuOpen] = useState(false);
   const [expandedWorkspaceSessionLists, setExpandedWorkspaceSessionLists] =
     useState<Record<string, boolean>>({});
@@ -225,10 +192,6 @@ const Sidebar: React.FC<SidebarProps> = ({
   );
   const [sidebarPaneHeights, setSidebarPaneHeights] =
     useState<SidebarPaneHeights>({ workspace: 0, chat: 0 });
-
-  const [renamingId, setRenamingId] = useState<string | null>(null);
-  const [renameValue, setRenameValue] = useState("");
-  const [renameOriginalTitle, setRenameOriginalTitle] = useState("");
 
   // Section Expansion State
   const [expandedSections, setExpandedSections] = useState<{
@@ -246,7 +209,6 @@ const Sidebar: React.FC<SidebarProps> = ({
   >(undefined);
   const [showWorkspaceModal, setShowWorkspaceModal] = useState(false);
 
-  const renameInputRef = useRef<HTMLInputElement>(null);
   const sidebarRef = useRef<HTMLDivElement>(null);
   const restoreFocusRef = useRef<HTMLElement | null>(null);
   const sidebarListRegionRef = useRef<HTMLDivElement>(null);
@@ -264,12 +226,6 @@ const Sidebar: React.FC<SidebarProps> = ({
       isMountedRef.current = false;
     };
   }, []);
-
-  useEffect(() => {
-    if (renamingId && renameInputRef.current) {
-      renameInputRef.current.focus();
-    }
-  }, [renamingId]);
 
   useEffect(() => {
     if (!focusedWorkspaceId || !isOpen) return;
@@ -396,8 +352,12 @@ const Sidebar: React.FC<SidebarProps> = ({
     e.stopPropagation();
     const x = e.clientX;
     const y = Math.min(e.clientY, window.innerHeight - 350);
-    setContextMenu({ x, y, sessionId });
-    setPendingDeleteSessionId(null);
+    const trigger =
+      e.currentTarget instanceof HTMLButtonElement
+        ? e.currentTarget
+        : (e.currentTarget.querySelector<HTMLButtonElement>("button") ??
+          undefined);
+    setContextMenu({ x, y, sessionId, trigger });
   };
 
   const handleWorkspaceContextMenu = (
@@ -409,84 +369,6 @@ const Sidebar: React.FC<SidebarProps> = ({
     const x = e.clientX;
     const y = Math.min(e.clientY, window.innerHeight - 200);
     setWorkspaceMenu({ x, y, workspaceId });
-  };
-
-  const handleExport = async (sessionId: string) => {
-    const session = sessions.find((s) => s.id === sessionId);
-    if (!session) return;
-    setExportError(null);
-
-    const chatState = useChatStore.getState();
-    const activeMessages =
-      chatState.currentSessionId === sessionId ? chatState.activeMessages : [];
-    const activeMessageTree =
-      chatState.currentSessionId === sessionId
-        ? chatState.activeMessageTree
-        : undefined;
-
-    let fullSession;
-    try {
-      fullSession = await createSessionExportPayload({
-        session,
-        currentSessionId: chatState.currentSessionId,
-        activeMessages,
-        activeMessageTree,
-        loadMessages: (id) =>
-          appDb.getItem<Message[] | SessionMessageTree>(
-            `session_messages_${id}`,
-          ),
-      });
-    } catch (e) {
-      logDevError("Failed to load messages for export", e);
-      setExportError(t("exportError"));
-      return;
-    }
-
-    const blob = new Blob([JSON.stringify(fullSession, null, 2)], {
-      type: "application/json;charset=utf-8",
-    });
-    const url = URL.createObjectURL(blob);
-    const downloadAnchorNode = document.createElement("a");
-    downloadAnchorNode.setAttribute("href", url);
-    downloadAnchorNode.setAttribute(
-      "download",
-      sanitizeDownloadFilename(
-        `chat_export_${getSessionDisplayTitle(session.title, t("newChat"))}.json`,
-      ),
-    );
-    document.body.appendChild(downloadAnchorNode);
-    downloadAnchorNode.click();
-    downloadAnchorNode.remove();
-    URL.revokeObjectURL(url);
-    setExportError(null);
-  };
-
-  const handleStartRename = (sessionId: string, currentTitle: string) => {
-    setRenamingId(sessionId);
-    setRenameOriginalTitle(currentTitle);
-    setRenameValue(getSessionDisplayTitle(currentTitle, t("newChat")));
-    setContextMenu(null);
-    setPendingDeleteSessionId(null);
-  };
-
-  const submitRename = () => {
-    if (renamingId && renameValue.trim()) {
-      const nextTitle = renameValue.trim();
-      const originalDisplayTitle = getSessionDisplayTitle(
-        renameOriginalTitle,
-        t("newChat"),
-      );
-      if (nextTitle !== originalDisplayTitle) {
-        onRenameSession(renamingId, nextTitle);
-      }
-    }
-    setRenamingId(null);
-    setRenameOriginalTitle("");
-  };
-
-  const handleKeyDownRename = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter") submitRename();
-    if (e.key === "Escape") setRenamingId(null);
   };
 
   const handleSidebarKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
@@ -554,13 +436,14 @@ const Sidebar: React.FC<SidebarProps> = ({
   const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
 
   // Split sessions into Workspace-bound and Unbound (Root)
-  const rootSessions = sessions.filter((s) => !s.workspaceId);
+  const historySessions = sessions.filter((s) => !isTemporarySession(s));
+  const rootSessions = historySessions.filter((s) => !s.workspaceId);
   const workspaceSessionsMap = new Map<string, Session[]>();
 
   workspaces.forEach((w) => {
     workspaceSessionsMap.set(
       w.id,
-      sessions.filter((s) => s.workspaceId === w.id),
+      historySessions.filter((s) => s.workspaceId === w.id),
     );
   });
 
@@ -641,71 +524,36 @@ const Sidebar: React.FC<SidebarProps> = ({
         `}
         onContextMenu={(e) => handleContextMenu(e, session.id)}
       >
-        {renamingId === session.id ? (
-          <div className="flex w-full items-center gap-1">
-            <input
-              ref={renameInputRef}
-              aria-label={t("renameAria", { title: displayTitle })}
-              name="session-title"
-              value={renameValue}
-              onChange={(e) => setRenameValue(e.target.value)}
-              maxLength={CHAT_ENTITY_LIMITS.maxSessionTitleChars}
-              onKeyDown={handleKeyDownRename}
-              onBlur={submitRename}
-              className="flex-1 rounded border border-blue-300 bg-white px-1 py-0.5 text-xs text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500/40 dark:bg-muted dark:text-foreground"
-              onClick={(e) => e.stopPropagation()}
-            />
-            <Button
-              variant="bare"
-              type="button"
-              aria-label={t("saveTitleAria", { title: displayTitle })}
-              className="rounded p-0.5 text-green-600 transition-colors hover:bg-green-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-500/60 dark:hover:bg-green-900/30"
-              onMouseDown={submitRename}
-            >
-              <Check size={12} aria-hidden="true" />
-            </Button>
-            <Button
-              variant="bare"
-              type="button"
-              aria-label={t("cancelRenameAria", { title: displayTitle })}
-              className="rounded p-0.5 text-red-500 transition-colors hover:bg-red-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500/60 dark:hover:bg-red-900/30"
-              onMouseDown={() => setRenamingId(null)}
-            >
-              <X size={12} aria-hidden="true" />
-            </Button>
-          </div>
-        ) : (
-          <>
-            <Button
-              variant="bare"
-              type="button"
-              aria-current={isActive ? "page" : undefined}
-              className="flex min-w-0 flex-1 items-center gap-1.5 rounded-md pr-6 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60"
-              onClick={() => {
-                onSelectSession(session.id);
-              }}
-            >
-              {session.pinned && (
-                <Pin
-                  size={12}
-                  className="shrink-0 fill-current text-red-500"
-                  aria-hidden="true"
-                />
-              )}
-              <span className="truncate">{displayTitle}</span>
-            </Button>
+        <>
+          <Button
+            variant="bare"
+            type="button"
+            aria-current={isActive ? "page" : undefined}
+            className="flex min-w-0 flex-1 items-center gap-1.5 rounded-md pr-6 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60"
+            onClick={() => {
+              onSelectSession(session.id);
+            }}
+          >
+            {session.pinned && (
+              <Pin
+                size={12}
+                className="shrink-0 fill-current text-red-500"
+                aria-hidden="true"
+              />
+            )}
+            <span className="truncate">{displayTitle}</span>
+          </Button>
 
-            <Button
-              variant="bare"
-              type="button"
-              aria-label={t("moreActionsAria", { title: displayTitle })}
-              className={`absolute right-2 rounded-lg p-1 opacity-100 transition-[opacity,background-color] hover:bg-white/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 md:opacity-0 md:group-hover:opacity-100 dark:hover:bg-accent ${contextMenu?.sessionId === session.id ? "opacity-100" : ""}`}
-              onClick={(e) => handleContextMenu(e, session.id)}
-            >
-              <MoreVertical size={14} aria-hidden="true" />
-            </Button>
-          </>
-        )}
+          <Button
+            variant="bare"
+            type="button"
+            aria-label={t("moreActionsAria", { title: displayTitle })}
+            className={`absolute right-2 rounded-lg p-1 opacity-100 transition-[opacity,background-color] hover:bg-white/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 md:opacity-0 md:group-hover:opacity-100 dark:hover:bg-accent ${contextMenu?.sessionId === session.id ? "opacity-100" : ""}`}
+            onClick={(e) => handleContextMenu(e, session.id)}
+          >
+            <MoreVertical size={14} aria-hidden="true" />
+          </Button>
+        </>
       </div>
     );
   };
@@ -1009,15 +857,6 @@ const Sidebar: React.FC<SidebarProps> = ({
             onOpenGlobalSearch={onOpenGlobalSearch}
             isGlobalSearchOpen={isGlobalSearchOpen}
           />
-          {isOpen && exportError && (
-            <div
-              role="alert"
-              aria-live="polite"
-              className="mx-3 mb-2 mt-0 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-200"
-            >
-              {exportError}
-            </div>
-          )}
         </div>
 
         <div className="min-h-0 flex-1 px-3 pb-2 animate-in fade-in duration-300">
@@ -1474,199 +1313,17 @@ const Sidebar: React.FC<SidebarProps> = ({
           </DropdownMenu>
         </div>
 
-        {/* Session Context Menu */}
-        {contextMenu && (
-          <DropdownMenu
-            open
-            onOpenChange={(open) => {
-              if (open) return;
-              setContextMenu(null);
-              setPendingDeleteSessionId(null);
-            }}
-          >
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant="bare"
-                type="button"
-                aria-label={t("chatActions")}
-                className="fixed z-50 h-px w-px opacity-0"
-                style={{ top: contextMenu.y, left: contextMenu.x }}
-              />
-            </DropdownMenuTrigger>
-            <DropdownMenuContent
-              side="bottom"
-              align="start"
-              sideOffset={0}
-              className="w-52 overflow-visible"
-            >
-              {(() => {
-                const session = sessions.find(
-                  (s) => s.id === contextMenu.sessionId,
-                );
-                if (!session) return null;
-
-                const hasMessages = session.messageCount > 0;
-                const isConfirmingDelete =
-                  pendingDeleteSessionId === session.id;
-                const displayTitle = getSessionDisplayTitle(
-                  session.title,
-                  t("newChat"),
-                );
-
-                return (
-                  <>
-                    {hasMessages && (
-                      <>
-                        <DropdownMenuItem
-                          onSelect={() => {
-                            onTogglePin?.(session.id);
-                            setContextMenu(null);
-                          }}
-                        >
-                          {session.pinned ? (
-                            <PinOff size={14} aria-hidden="true" />
-                          ) : (
-                            <Pin size={14} aria-hidden="true" />
-                          )}
-                          {session.pinned ? t("unpin") : t("pin")}
-                        </DropdownMenuItem>
-
-                        <DropdownMenuItem
-                          disabled={isDuplicateDisabled}
-                          onSelect={() => {
-                            if (onDuplicate) void onDuplicate(session.id);
-                            setContextMenu(null);
-                          }}
-                        >
-                          <Copy size={14} aria-hidden="true" /> {t("duplicate")}
-                        </DropdownMenuItem>
-
-                        <DropdownMenuItem
-                          onSelect={() => {
-                            void handleExport(session.id);
-                            setContextMenu(null);
-                          }}
-                        >
-                          <FileOutput size={14} aria-hidden="true" />
-                          {t("export")}
-                        </DropdownMenuItem>
-
-                        <DropdownMenuSeparator />
-                      </>
-                    )}
-
-                    <DropdownMenuItem
-                      onSelect={() =>
-                        handleStartRename(session.id, session.title)
-                      }
-                    >
-                      <PenLine size={14} aria-hidden="true" /> {t("rename")}
-                    </DropdownMenuItem>
-
-                    {hasMessages && (
-                      <DropdownMenuItem
-                        className="text-purple-600 dark:text-purple-400"
-                        onSelect={() => {
-                          onSmartRename?.(session.id);
-                          setContextMenu(null);
-                        }}
-                      >
-                        <Sparkles size={14} aria-hidden="true" />
-                        {t("aiRename")}
-                      </DropdownMenuItem>
-                    )}
-
-                    <DropdownMenuSub>
-                      <DropdownMenuSubTrigger>
-                        <FolderInput size={14} aria-hidden="true" />
-                        <span>{t("moveTo")}</span>
-                        <ChevronDown
-                          size={12}
-                          className="ml-auto -rotate-90"
-                          aria-hidden="true"
-                        />
-                      </DropdownMenuSubTrigger>
-                      <DropdownMenuSubContent
-                        className="max-h-60 w-52 overflow-y-auto custom-scrollbar"
-                        aria-label={t("moveToWorkspaceAria")}
-                      >
-                        <DropdownMenuRadioGroup
-                          value={session.workspaceId ?? ""}
-                          onValueChange={(workspaceId) => {
-                            moveSessionToWorkspace(
-                              session.id,
-                              workspaceId || null,
-                            );
-                            setContextMenu(null);
-                          }}
-                        >
-                          <DropdownMenuRadioItem value="">
-                            <MessageSquarePlus
-                              size={14}
-                              className="text-gray-400"
-                              aria-hidden="true"
-                            />
-                            {t("chatListRoot")}
-                          </DropdownMenuRadioItem>
-                          <DropdownMenuSeparator />
-                          {workspaces.map((ws) => (
-                            <DropdownMenuRadioItem key={ws.id} value={ws.id}>
-                              <Folder
-                                size={14}
-                                className="shrink-0 text-blue-500"
-                                aria-hidden="true"
-                              />
-                              <span className="truncate">{ws.name}</span>
-                            </DropdownMenuRadioItem>
-                          ))}
-                          {workspaces.length === 0 && (
-                            <div className="px-4 py-2 text-xs italic text-gray-400">
-                              {t("noWorkspaces")}
-                            </div>
-                          )}
-                        </DropdownMenuRadioGroup>
-                      </DropdownMenuSubContent>
-                    </DropdownMenuSub>
-
-                    <DropdownMenuSeparator />
-
-                    <DropdownMenuItem
-                      aria-label={
-                        isConfirmingDelete
-                          ? t("confirmDeleteAria", { title: displayTitle })
-                          : t("deleteAria", { title: displayTitle })
-                      }
-                      variant="destructive"
-                      className={
-                        isConfirmingDelete
-                          ? "bg-red-50 text-red-700 dark:bg-red-900/40 dark:text-red-200"
-                          : undefined
-                      }
-                      onSelect={(event) => {
-                        if (!isConfirmingDelete) {
-                          event.preventDefault();
-                          setPendingDeleteSessionId(session.id);
-                          return;
-                        }
-
-                        void onDeleteSession(session.id);
-                        setContextMenu(null);
-                        setPendingDeleteSessionId(null);
-                      }}
-                    >
-                      {isConfirmingDelete ? (
-                        <Check size={14} aria-hidden="true" />
-                      ) : (
-                        <Trash2 size={14} aria-hidden="true" />
-                      )}
-                      {isConfirmingDelete ? t("confirmDelete") : t("delete")}
-                    </DropdownMenuItem>
-                  </>
-                );
-              })()}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        )}
+        {contextMenu &&
+          sessions.find((session) => session.id === contextMenu.sessionId) && (
+            <SessionActionsMenu
+              session={sessions.find(
+                (session) => session.id === contextMenu.sessionId,
+              )!}
+              anchor={contextMenu}
+              returnFocus={contextMenu.trigger}
+              onClose={() => setContextMenu(null)}
+            />
+          )}
 
         {/* Workspace Context Menu */}
         {workspaceMenu && (

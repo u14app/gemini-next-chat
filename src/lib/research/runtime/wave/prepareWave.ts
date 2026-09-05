@@ -10,6 +10,7 @@ import {
   getResearchQueriesFromToolCalls,
   getResearchRunResumeDecision,
   getResearchSourceLocatorsFromToolCalls,
+  mergeResearchImageSources,
   normalizeResearchQuery,
   type ResearchReportRun,
 } from "@/lib/research";
@@ -103,6 +104,16 @@ export async function prepareWave(
   const savedCheckpoint = resumeThisWave
     ? await readCheckpoint(currentTask)
     : null;
+  ctx.imageSources = mergeResearchImageSources(
+    ctx.imageSources ?? [],
+    run.imageSources ?? [],
+  );
+  if (savedCheckpoint?.imageSources) {
+    ctx.imageSources = mergeResearchImageSources(
+      ctx.imageSources,
+      savedCheckpoint.imageSources,
+    );
+  }
 
   const startedAt = Date.now();
   const activeRun: ResearchReportRun = {
@@ -219,6 +230,7 @@ export async function prepareWave(
     latestToolCalls: savedCheckpoint?.toolCalls || [],
     webSources: [],
     knowledgeSources: [],
+    imageSources: [...ctx.imageSources],
     checkpointQueue: Promise.resolve(),
   };
 }

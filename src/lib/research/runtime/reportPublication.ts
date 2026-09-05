@@ -11,6 +11,7 @@ import {
   transitionResearchTask,
   upsertResearchReportRun,
   type ResearchEvidence,
+  type ResearchImageSource,
   type ResearchPlanVersion,
   type ResearchReportAuditSnapshot,
   type ResearchReportRun,
@@ -81,6 +82,7 @@ export async function publishResearchReportVersion({
   run,
   markdown,
   evidence,
+  imageSources,
   extraGaps,
   audit,
   agentRunId,
@@ -101,6 +103,7 @@ export async function publishResearchReportVersion({
   run: ResearchReportRun;
   markdown: string;
   evidence: ResearchEvidence[];
+  imageSources?: readonly ResearchImageSource[];
   extraGaps: string[];
   audit?: ResearchReportAuditSnapshot;
   agentRunId?: string;
@@ -136,6 +139,11 @@ export async function publishResearchReportVersion({
   if (!normalizedMarkdown) {
     throw new Error("The model returned an empty report.");
   }
+  const reportImageSources =
+    imageSources ??
+    run.imageSources ??
+    store.tasksById[taskId]?.imageSources ??
+    [];
   const auditMetadata = summarizeResearchReport(normalizedMarkdown);
   const runEvidenceIds = new Set([
     ...run.nodes.flatMap((node) => node.evidenceIds),
@@ -203,6 +211,9 @@ export async function publishResearchReportVersion({
         ? transitionResearchTask(current, "synthesizing")
         : current),
     evidence,
+    ...(reportImageSources.length
+      ? { imageSources: reportImageSources.map((image) => ({ ...image })) }
+      : {}),
     usage: aggregateTaskUsage(current),
   }));
   assertRunning();
@@ -285,6 +296,9 @@ export async function publishResearchReportVersion({
     coveredStepIds,
     evidenceIds: reportEvidence.map((item) => item.id),
     evidenceSnapshotStatus: "available",
+    ...(reportImageSources.length
+      ? { imageSources: reportImageSources.map((image) => ({ ...image })) }
+      : {}),
     diff: {
       addedEvidenceIds,
       changedSourceIds,

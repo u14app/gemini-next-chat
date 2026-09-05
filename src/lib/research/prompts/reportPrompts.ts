@@ -2,11 +2,13 @@ import {
   DEFAULT_REPORT_SECTION_LABELS,
   reportSectionKey,
   type ReportSectionLabels,
-} from "../reportSections";
+} from "../reportSectionLabels";
+import { formatResearchImageCatalog } from "../images";
 import { getCitableResearchClaims } from "../orchestration";
 import type {
   ResearchDeliverableContract,
   ResearchEvidence,
+  ResearchImageSource,
   ResearchPlanVersion,
   ResearchReportRun,
   ResearchTask,
@@ -53,6 +55,9 @@ const DELIVERABLE_SYNTHESIS_INSTRUCTIONS: Record<
     "State the exact answer first, then the minimum necessary derivation, qualifications, and source support.",
 };
 
+const REPORT_IMAGE_FORMAT_INSTRUCTION =
+  "For report illustrations, use only standalone Markdown image syntax in its own paragraph: `![description](exact URL)`. Never use `>` to wrap or represent an image, never output a raw `<img>` HTML tag, and never place Markdown image syntax inside an HTML container.";
+
 /**
  * The findings ledger a closed-book synthesis pass may draw from.
  * Corroboration travels with each entry as confidence, not as a filter.
@@ -80,6 +85,7 @@ export function buildResearchSynthesisPrompt({
   run,
   evidence,
   priorReport,
+  imageSources,
   sectionLabels = DEFAULT_REPORT_SECTION_LABELS,
 }: {
   task: ResearchTask;
@@ -87,9 +93,12 @@ export function buildResearchSynthesisPrompt({
   run: ResearchReportRun;
   evidence: readonly ResearchEvidence[];
   priorReport?: string;
+  imageSources?: readonly ResearchImageSource[];
   sectionLabels?: ReportSectionLabels;
 }): string {
   const citableClaims = getCitableResearchClaims(run, evidence);
+  const researchImages =
+    imageSources ?? run.imageSources ?? task.imageSources ?? [];
   const citableClaimIds = new Set(citableClaims.map((item) => item.claim.id));
   const degradedNodeIds = new Set(
     run.waves.flatMap((wave) => wave.degradedNodeIds || []),
@@ -116,6 +125,10 @@ export function buildResearchSynthesisPrompt({
     "Label unverified supplied material and assumptions explicitly. Model knowledge is not research evidence: do not assign it claim IDs, source IDs, or fabricated citations, and do not describe it as verified. Unknown current facts, dates, statistics, and unresolved conflicts remain unknown; explain the limits instead of inventing precise answers.",
     "State `corroborated` findings plainly. Label `single_source` findings as not independently verified, and do not over-generalize beyond what the one source says. For `contested` findings, state the unresolved conflict inline instead of picking a side.",
     "Return one self-contained Markdown report. Use descriptive clickable links for web citations and stable [Source ID] markers for local evidence. Never cite a source that is absent from the evidence index.",
+    REPORT_IMAGE_FORMAT_INSTRUCTION,
+    researchImages.length > 0
+      ? "Use the supplied image catalog as illustrative research material when an image materially improves a relevant section. Use exact catalog URLs with Markdown image syntax, add a concise caption, and link the image's source page when one is supplied. Images are not formal Evidence or Claims and do not require evidence citations. Never invent image URLs, captions, source pages, or a fixed image quota. Do not use vision or infer facts from pixels."
+      : "No image materials were retrieved for this run. Do not invent or request image URLs.",
     `Honor the ${plan.deliverable.kind} contract and these required sections: ${localizedRequiredSections(plan, sectionLabels).join(", ")}.`,
     DELIVERABLE_SYNTHESIS_INSTRUCTIONS[plan.deliverable.kind],
     `Use these exact standard headings in the supplied language: ## ${sectionLabels.executiveSummary}, ## ${sectionLabels.keyFindings}, ## ${sectionLabels.planCoverage}, ## ${sectionLabels.evidenceGaps}, and ## ${sectionLabels.sources}. Write the prose in the user's requested language, otherwise use the language of these headings.`,
@@ -145,6 +158,7 @@ export function buildResearchSynthesisPrompt({
         ...claim.contradictingEvidenceIds,
       ]),
     )}`,
+    `Illustrative image catalog (allow-listed URLs only):\n${formatResearchImageCatalog(researchImages)}`,
     priorReport
       ? `Prior report to extend or update:\n${priorReport.slice(0, 30_000)}`
       : "",
@@ -171,12 +185,17 @@ export function buildResearchExecutionPrompt({
     "Do not expand source permissions. Do not fabricate source, evidence, node, step, or claim IDs.",
     "Exploration must leave the host-reserved query and model budget for verification and synthesis.",
     `After research and verification, return a self-contained Markdown report with ## ${sectionLabels.executiveSummary}, ## ${sectionLabels.keyFindings}, ## ${sectionLabels.planCoverage}, ## ${sectionLabels.evidenceGaps}, and ## ${sectionLabels.sources}. Use these exact localized headings.`,
+    REPORT_IMAGE_FORMAT_INSTRUCTION,
     "Prefix every key finding with a stable claim ID such as [C1] and include its citation on the same line.",
     `Under ${sectionLabels.planCoverage}, use exactly: - step-id: answered|partial|unanswered - short reason.`,
     `Run kind: ${task.pendingReportKind}`,
     `Research goal:\n${task.goal}`,
     `Approved plan v${plan.version}:\n${formatApprovedPlan(plan, sectionLabels)}`,
     `Committed evidence:\n${evidenceContext(task.evidence)}`,
+    task.imageSources?.length
+      ? "Use relevant images from the supplied catalog as illustrative Markdown images with concise captions and source page links when available. Images are not formal Evidence or Claims. Use exact URLs only, do not infer facts from pixels, and do not force a fixed image quota."
+      : "No image materials were retrieved. Do not invent image URLs.",
+    `Illustrative image catalog (allow-listed URLs only):\n${formatResearchImageCatalog(task.imageSources ?? [])}`,
     priorReport
       ? `Prior report to extend or update:\n${priorReport.slice(0, 30_000)}`
       : "",

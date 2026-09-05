@@ -1,6 +1,7 @@
 export * from "./checkpointCodec";
 export * from "./evidence";
 export * from "./learningIntegration";
+export * from "./images";
 export * from "./orchestration";
 export * from "./prompts";
 export * from "./recon";

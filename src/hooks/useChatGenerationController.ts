@@ -1,4 +1,5 @@
 "use client";
+import { getTemporarySessionSignal } from "@/lib/chat/sessionRetention";
 
 import { useCallback, useRef, useState } from "react";
 
@@ -19,6 +20,7 @@ import {
 export interface ActiveGenerationRun {
   runId: number;
   controller: AbortController;
+  cleanup?: () => void;
 }
 
 interface UseChatGenerationControllerOptions {
@@ -41,7 +43,24 @@ export function useChatGenerationController({
     abortControllerRef.current = controller;
     setIsGenerating(true);
 
-    return { runId, controller };
+    const lifetime = getTemporarySessionSignal(
+      useChatStore.getState().currentSessionId,
+    );
+    const onEnd = () => {
+      controller.abort();
+      if (abortControllerRef.current === controller) {
+        generationRunRef.current = getNextGenerationRunId(
+          generationRunRef.current,
+        );
+        abortControllerRef.current = null;
+        setIsGenerating(false);
+      }
+    };
+    lifetime?.addEventListener("abort", onEnd, { once: true });
+    const cleanup = () => lifetime?.removeEventListener("abort", onEnd);
+    controller.signal.addEventListener("abort", cleanup, { once: true });
+    if (lifetime?.aborted) onEnd();
+    return { runId, controller, cleanup };
   }, []);
 
   const isGenerationRunActive = useCallback(
@@ -56,7 +75,8 @@ export function useChatGenerationController({
   );
 
   const finishActiveGeneration = useCallback(
-    ({ runId, controller }: ActiveGenerationRun) => {
+    ({ runId, controller, cleanup }: ActiveGenerationRun) => {
+      cleanup?.();
       if (!isGenerationRunActive({ runId, controller })) return;
 
       abortControllerRef.current = null;

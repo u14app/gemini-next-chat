@@ -4,6 +4,7 @@ import { getCitableResearchClaims } from "../orchestration";
 import { summarizeResearchReport } from "../prompts";
 import type {
   ResearchEvidence,
+  ResearchImageSource,
   ResearchPlanVersion,
   ResearchReportRun,
 } from "../types";
@@ -30,12 +31,14 @@ export function auditResearchReport({
   plan,
   run,
   evidence,
+  imageSources,
   requiredEvidenceGapStepIds,
 }: {
   markdown: string;
   plan: ResearchPlanVersion;
   run: ResearchReportRun;
   evidence: readonly ResearchEvidence[];
+  imageSources?: readonly ResearchImageSource[];
   requiredEvidenceGapStepIds?: readonly string[];
 }): ResearchReportAudit {
   const blocking: string[] = [];
@@ -96,9 +99,20 @@ export function auditResearchReport({
     ),
   );
   const citations = readReportCitations(markdown);
+  // Image source pages are provenance for illustrations, not formal evidence
+  // citations. Exclude the allow-listed catalog URLs from the audit while
+  // retaining every other report link for evidence validation.
+  const imageMaterialUrls = new Set(
+    (imageSources ?? run.imageSources ?? []).flatMap((image) =>
+      [image.url, image.sourceUrl]
+        .filter((url): url is string => Boolean(url))
+        .map(canonicalizeResearchLocator),
+    ),
+  );
   // Navigation/contact links are not claims about external web evidence.
   const citedUrls = citations.urls
     .filter((url) => /^https?:\/\//i.test(url))
+    .filter((url) => !imageMaterialUrls.has(canonicalizeResearchLocator(url)))
     .map(canonicalizeResearchLocator);
   const knownSourceIds = new Set(
     evidence.flatMap((item) => [item.sourceId, ...(item.aliasSourceIds || [])]),

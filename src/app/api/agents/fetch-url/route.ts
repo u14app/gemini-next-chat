@@ -1,14 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { AGENT_FETCH_URL_LIMITS } from "@/config/limits";
 import {
   createApiErrorResponse,
   readJsonRequestBody,
 } from "@/lib/api/middleware";
 import { FetchUrlRequestSchema } from "@/lib/api/schemas";
-import { toReadableDocument } from "@/lib/agent/readableDocument";
-import { safeFetchText } from "@/lib/security/safeFetch";
-import { getSafeUrlPolicy } from "@/lib/security/urlPolicy";
+import { readPublicWebPage } from "@/lib/agent/readPublicWebPage";
 import { safeServerLogError } from "@/lib/utils/safeServerLog";
 
 /**
@@ -23,40 +20,9 @@ export async function POST(request: NextRequest) {
       await readJsonRequestBody(request),
     );
 
-    const { response, text } = await safeFetchText(
-      url,
-      {
-        method: "GET",
-        redirect: "follow",
-        headers: { Accept: "text/html,text/plain;q=0.9,*/*;q=0.5" },
-        signal: request.signal,
-      },
-      {
-        policy: getSafeUrlPolicy("webFetch"),
-        timeoutMs: AGENT_FETCH_URL_LIMITS.timeoutMs,
-        maxResponseBytes: AGENT_FETCH_URL_LIMITS.maxResponseBytes,
-      },
+    return NextResponse.json(
+      await readPublicWebPage(url, { signal: request.signal }),
     );
-
-    if (!response.ok) {
-      return NextResponse.json(
-        { error: `The page responded with HTTP ${response.status}.` },
-        { status: 502 },
-      );
-    }
-
-    const contentType = response.headers.get("content-type") || "";
-    const document = toReadableDocument(
-      text,
-      contentType,
-      AGENT_FETCH_URL_LIMITS.maxContentChars,
-    );
-
-    return NextResponse.json({
-      url: response.url || url,
-      contentType,
-      ...document,
-    });
   } catch (error) {
     if (
       request.signal.aborted ||

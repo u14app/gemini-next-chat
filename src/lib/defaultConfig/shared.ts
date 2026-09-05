@@ -15,6 +15,7 @@ export type ServerDefaultProviderSource = "server-default";
 export type PublicDeploymentStoreState = "memory" | "shared" | "missing";
 
 export interface PublicServerConfig {
+  sharing?: { available: boolean };
   modelProvider: {
     available: boolean;
     id: typeof SERVER_DEFAULT_PROVIDER_ID;

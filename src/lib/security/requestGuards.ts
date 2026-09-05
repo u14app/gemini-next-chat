@@ -139,6 +139,7 @@ export async function enforceRateLimit(
   const useDeploymentBucket =
     clientIp === "unknown" &&
     (getDeploymentMode() === "hosted" ||
+      rule.routeFamily.startsWith("/api/shares/") ||
       rule.routeFamily === "/api/access/verify" ||
       rule.routeFamily === "/api/request-proof/session");
   const proofIdentity =

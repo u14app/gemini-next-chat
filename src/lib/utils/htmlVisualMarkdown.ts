@@ -1,84 +1,38 @@
-const MARKDOWN_LITERAL_FRAGMENT_RE =
-  /(```[\s\S]*?```|~~~[\s\S]*?~~~|`[^`\n]*`)/g;
+import { unified } from "unified";
+import remarkParse from "remark-parse";
+import type { Nodes } from "mdast";
+
+const parser = unified().use(remarkParse);
 const HTML_TAG_RE = /<\/?[A-Za-z][^>\n]*>/g;
-const HTML_VISUAL_MARKDOWN_FENCE_RE =
-  /(^|\n)([ \t]{0,3})(```|~~~)[ \t]*(?:(?:markdown|md)\b[^\n]*)?\n([\s\S]*?)\n[ \t]*\3[ \t]*(?=\n|$)/gi;
-const HTML_VISUAL_FRAGMENT_RE =
-  /^\s*<(div|section|article|aside|main|details|table)\b[\s\S]*<\/\1>\s*$/i;
-const HTML_VISUAL_STYLE_RE = /\sstyle\s*=\s*["'][^"']{8,}["']/i;
-const UNSAFE_HTML_VISUAL_RE =
-  /<\s*(?:script|style|iframe|object|embed|form|input|textarea)\b|\s(?:class|on[a-z]+)\s*=|javascript:|url\s*\(|@import|expression\s*\(/i;
 
-function isMarkdownLiteralFragment(fragment: string): boolean {
-  return (
-    fragment.startsWith("```") ||
-    fragment.startsWith("~~~") ||
-    fragment.startsWith("`")
-  );
-}
-
-function mapMarkdownTextFragments(
-  source: string,
-  transform: (fragment: string) => string,
-): string {
-  return source
-    .split(MARKDOWN_LITERAL_FRAGMENT_RE)
-    .map((fragment) => {
-      if (!fragment || isMarkdownLiteralFragment(fragment)) {
-        return fragment;
-      }
-      return transform(fragment);
-    })
-    .join("");
-}
-
-function normalizeEscapedHtmlAttributeQuotesInText(source: string): string {
-  if (!source.includes('\\"') && !source.includes("\\'")) {
-    return source;
-  }
-
+/** Repair attribute quoting only in an already identified HTML fragment. */
+export function normalizeHtmlVisualFragment(source: string): string {
   return source.replace(HTML_TAG_RE, (tag) =>
     tag.replace(/\\"/g, '"').replace(/\\'/g, "'"),
   );
 }
 
-function isSafeHtmlVisualFragment(source: string): boolean {
-  return (
-    HTML_VISUAL_FRAGMENT_RE.test(source) &&
-    HTML_VISUAL_STYLE_RE.test(source) &&
-    !UNSAFE_HTML_VISUAL_RE.test(source)
-  );
-}
-
-function normalizeHtmlVisualMarkdownFences(source: string): string {
-  if (!source.includes("```") && !source.includes("~~~")) {
-    return source;
-  }
-
-  return source.replace(
-    HTML_VISUAL_MARKDOWN_FENCE_RE,
-    (
-      match: string,
-      prefix: string,
-      _indent: string,
-      _fence: string,
-      code: string,
-    ) => {
-      const normalizedCode = normalizeEscapedHtmlAttributeQuotesInText(
-        code.trim(),
-      );
-      if (!isSafeHtmlVisualFragment(normalizedCode)) {
-        return match;
-      }
-      return `${prefix}${normalizedCode}`;
-    },
-  );
-}
-
+/** Code fences are literal, including unlabeled and markdown fences. */
 export function normalizeHtmlVisualMarkdown(source: string): string {
-  const withVisualFences = normalizeHtmlVisualMarkdownFences(source);
-  return mapMarkdownTextFragments(
-    withVisualFences,
-    normalizeEscapedHtmlAttributeQuotesInText,
-  );
+  const ranges: Array<{ start: number; end: number; value: string }> = [];
+  const visit = (node: Nodes) => {
+    if (
+      node.type === "html" &&
+      node.position?.start.offset !== undefined &&
+      node.position.end.offset !== undefined
+    ) {
+      ranges.push({
+        start: node.position.start.offset,
+        end: node.position.end.offset,
+        value: normalizeHtmlVisualFragment(node.value),
+      });
+    }
+    if ("children" in node) node.children.forEach(visit);
+  };
+  visit(parser.parse(source));
+  let result = source;
+  for (const range of ranges.reverse())
+    result =
+      result.slice(0, range.start) + range.value + result.slice(range.end);
+  return result;
 }

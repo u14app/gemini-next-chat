@@ -1,13 +1,15 @@
 import type { ResearchTaskViewModel } from "../types";
 import type { AgentRun } from "@/lib/agent";
+import { getCurrentResearchReportRunIds } from "@/lib/research/task";
 import {
-  getCurrentResearchReportRunIds,
   getResearchExplorationToolCallLimit,
   getResearchSourceBodyLimit,
+} from "@/lib/research/orchestration/strategy";
+import {
   type ResearchPlanVersion,
   type ResearchReportRun,
   type ResearchTask,
-} from "@/lib/research";
+} from "@/lib/research/types";
 
 import { buildActivities } from "./activityViews";
 import {
@@ -75,6 +77,9 @@ export async function createResearchTaskViewModel(
   const report = getActiveReport(task);
   const activeResearchRun = getActiveResearchRun(task, plan);
   const reportVersions = await loadReports(task, text);
+  const imageSources =
+    task.imageSources ??
+    reportVersions.flatMap((report) => report.imageSources ?? []);
   const reportRunIds = getCurrentResearchReportRunIds(task);
   const journalRuns = reportRunIds.flatMap((runId) => {
     const run = runsById[runId];
@@ -243,6 +248,7 @@ export async function createResearchTaskViewModel(
     completedQuestions: completedQuestionIndexes.size,
     totalQuestions: plan?.steps.length ?? 0,
     evidence,
+    imageSources: imageSources.map((image) => ({ ...image })),
     claims: buildClaimViews(activeResearchRun?.claims ?? []),
     activities: buildActivities(task, text, runsById),
     reportVersions,

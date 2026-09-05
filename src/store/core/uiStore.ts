@@ -13,7 +13,11 @@ interface UIState {
     images: PreviewImage[];
     currentIndex: number;
   };
-  openImagePreview: (images: PreviewImage[], startIndex?: number) => void;
+  openImagePreview: (
+    images: PreviewImage[],
+    startIndex?: number,
+    registeredImageUrls?: readonly string[],
+  ) => void;
   closeImagePreview: () => void;
   setImagePreviewIndex: (index: number) => void;
 }
@@ -24,8 +28,12 @@ export const useUIStore = create<UIState>((set) => ({
     images: [],
     currentIndex: 0,
   },
-  openImagePreview: (images, startIndex = 0) => {
-    const preview = normalizeImagePreviewState(images, startIndex);
+  openImagePreview: (images, startIndex = 0, registeredImageUrls = []) => {
+    const preview = normalizeImagePreviewState(
+      images,
+      startIndex,
+      registeredImageUrls,
+    );
 
     set({
       imagePreview: preview

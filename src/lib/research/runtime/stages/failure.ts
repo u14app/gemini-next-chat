@@ -48,6 +48,13 @@ export async function handleExecutionFailure(
       committedEvidenceIds: ctx.evidence.map((item) => item.id),
       committedToolExecutionIds:
         pausedRun.checkpoint?.committedToolExecutionIds || [],
+      ...(ctx.imageSources?.length
+        ? {
+            committedImageSourceIds: (ctx.imageSources ?? []).map(
+              (image) => image.id,
+            ),
+          }
+        : {}),
       researchRunId: pausedRun.id,
     };
     await ctx.store.updateTask(ctx.taskId, (latest) => {

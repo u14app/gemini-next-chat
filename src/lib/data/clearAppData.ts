@@ -19,6 +19,7 @@ import {
   runWithExclusiveAppDataClearLock,
 } from "./appRestoreJournal";
 import { getResearchTaskRepository } from "@/services/research";
+import { revokeAllSessionSharesBeforeDelete } from "@/services/sharing/client";
 
 const APP_OPFS_DIRECTORIES = ["knowledge-base", "workspaces", "images", "chat"];
 const SESSION_MESSAGES_PREFIX = "session_messages_";
@@ -251,6 +252,9 @@ export async function clearBrowserAppDataSources({
 }: ClearBrowserAppDataSourcesOptions): Promise<void> {
   await runWithExclusiveAppDataClearLock(async () => {
     const uniqueSources = Array.from(new Set(sources));
+    if (uniqueSources.includes("chats") || uniqueSources.includes("settings")) {
+      await revokeAllSessionSharesBeforeDelete();
+    }
 
     for (const source of uniqueSources) {
       switch (source) {
@@ -299,6 +303,7 @@ async function clearLocalStorageKeys(): Promise<void> {
 
 export async function clearBrowserAppData(rag: RAGConfig): Promise<void> {
   await runWithExclusiveAppDataClearLock(async () => {
+    await revokeAllSessionSharesBeforeDelete();
     await cleanupPersistedKnowledgeVectors(rag);
     await cleanupOPFSDirectories();
     await clearLocalStorageKeys();

@@ -32,6 +32,7 @@ function mustUseNetwork(request, url) {
     request.method !== "GET" ||
     url.origin !== self.location.origin ||
     url.pathname.startsWith("/api/") ||
+    url.pathname.startsWith("/share/") ||
     url.pathname.startsWith("/_next/image") ||
     url.pathname.startsWith("/files/") ||
     url.pathname.startsWith("/media/") ||

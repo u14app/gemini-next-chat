@@ -4,7 +4,7 @@ import { useState } from "react";
 import {
   DEFAULT_REPORT_SECTION_LABELS,
   reportSectionIdentity,
-} from "@/lib/research/reportSections";
+} from "@/lib/research/reportSectionLabels";
 import { Check, Save, X } from "lucide-react";
 import { useTranslations } from "next-intl";
 

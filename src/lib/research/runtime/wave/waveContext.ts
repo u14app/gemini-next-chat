@@ -1,6 +1,7 @@
 import type { Message, Source, ToolCall } from "@/types";
 import type {
   ResearchReportRun,
+  ResearchImageSource,
   SavedResearchCheckpoint,
 } from "@/lib/research";
 import type {
@@ -50,5 +51,6 @@ export interface ResearchWaveContext extends ResearchWaveInput {
   latestToolCalls: ToolCall[];
   webSources: Source[];
   knowledgeSources: Source[];
+  imageSources: ResearchImageSource[];
   checkpointQueue: Promise<void>;
 }

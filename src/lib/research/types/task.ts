@@ -17,6 +17,7 @@ import type {
   ResearchReportRun,
   ResearchReportVersion,
 } from "./run";
+import type { ResearchImageSource } from "./images";
 
 export interface ResearchTaskError {
   code?: string;
@@ -40,6 +41,8 @@ export interface ResearchTask {
   budget: ResolvedResearchBudget;
   requestedStrategy?: ResearchStrategy;
   usage: ResearchUsage;
+  /** All normalized illustrative images discovered by this task. */
+  imageSources?: ResearchImageSource[];
   sourceSnapshot?: ResearchSourceSnapshot;
   planVersions: ResearchPlanVersion[];
   activePlanVersion?: number;

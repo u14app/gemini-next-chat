@@ -12,7 +12,7 @@ import type {
   ResearchTranslate,
 } from "@/lib/research/runtime/executionContext";
 import type { RunResearchOperation } from "@/lib/research/runtime/operations";
-import { prepareResearchPlan } from "@/lib/research/runtime/preparePlan";
+import { recordResearchModuleLoadFailure } from "@/lib/research/runtime/moduleLoadFailure";
 
 /**
  * Binds the planning stage to the operation registry so a task can only have
@@ -44,7 +44,7 @@ export function usePreparePlan({
     ) => {
       const result = await withResearchTaskExecutionLock(
         taskId,
-        async () => {
+        async (planningLease) => {
           const task = await useResearchStore.getState().refreshTask(taskId);
           if (
             !task ||
@@ -53,8 +53,24 @@ export function usePreparePlan({
             )
           )
             return;
-          await runOperation(taskId, "planning", (controller) =>
-            prepareResearchPlan({
+          await runOperation(taskId, "planning", async (controller) => {
+            const runtime =
+              await import("@/lib/research/runtime/preparePlan").catch(
+                async (error) => {
+                  const failed = await recordResearchModuleLoadFailure({
+                    taskId,
+                    phase: "planning",
+                    lease: planningLease,
+                    signal: controller.signal,
+                    message: localizedRuntimeError(error, "planFallback"),
+                  });
+                  if (failed) onError?.(t("runtime.error.plan"));
+                  return null;
+                },
+              );
+            if (!runtime) return;
+            if (controller.signal.aborted) return;
+            await runtime.prepareResearchPlan({
               taskId,
               adjustment,
               requestModel,
@@ -65,8 +81,8 @@ export function usePreparePlan({
               locale,
               onError,
               onNotice,
-            }),
-          );
+            });
+          });
         },
         lease,
       );

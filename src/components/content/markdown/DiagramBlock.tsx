@@ -14,7 +14,6 @@ import {
   ZoomOut,
 } from "lucide-react";
 import { TransformComponent, TransformWrapper } from "react-zoom-pan-pinch";
-import { useSettingsStore } from "@/store/core/settingsStore";
 import {
   getRenderableDiagram,
   type MarkdownDiagramBlock,
@@ -28,7 +27,9 @@ import type { ExportMindMapToSVGOptions } from "@xiangfa/mindmap";
 import Tooltip from "@/components/ui/Tooltip";
 import { Button } from "@/components/ui/primitives";
 
-export type DiagramTheme = "light" | "dark";
+import type { DiagramTheme } from "./types";
+import "./diagram.css";
+export type { DiagramTheme } from "./types";
 
 type DiagramDisplayMode = "inline" | "fullscreen";
 type ExportMindMapToSVG = (options: ExportMindMapToSVGOptions) => string;
@@ -205,6 +206,12 @@ const DiagramSvgView = ({
 const mermaidSvgCache = new Map<string, string>();
 let mermaidImportPromise: Promise<typeof import("mermaid")> | null = null;
 
+let mermaidRenderQueue: Promise<unknown> = Promise.resolve();
+let mindMapImportPromise: Promise<typeof import("./mindmapExtension")> | null =
+  null;
+const getMindMapModule = () =>
+  (mindMapImportPromise ??= import("./mindmapExtension"));
+
 const getMermaidModule = () => {
   mermaidImportPromise ??= import("mermaid");
   return mermaidImportPromise;
@@ -243,6 +250,7 @@ const MermaidDiagram = ({
     error: string;
   }>({ status: "idle", svg: "", error: "" });
   const mermaidRenderHostRef = useRef<HTMLDivElement | null>(null);
+  const [retryVersion, setRetryVersion] = useState(0);
   const trimmedSource = source.trim();
   const cacheKey = React.useMemo(
     () =>
@@ -285,34 +293,41 @@ const MermaidDiagram = ({
       );
 
       void getMermaidModule()
-        .then(async (module) => {
-          const mermaid = module.default;
-          mermaid.initialize({
-            startOnLoad: false,
-            securityLevel: "strict",
-            suppressErrorRendering: true,
-            theme: "base",
-            flowchart: { htmlLabels: false },
-            sequence: { useMaxWidth: true },
-            themeVariables: buildMermaidThemeVariables(theme, enhanced),
-          });
-          const result = await mermaid.render(
-            `${renderId}-${hashDiagramKey(cacheKey)}`,
-            trimmedSource,
-            mermaidRenderHost ?? undefined,
-          );
-          if (!cancelled) {
-            const svg = normalizeMermaidSvg(result.svg);
-            if (mermaidRenderHost) {
-              mermaidRenderHost.innerHTML = "";
-            }
-            mermaidSvgCache.set(cacheKey, svg);
-            setState({
-              status: "ready",
-              svg,
-              error: "",
+        .then((module) => {
+          const task = mermaidRenderQueue
+            .catch(() => {})
+            .then(async () => {
+              if (cancelled) return;
+              const mermaid = module.default;
+              mermaid.initialize({
+                startOnLoad: false,
+                securityLevel: "strict",
+                suppressErrorRendering: true,
+                theme: "base",
+                flowchart: { htmlLabels: false },
+                sequence: { useMaxWidth: true },
+                themeVariables: buildMermaidThemeVariables(theme, enhanced),
+              });
+              const result = await mermaid.render(
+                `${renderId}-${hashDiagramKey(cacheKey)}`,
+                trimmedSource,
+                mermaidRenderHost ?? undefined,
+              );
+              if (!cancelled) {
+                const svg = normalizeMermaidSvg(result.svg);
+                if (mermaidRenderHost) {
+                  mermaidRenderHost.innerHTML = "";
+                }
+                mermaidSvgCache.set(cacheKey, svg);
+                setState({
+                  status: "ready",
+                  svg,
+                  error: "",
+                });
+              }
             });
-          }
+          mermaidRenderQueue = task;
+          return task;
         })
         .catch((error) => {
           if (!cancelled) {
@@ -335,7 +350,15 @@ const MermaidDiagram = ({
       }
       window.clearTimeout(renderTimer);
     };
-  }, [cacheKey, enhanced, incomplete, renderId, theme, trimmedSource]);
+  }, [
+    cacheKey,
+    enhanced,
+    incomplete,
+    renderId,
+    theme,
+    trimmedSource,
+    retryVersion,
+  ]);
 
   const renderHost = (
     <div
@@ -377,6 +400,17 @@ const MermaidDiagram = ({
     return (
       <>
         {renderHost}
+        <button
+          type="button"
+          className="markdown-link-text text-xs underline"
+          onClick={() => {
+            mermaidImportPromise = null;
+            setRetryVersion((version) => version + 1);
+          }}
+        >
+          {t("renderRetry")}
+        </button>
+        <pre className="whitespace-pre-wrap font-mono text-sm">{source}</pre>
         <DiagramStatus
           tone={incomplete ? "muted" : "error"}
           label={incomplete ? t("diagramStreaming") : t("diagramRenderFailed")}
@@ -388,9 +422,7 @@ const MermaidDiagram = ({
   return (
     <>
       {renderHost}
-      <DiagramStatus
-        label={incomplete ? t("diagramStreaming") : t("diagramLoading")}
-      />
+      <pre className="whitespace-pre-wrap font-mono text-sm">{source}</pre>
     </>
   );
 };
@@ -414,11 +446,12 @@ const MindMapDiagram = ({
     status: "idle" | "loading" | "ready" | "error";
     svg: string;
   }>({ status: "idle", svg: "" });
+  const [retryVersion, setRetryVersion] = useState(0);
   const trimmedSource = source.trim();
 
   useEffect(() => {
     let cancelled = false;
-    void import("@xiangfa/mindmap")
+    void getMindMapModule()
       .then((module) => {
         if (!cancelled) {
           setExportSvg(() => module.exportMindMapToSVG as ExportMindMapToSVG);
@@ -433,7 +466,7 @@ const MindMapDiagram = ({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [retryVersion]);
 
   useEffect(() => {
     if (!trimmedSource) {
@@ -473,7 +506,7 @@ const MindMapDiagram = ({
     return () => {
       cancelled = true;
     };
-  }, [exportSvg, theme, trimmedSource]);
+  }, [exportSvg, theme, trimmedSource, retryVersion]);
 
   if (!trimmedSource) {
     return <DiagramStatus label={t("diagramEmpty")} />;
@@ -481,6 +514,21 @@ const MindMapDiagram = ({
 
   return (
     <>
+      {state.status === "error" ? (
+        <button
+          type="button"
+          className="markdown-link-text text-xs underline"
+          onClick={() => {
+            mindMapImportPromise = null;
+            setRetryVersion((version) => version + 1);
+          }}
+        >
+          {t("renderRetry")}
+        </button>
+      ) : null}
+      {state.status !== "ready" ? (
+        <pre className="whitespace-pre-wrap font-mono text-sm">{source}</pre>
+      ) : null}
       {state.status === "ready" ? (
         <DiagramSvgView svg={state.svg} kind="mindmap" mode={mode} />
       ) : state.status === "error" ? (
@@ -508,6 +556,12 @@ const DiagramRenderer = ({
   enhanced: boolean;
   mode: DiagramDisplayMode;
 }) => {
+  if (diagram.incomplete)
+    return (
+      <pre className="whitespace-pre-wrap font-mono text-sm">
+        {diagram.content}
+      </pre>
+    );
   if (diagram.type === "mermaid") {
     return (
       <MermaidDiagram
@@ -538,15 +592,26 @@ export const DiagramBlock = ({
   forcedTheme?: DiagramTheme;
 }) => {
   const t = useTranslations("Content");
-  const { system } = useSettingsStore();
   const resolvedTheme = useResolvedDiagramTheme();
   const theme = forcedTheme || resolvedTheme;
-  const enhanced = Boolean(system.enableHtmlVisualPrompt);
+  const enhanced = true;
+  const [loadError, setLoadError] = useState(false);
+  const [reloadVersion, setReloadVersion] = useState(0);
+  React.useEffect(() => {
+    let cancelled = false;
+    const promise =
+      diagram.type === "mermaid" ? getMermaidModule() : getMindMapModule();
+    void promise.catch(() => {
+      if (!cancelled) setLoadError(true);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [diagram.type, reloadVersion]);
   const [copyStatus, setCopyStatus] = React.useState<
     "idle" | "copied" | "error"
   >("idle");
   const [isFullscreen, setIsFullscreen] = React.useState(false);
-  const [isNearViewport, setIsNearViewport] = React.useState(false);
   const diagramBodyRef = React.useRef<HTMLDivElement>(null);
   const copyResetTimerRef = React.useRef<TimeoutHandle | null>(null);
   const [lastRenderedDiagram, setLastRenderedDiagram] =
@@ -563,30 +628,6 @@ export const DiagramBlock = ({
   React.useEffect(() => {
     return () => clearTimeoutRef(copyResetTimerRef);
   }, []);
-
-  React.useEffect(() => {
-    const element = diagramBodyRef.current;
-    if (!element || isNearViewport) return;
-    if (typeof IntersectionObserver === "undefined") {
-      setIsNearViewport(true);
-      return;
-    }
-
-    const scrollRoot = element.closest<HTMLElement>(
-      "[data-chat-scroll-container]",
-    );
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries.some((entry) => entry.isIntersecting)) {
-          setIsNearViewport(true);
-          observer.disconnect();
-        }
-      },
-      { root: scrollRoot, rootMargin: "600px 0px" },
-    );
-    observer.observe(element);
-    return () => observer.disconnect();
-  }, [isNearViewport]);
 
   const renderableDiagram = getRenderableDiagram(diagram, lastRenderedDiagram);
 
@@ -755,6 +796,7 @@ export const DiagramBlock = ({
             </div>
             <div className="markdown-diagram-fullscreen flex-1 overflow-auto p-4">
               <DiagramRenderer
+                key={reloadVersion}
                 diagram={renderableDiagram}
                 theme={theme}
                 enhanced={enhanced}
@@ -779,23 +821,33 @@ export const DiagramBlock = ({
           </div>
           {controls}
         </div>
+        {loadError ? (
+          <button
+            type="button"
+            className="markdown-link-text text-xs underline"
+            onClick={() => {
+              mermaidImportPromise = null;
+              mindMapImportPromise = null;
+              setLoadError(false);
+              setReloadVersion((version) => version + 1);
+              const request =
+                diagram.type === "mermaid"
+                  ? getMermaidModule()
+                  : getMindMapModule();
+              void request.catch(() => setLoadError(true));
+            }}
+          >
+            {t("renderRetry")}
+          </button>
+        ) : null}
         <div ref={diagramBodyRef} className="markdown-diagram-body">
-          {isNearViewport && !renderableDiagram.incomplete ? (
-            <DiagramRenderer
-              diagram={renderableDiagram}
-              theme={theme}
-              enhanced={enhanced}
-              mode="inline"
-            />
-          ) : (
-            <DiagramStatus
-              label={
-                renderableDiagram.incomplete
-                  ? t("diagramStreaming")
-                  : t("diagramLoading")
-              }
-            />
-          )}
+          <DiagramRenderer
+            key={reloadVersion}
+            diagram={renderableDiagram}
+            theme={theme}
+            enhanced={enhanced}
+            mode="inline"
+          />
         </div>
       </div>
       {fullscreenView}

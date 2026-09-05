@@ -1,4 +1,5 @@
 import type { MessageOutputBlock, ToolCall } from "@/types";
+import type { ResearchImageSource } from "./types";
 import { redactSensitiveToolArgs } from "@/lib/plugin/confirmation";
 import { RESEARCH_TOOL_RESULT_LIMITS } from "./toolResultContent";
 
@@ -10,6 +11,7 @@ export interface SavedResearchCheckpoint {
   partialContent: string;
   toolCalls: ToolCall[];
   outputBlocks: MessageOutputBlock[];
+  imageSources?: ResearchImageSource[];
 }
 
 function compactCheckpointValue(

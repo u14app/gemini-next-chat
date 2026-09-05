@@ -35,8 +35,12 @@ describe("Research report presentation composition", () => {
     expect(reportPanel).toContain("report.audit");
     expect(reportPanel).toContain("DropdownMenu");
     expect(reportPanel).toContain('t("actions.downloadReport")');
+    expect(reportPanel).toContain("imageSources={imageSources}");
+    expect(reportPanel).not.toContain("ResearchImageGallery");
     expect(connected).toContain("createReportPresentation");
     expect(connected).toContain("report.markdown");
+    expect(connected).toContain("imageSources={printReport.imageSources}");
+    expect(connected).not.toContain("appendResearchImageMaterialsMarkdown");
     expect(connected).not.toContain('t("export.metadata")');
     expect(connected).not.toContain('t("export.taskId")');
     expect(connected).not.toContain('t("export.evidenceCount")');

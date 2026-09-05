@@ -303,8 +303,19 @@ describe("access proxy", () => {
     clearRequestRateLimitBuckets();
   });
 
-  it("matches API routes", () => {
-    expect(proxyConfig.matcher).toBe("/api/:path*");
+  it("matches API and public reading routes", () => {
+    expect(proxyConfig.matcher).toEqual(["/api/:path*", "/share/:path*"]);
+  });
+
+  it("keeps public reading pages uncached and unindexed behind a site password", async () => {
+    vi.stubEnv("ACCESS_PASSWORD", "secret");
+    const response = await proxy(
+      new NextRequest(`https://neo.test/share/${"A".repeat(43)}`),
+    );
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Cache-Control")).toContain("no-store");
+    expect(response.headers.get("X-Robots-Tag")).toContain("noindex");
+    expect(response.headers.get("Referrer-Policy")).toBe("no-referrer");
   });
 
   it("allows API requests when access password is disabled", async () => {

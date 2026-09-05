@@ -6,17 +6,19 @@ import {
 import { useCallback } from "react";
 import { v7 as uuidv7 } from "uuid";
 
+import { DEEP_RESEARCH_INSTRUCTION_MAX_CHARS } from "@/lib/research/toolArguments";
+import { getActivePlan } from "@/lib/research/runState";
 import {
-  DEEP_RESEARCH_INSTRUCTION_MAX_CHARS,
-  getActivePlan,
   isActiveResearchStatus,
   isTerminalResearchStatus,
-  resolveResearchStrategy,
   transitionResearchTask,
+} from "@/lib/research/task";
+import { resolveResearchStrategy } from "@/lib/research/orchestration/strategy";
+import {
   type ResearchPlanVersion,
   type ResearchSourceSnapshot,
   type ResearchStrategy,
-} from "@/lib/research";
+} from "@/lib/research/types";
 import { useResearchStore } from "@/store/core/researchStore";
 
 import type { ResearchTranslate } from "@/lib/research/runtime/executionContext";

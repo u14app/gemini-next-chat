@@ -736,8 +736,14 @@ describe("Deep Research prompts", () => {
 
     expect(execution).toContain("adaptive waves");
     expect(execution).toContain("step-id");
+    expect(execution).toContain("standalone Markdown image syntax");
+    expect(execution).toContain("Never use `>` to wrap or represent an image");
+    expect(execution).toContain("raw `<img>` HTML tag");
     expect(synthesis).toContain("Tools and network access are disabled");
     expect(synthesis).toContain("cited findings ledger");
+    expect(synthesis).toContain("standalone Markdown image syntax");
+    expect(synthesis).toContain("Never use `>` to wrap or represent an image");
+    expect(synthesis).toContain("raw `<img>` HTML tag");
     expect(synthesis).toContain("comparison contract");
     expect(synthesis).toContain("explicit criteria");
     expect(wave).toContain("existing primary-source query");

@@ -13,6 +13,7 @@ import {
   prepareResearchReportForPublication,
   type ClaimRecord,
   type ResearchEvidence,
+  type ResearchImageSource,
   type ResearchPlanVersion,
 } from "@/lib/research";
 
@@ -138,6 +139,32 @@ No material evidence gaps.
 `;
 
 describe("Deep Research report audit", () => {
+  it("does not count allow-listed image provenance links as formal evidence", () => {
+    const { plan, run, evidence } = createFixture();
+    const image: ResearchImageSource = {
+      id: "research-image-1",
+      url: "https://cdn.example.com/figure.png",
+      description: "Figure",
+      sourceUrl: "https://example.com/article-with-image",
+      retrievedAt: 10,
+      researchRunId: run.id,
+    };
+    const markdown = `${completeReport.replace(
+      "## Sources",
+      "![Figure](https://cdn.example.com/figure.png)\n\n[Image source](https://example.com/article-with-image)\n\n## Sources",
+    )}`;
+
+    expect(
+      auditResearchReport({
+        markdown,
+        plan,
+        run,
+        evidence: [evidence],
+        imageSources: [image],
+      }),
+    ).toMatchObject({ unknownCitationCount: 0 });
+  });
+
   it("accepts a complete report with canonical committed citations", () => {
     const { plan, run, evidence } = createFixture();
     expect(

@@ -1,4 +1,8 @@
 "use client";
+import {
+  getTemporarySessionSignal,
+  isTemporarySessionId,
+} from "@/lib/chat/sessionRetention";
 import React, {
   useState,
   useRef,
@@ -71,7 +75,11 @@ import {
 import { getTaskModel, useSettingsStore } from "@/store/core/settingsStore";
 import { useCoreSettingsStore } from "@/store/core/coreSettingsStore";
 import { ATTACHMENT_LIMITS } from "@/config/limits";
-import { parseModelString } from "@/lib/utils/model";
+import {
+  parseModelString,
+  resolveProviderModelMetadata,
+  supportsTextOutput,
+} from "@/lib/utils/model";
 import { logDevError } from "@/lib/utils/devLogger";
 import {
   extractChatAttachmentFilesFromClipboard,
@@ -141,11 +149,11 @@ import {
   getNextSupportedChatMode,
   normalizeChatMode,
 } from "@/lib/chat/mode";
+import { resolveResearchStrategy } from "@/lib/research/orchestration/strategy";
 import {
-  resolveResearchStrategy,
   type ResearchBudgetPreset,
   type ResearchStrategy,
-} from "@/lib/research";
+} from "@/lib/research/types";
 import type { ResearchTemplateSelection } from "@/lib/research/templates";
 
 type MessageInputVariant = "default" | "hero";
@@ -181,6 +189,7 @@ interface MessageInputProps {
   onNavigateReply?: (messageId: string) => void;
   onNewChat?: () => void;
   onCompressContext?: () => void | Promise<void>;
+  footerNote?: string;
 }
 
 export interface MessageInputRef {
@@ -219,6 +228,7 @@ const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
       onNavigateReply,
       onNewChat,
       onCompressContext,
+      footerNote,
     },
     ref,
   ) => {
@@ -289,6 +299,7 @@ const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
     } = useSettingsStore();
 
     const { providers } = useCoreSettingsStore();
+    const temporary = isTemporarySessionId(currentSessionId);
     const memoryAvailable = useMemoryStore(
       (state) =>
         state.settings.enabled &&
@@ -312,6 +323,7 @@ const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
     const attachImageInputId = useId();
     const attachTextFallbackInputId = useId();
     const isHeroVariant = variant === "hero";
+    const footerNoteId = useId();
     const draftSessionRef = useRef<string | null>(null);
 
     useEffect(() => {
@@ -487,12 +499,23 @@ const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
     const groupedModels = useMemo(() => {
       const groups: Record<string, ModelInfo[]> = {};
       availableModels.forEach((model) => {
+        if (
+          temporary &&
+          !supportsTextOutput(
+            resolveProviderModelMetadata({
+              ...parseModelString(model.name),
+              modelMetadata,
+              customModelMetadata,
+            }),
+          )
+        )
+          return;
         const pName = model.providerName || "System";
         if (!groups[pName]) groups[pName] = [];
         groups[pName].push(model);
       });
       return groups;
-    }, [availableModels]);
+    }, [availableModels, temporary, modelMetadata, customModelMetadata]);
 
     const reasoningOptionLabels = useMemo<
       Record<ReasoningMode, { label: string; description: string }>
@@ -595,7 +618,7 @@ const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
       removeAttachment,
       handleKBSelect,
     } = useComposerAttachments({
-      offline,
+      offline: offline || temporary,
       system,
       rag,
       modelCapabilities,
@@ -614,8 +637,9 @@ const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
       recordingSeconds,
       toggleRecording,
       teardownRecording,
+      resetRecording,
     } = useComposerRecording({
-      offline,
+      offline: offline || temporary,
       voice,
       maxAttachmentFileBytes,
       t,
@@ -638,6 +662,39 @@ const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
         teardownRecording();
       };
     }, [teardownRecording]);
+    const previousComposerSessionRef = useRef(currentSessionId);
+    useEffect(() => {
+      const previousSessionId = previousComposerSessionRef.current;
+      previousComposerSessionRef.current = currentSessionId;
+      if (
+        !isTemporarySessionId(currentSessionId) &&
+        !isTemporarySessionId(previousSessionId)
+      )
+        return;
+      fileSelectionRunRef.current += 1;
+      fileSelectionAbortRef.current?.abort();
+      polishRunRef.current += 1;
+      setAttachments([]);
+      setIsParsingAttachments(false);
+      setIsPolishingInput(false);
+      setForcedSkillIds([]);
+      setForcedPluginIds([]);
+      setShowAttachMenu(false);
+      setShowSkillSelect(false);
+      setShowPluginSelect(false);
+      setShowKBModal(false);
+      setShowRemoteModal(false);
+      resetRecording();
+    }, [
+      currentSessionId,
+      setAttachments,
+      setShowAttachMenu,
+      setShowSkillSelect,
+      setShowPluginSelect,
+      resetRecording,
+      setIsParsingAttachments,
+    ]);
+
     const orchestratedSearchRequiresExternalProvider =
       orchestratedModeEnabled &&
       isSearchEnabled &&
@@ -654,6 +711,7 @@ const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
           : t("enableSearchAria");
     const handleChatModeChange = useCallback(
       (mode: ChatMode) => {
+        if (temporary) return;
         if (
           (mode === "agent" || mode === "research") &&
           !modelCapabilities.toolCall
@@ -686,6 +744,7 @@ const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
       [
         chatConfig,
         currentSessionId,
+        temporary,
         getSearchUnavailableMessage,
         modelCapabilities.toolCall,
         searchCompatibility.enabled,
@@ -1024,12 +1083,19 @@ const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
       [chatModeOptions],
     );
     const cycleChatMode = useCallback(() => {
+      if (temporary) return false;
       if (isInputBusy) return false;
       const nextMode = getNextSupportedChatMode(chatMode, supportedChatModes);
       if (nextMode === chatMode) return false;
       handleChatModeChange(nextMode);
       return true;
-    }, [chatMode, handleChatModeChange, isInputBusy, supportedChatModes]);
+    }, [
+      chatMode,
+      handleChatModeChange,
+      isInputBusy,
+      supportedChatModes,
+      temporary,
+    ]);
 
     const conversationsForMenu = useMemo(
       () =>
@@ -1121,7 +1187,7 @@ const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
       t,
       modelCapabilities,
       ragEnabled: rag.enabled,
-      isInputBusy,
+      isInputBusy: isInputBusy || temporary,
       commandListboxId,
       skillsForMenu,
       pluginSourceGroups,
@@ -1179,7 +1245,7 @@ const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
         textareaRef.current?.focus();
       },
       setAttachments: (atts: Attachment[]) => {
-        setAttachments(atts);
+        setAttachments(temporary ? [] : atts);
       },
       cycleChatMode,
     }));
@@ -1244,22 +1310,28 @@ const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
       setIsPreparingSend(true);
       setErrorMsg(null);
       try {
+        const sendingSessionId = currentSessionId;
         if (forcedPlugins.length > 0 && !modelCapabilities.toolCall) {
           setErrorMsg(t("forcedPluginNeedsToolSupport"));
           return;
         }
         // Forced refs are per-message: they never survive past this send.
         const forced: ComposerForcedInvocations = {
-          skillIds: forcedSkills.map((skill) => skill.id),
-          pluginIds: forcedPlugins.map((plugin) => plugin.id),
+          skillIds: temporary ? [] : forcedSkills.map((skill) => skill.id),
+          pluginIds: temporary ? [] : forcedPlugins.map((plugin) => plugin.id),
         };
         const skillParameters = onPrepareSend
           ? await onPrepareSend(forced)
           : undefined;
         if (onPrepareSend && !skillParameters) return;
+        if (
+          getTemporarySessionSignal(sendingSessionId)?.aborted ||
+          useChatStore.getState().currentSessionId !== sendingSessionId
+        )
+          return;
         onSend(
           input,
-          attachments,
+          temporary ? [] : attachments,
           replyTo,
           skillParameters || undefined,
           forced,
@@ -1354,7 +1426,7 @@ const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
             : attachmentProcessingStage === "conversation"
               ? t("attachingConversation")
               : t("preparingAttachment");
-    const attachmentActionsDisabled = isInputBusy || offline;
+    const attachmentActionsDisabled = isInputBusy || offline || temporary;
     const textareaMinHeightClass = isHeroVariant
       ? "min-h-[5em]"
       : "min-h-[2em]";
@@ -1394,6 +1466,11 @@ const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
     };
 
     const handleComposerDrop = (e: React.DragEvent<HTMLDivElement>) => {
+      if (temporary && eventHasFiles(e.dataTransfer.types)) {
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
       if (attachmentActionsDisabled) return;
       const files = extractChatAttachmentFilesFromDrop(e.dataTransfer);
       if (files.length === 0) return;
@@ -1581,7 +1658,12 @@ const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
           }
           autoComplete="off"
           aria-describedby={
-            errorMsg && !isParsingAttachments ? errorMessageId : undefined
+            [
+              errorMsg && !isParsingAttachments ? errorMessageId : undefined,
+              footerNote ? footerNoteId : undefined,
+            ]
+              .filter(Boolean)
+              .join(" ") || undefined
           }
           aria-keyshortcuts={focusComposerShortcut.ariaKeyShortcuts}
           role={isCommandMenuOpen ? "combobox" : undefined}
@@ -1599,7 +1681,7 @@ const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
           onPaste={handleComposerPaste}
           disabled={isInputBusy}
         />
-        {offline ? (
+        {offline && !temporary ? (
           <p
             className="px-4 pb-1 text-[11px] text-amber-700 dark:text-amber-300"
             role="status"
@@ -1612,7 +1694,7 @@ const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
         <div className="flex flex-wrap items-center justify-between gap-1 p-1 md:flex-nowrap md:gap-2 md:p-2">
           <div className="flex min-w-0 flex-1 flex-wrap items-center gap-0.5">
             {/* Attachment Menu */}
-            <div className="relative">
+            <div className={temporary ? "hidden" : "relative"}>
               <input
                 id={attachFileInputId}
                 name="chat-attachments"
@@ -1753,7 +1835,7 @@ const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
             </div>
 
             {/* Plugin Toggle Button */}
-            <div className="relative">
+            <div className={temporary ? "hidden" : "relative"}>
               <DropdownMenu
                 open={showPluginSelect}
                 onOpenChange={(open) => {
@@ -1920,7 +2002,7 @@ const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
             </div>
 
             {/* Skill Toggle Button */}
-            <div className="relative">
+            <div className={temporary ? "hidden" : "relative"}>
               <DropdownMenu
                 open={showSkillSelect}
                 onOpenChange={(open) => {
@@ -2224,7 +2306,7 @@ const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
             </div>
 
             {/* Chat Mode Selector */}
-            <div>
+            <div className={temporary ? "hidden" : undefined}>
               <AgentCapabilityMenu
                 mode={chatMode}
                 options={chatModeOptions}
@@ -2339,7 +2421,7 @@ const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
                   </Button>
                 </Tooltip>
               ) : (
-                <div className="relative">
+                <div className={temporary ? "hidden" : "relative"}>
                   {isRecording && (
                     <div
                       className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-red-600 text-white text-xs font-bold rounded-full animate-pulse whitespace-nowrap shadow-md dark:bg-red-500"
@@ -2388,6 +2470,14 @@ const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
             </div>
           </div>
         </div>
+        {footerNote && (
+          <p
+            id={footerNoteId}
+            className="absolute inset-x-0 top-full mt-2 px-2 text-center text-xs leading-4 text-muted-foreground"
+          >
+            {footerNote}
+          </p>
+        )}
       </div>
     );
   },

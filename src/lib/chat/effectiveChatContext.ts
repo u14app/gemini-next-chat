@@ -34,6 +34,7 @@ import {
 } from "../settings/searchRag";
 import { buildDiagramPromptInstruction } from "./diagramPrompt";
 import { buildHtmlVisualPromptInstruction } from "./htmlVisualPrompt";
+import { buildImagePromptInstruction } from "./imagePrompt";
 import {
   parseModelString,
   resolveProviderModelMetadata,
@@ -204,9 +205,10 @@ function buildSystemInstruction({
   }
   sections.push(
     buildDiagramPromptInstruction({
-      enhanced: Boolean(enableHtmlVisualPrompt),
+      enhanced: true,
     }),
   );
+  sections.push(buildImagePromptInstruction());
   if (enableHtmlVisualPrompt) {
     sections.push(buildHtmlVisualPromptInstruction());
   }

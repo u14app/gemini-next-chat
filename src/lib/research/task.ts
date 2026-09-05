@@ -224,6 +224,11 @@ function createRecoveryCheckpoint(
     resumeStatus,
     committedEvidenceIds: task.evidence.map((item) => item.id),
     committedToolExecutionIds: [],
+    ...(task.imageSources?.length
+      ? {
+          committedImageSourceIds: task.imageSources.map((image) => image.id),
+        }
+      : {}),
     ...(task.activeReportRunId
       ? { researchRunId: task.activeReportRunId }
       : {}),

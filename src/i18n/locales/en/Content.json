@@ -274,5 +274,8 @@
   "artifactDrawerTrash": "Move {name} to trash",
   "artifactDrawerRestore": "Restore {name}",
   "artifactDrawerDiff": "Compare published {name} with scratch",
-  "artifactDrawerCloseDiff": "Close Artifact diff"
+  "artifactDrawerCloseDiff": "Close Artifact diff",
+  "renderRetry": "Retry rendering",
+  "renderFailed": "Enhanced rendering is unavailable. The original text is preserved.",
+  "imageSource": "Image source"
 }

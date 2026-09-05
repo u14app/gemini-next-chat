@@ -22,6 +22,26 @@ claim continued execution.
   planning or research runs. Each nested run checkpoints and releases only its
   own lease entry.
 
+## Public webpage reading
+
+The built-in URL reader fetches public webpages directly with a 15-second
+deadline, a 2 MiB response limit and a 40,000-character readable-text limit.
+Every target and redirect passes the public-address policy.
+
+The Jina Reader plugin first tries Jina for up to 15 seconds. A service network
+failure, stage timeout, service 5xx or service-level challenge permits one direct
+read of the original public URL. The direct attempt has at most 15 seconds within
+the same 30-second total deadline, uses the strict public-address policy, and
+never receives Jina credentials. A user cancellation or expired total deadline
+stops both stages. No additional provider is contacted.
+
+Explicit original-site authentication or verification requirements stop reading;
+ordinary Jina 401, 403 and 429 responses do not trigger the fallback solely because
+of their status. Challenge pages and Jina application errors are rejected even
+when their HTTP status is 200, before they can become research evidence. The
+direct fallback provides readable static content and does not execute webpage
+JavaScript. Its result identifies the final source URL and any truncation.
+
 ## Deep Research tasks
 
 Deep Research is a first-class chat mode, separate from Agent mode. It reuses

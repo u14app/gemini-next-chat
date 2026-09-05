@@ -1,0 +1,13 @@
+.markdown-body :where(.katex-display) {
+  margin: 0.85rem 0;
+  padding: 0.35rem 0;
+}
+
+/* Responsive Math Blocks */
+.katex-display {
+  overflow-x: auto;
+  overflow-y: hidden;
+  max-width: 100%;
+  -webkit-overflow-scrolling: touch;
+  padding: 0.5em 0;
+}

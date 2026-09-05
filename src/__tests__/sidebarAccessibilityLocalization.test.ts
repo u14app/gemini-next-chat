@@ -47,13 +47,13 @@ describe("sidebar accessibility and localized titles", () => {
     expect(readMessages("ja").duplicateTitle).toBe("{title}（コピー）");
   });
 
-  it("does not persist a default title merely because its localized rename field was opened", () => {
+  it("delegates chat actions to the menu shared with the titlebar", () => {
     const sidebar = readFileSync(
       resolve(process.cwd(), "src/components/layout/Sidebar.tsx"),
       "utf8",
     );
 
-    expect(sidebar).toContain("setRenameOriginalTitle(currentTitle)");
-    expect(sidebar).toContain("nextTitle !== originalDisplayTitle");
+    expect(sidebar).toContain("<SessionActionsMenu");
+    expect(sidebar).not.toContain("setRenameOriginalTitle");
   });
 });

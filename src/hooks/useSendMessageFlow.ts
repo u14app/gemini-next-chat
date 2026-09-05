@@ -1,4 +1,5 @@
 "use client";
+import { isTemporarySessionId } from "@/lib/chat/sessionRetention";
 import { v7 as uuidv7 } from "uuid";
 import type { ComposerForcedInvocations } from "@/components/chat/MessageInput";
 import type { ComposerSkillParameterValues } from "@/components/skill/SkillParameterDialog";
@@ -105,6 +106,10 @@ export function useSendMessageFlow(deps: ChatFlowDeps) {
     }
 
     if (!targetSessionId) return;
+    if (isTemporarySessionId(targetSessionId)) {
+      attachments = [];
+      forced = undefined;
+    }
 
     // Auto-rename check
     let shouldAutoRename = false;
@@ -262,30 +267,37 @@ export function useSendMessageFlow(deps: ChatFlowDeps) {
         customModelMetadata,
         searchCompatibility: effectiveContext.searchCompatibility,
       });
-      const skillResolution = await resolveSkillsForMessage({
-        message: text,
-        selectedModel,
-        locale,
-        installedSkills,
-        // Agent mode loads auto Skills through load_skill. Only explicit
-        // slash references are injected directly for the current turn.
-        activeSkillIds: effectiveContext.orchestratedModeEnabled
-          ? []
-          : effectiveContext.activeSkillIds,
-        skillBundles,
-        activeSkillBundleIds: effectiveContext.researchModeEnabled
-          ? []
-          : activeSkillBundleIds,
-        skillParameterValues: resolvedSkillParameters.skillParameterValues,
-        skillBundleParameterValues:
-          resolvedSkillParameters.skillBundleParameterValues,
-        autoSelect:
-          skillAutoSelect && !effectiveContext.orchestratedModeEnabled,
-        forcedSkillIds: effectiveContext.researchModeEnabled
-          ? undefined
-          : forced?.skillIds,
-        signal: generation.controller.signal,
-      });
+      const skillResolution = isTemporarySessionId(targetSessionId)
+        ? {
+            context: "",
+            appliedSkills: [],
+            invocations: [],
+            skippedSkillIds: [],
+          }
+        : await resolveSkillsForMessage({
+            message: text,
+            selectedModel,
+            locale,
+            installedSkills,
+            // Agent mode loads auto Skills through load_skill. Only explicit
+            // slash references are injected directly for the current turn.
+            activeSkillIds: effectiveContext.orchestratedModeEnabled
+              ? []
+              : effectiveContext.activeSkillIds,
+            skillBundles,
+            activeSkillBundleIds: effectiveContext.researchModeEnabled
+              ? []
+              : activeSkillBundleIds,
+            skillParameterValues: resolvedSkillParameters.skillParameterValues,
+            skillBundleParameterValues:
+              resolvedSkillParameters.skillBundleParameterValues,
+            autoSelect:
+              skillAutoSelect && !effectiveContext.orchestratedModeEnabled,
+            forcedSkillIds: effectiveContext.researchModeEnabled
+              ? undefined
+              : forced?.skillIds,
+            signal: generation.controller.signal,
+          });
       if (!isGenerationRunActive(generation)) return;
       if (skillResolution.skippedSkillIds.length > 0) {
         showActionError(

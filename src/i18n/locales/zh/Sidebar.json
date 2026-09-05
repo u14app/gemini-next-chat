@@ -57,5 +57,11 @@
   "workspaceActions": "工作区操作",
   "moveToWorkspaceAria": "将对话移动到工作区",
   "skillMarket": "技能",
-  "openSkillMarket": "打开技能"
+  "openSkillMarket": "打开技能",
+  "share": "分享",
+  "chatTitle": "会话标题",
+  "actionError": "操作未完成，请重试。",
+  "you": "用户",
+  "assistant": "助手",
+  "endTemporary": "结束临时会话"
 }

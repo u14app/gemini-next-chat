@@ -17,6 +17,7 @@ const REQUIRED_ENV_KEYS = [
   "PLUGIN_REGISTRY_STORE",
   "UPSTASH_REDIS_REST_URL",
   "UPSTASH_REDIS_REST_TOKEN",
+  "SHARING_ENABLED",
   "MAX_ATTACHMENT_FILE_BYTES",
   "NEXT_PUBLIC_SITE_URL",
   "NEXT_PUBLIC_API_URL",
@@ -81,6 +82,7 @@ function scanDirectProcessEnvKeys(): Set<string> {
     "src/lib/security/requestGuards.ts",
     "src/lib/security/requestProof.ts",
     "src/lib/security/rateLimitStore.ts",
+    "src/lib/sharing/config.ts",
     "src/lib/plugin/serverRegistry.ts",
     "src/lib/api/docParseJobs.ts",
     "src/lib/seo.ts",
@@ -147,6 +149,7 @@ describe(".env.example", () => {
       "PLUGIN_REGISTRY_STORE",
       "UPSTASH_REDIS_REST_URL",
       "UPSTASH_REDIS_REST_TOKEN",
+      "SHARING_ENABLED",
     ]) {
       expect(compose).toContain(`${key}:`);
     }

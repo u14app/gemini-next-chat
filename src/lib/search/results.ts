@@ -95,10 +95,16 @@ export function normalizeSearchSources(
 }
 
 export function normalizeImageSource(value: unknown): ImageSource | null {
-  if (!value || typeof value !== "object") return null;
+  if (typeof value !== "string" && (!value || typeof value !== "object")) {
+    return null;
+  }
 
-  const raw = value as Partial<ImageSource>;
-  const rawUrl = trimString(raw.url, SEARCH_RESULT_LIMITS.maxUrlChars);
+  const raw = (typeof value === "string" ? {} : value) as Partial<ImageSource> &
+    Record<string, unknown>;
+  const rawUrl = trimString(
+    typeof value === "string" ? value : raw.url,
+    SEARCH_RESULT_LIMITS.maxUrlChars,
+  );
   if (getRemoteAttachmentUrlError(rawUrl)) return null;
   const url = new URL(rawUrl).toString();
 
@@ -106,10 +112,24 @@ export function normalizeImageSource(value: unknown): ImageSource | null {
     raw.description,
     SEARCH_RESULT_LIMITS.maxImageDescriptionChars,
   );
+  const sourceUrlCandidate =
+    typeof raw.sourceUrl === "string"
+      ? raw.sourceUrl
+      : typeof raw.source_url === "string"
+        ? raw.source_url
+        : typeof raw.hostPageUrl === "string"
+          ? raw.hostPageUrl
+          : typeof raw.pageUrl === "string"
+            ? raw.pageUrl
+            : undefined;
+  const sourceUrl = getSafeWebHref(
+    trimString(sourceUrlCandidate, SEARCH_RESULT_LIMITS.maxUrlChars),
+  );
 
   return {
     url,
     ...(description ? { description } : {}),
+    ...(sourceUrl ? { sourceUrl } : {}),
   };
 }
 

@@ -1,0 +1,48 @@
+.markdown-body :where(.markdown-table-wrap) {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+  margin: 0.95rem 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  padding: 0;
+}
+
+.markdown-body :where(.markdown-table-wrap:focus-visible) {
+  outline: 2px solid color-mix(in srgb, var(--ring) 65%, transparent);
+  outline-offset: 3px;
+}
+
+.markdown-body :where(table) {
+  width: 100%;
+  min-width: max-content;
+  border-collapse: collapse;
+  border-spacing: 0;
+  background: transparent;
+}
+
+.markdown-body :where(th) {
+  padding: 0.55rem 0.75rem;
+  border-bottom: 1px solid var(--html-visual-border);
+  background: var(--markdown-table-head);
+  color: var(--markdown-table-head-text);
+  font-size: 0.78em;
+  font-weight: 700;
+  text-align: left;
+  text-transform: none;
+  white-space: nowrap;
+}
+
+.markdown-body :where(td) {
+  min-width: 5rem;
+  padding: 0.58rem 0.75rem;
+  border-bottom: 1px solid var(--html-visual-subtle-border);
+  color: var(--markdown-foreground);
+  vertical-align: top;
+}
+
+.markdown-body :where(tbody tr:last-child td) {
+  border-bottom-color: transparent;
+}

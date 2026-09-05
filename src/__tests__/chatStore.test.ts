@@ -13,6 +13,19 @@ import {
   normalizeSessionMessageTree,
 } from "../lib/chat/messageTree";
 import { getMessageOutputBlocks } from "../lib/chat/messageOutputBlocks";
+import {
+  getTemporarySessionSignal,
+  isTemporarySessionId,
+} from "@/lib/chat/sessionRetention";
+import {
+  cancelSessionShareDeletion,
+  revokeSessionShareBeforeDelete,
+} from "@/services/sharing/client";
+
+vi.mock("@/services/sharing/client", () => ({
+  revokeSessionShareBeforeDelete: vi.fn(async () => undefined),
+  cancelSessionShareDeletion: vi.fn(async () => undefined),
+}));
 
 const { appDbMock, deleteFromOPFSMock, storedItems } = vi.hoisted(() => {
   const storedItems = new Map<string, unknown>();
@@ -124,6 +137,7 @@ const makeWorkspace = (id: string, files: Attachment[] = []): Workspace => ({
 
 describe("chat store persistence", () => {
   beforeEach(() => {
+    useChatStore.getState().discardTemporarySession();
     storedItems.clear();
     vi.clearAllMocks();
     appDbMock.getItem.mockImplementation((key: string) =>
@@ -158,6 +172,110 @@ describe("chat store persistence", () => {
         temperature: 0.7,
       },
     });
+  });
+
+  it("retains temporary messages and summaries in memory without persisting them", async () => {
+    const normalId = useChatStore.getState().createSession();
+    const id = useChatStore.getState().createTemporarySession();
+    const store = useChatStore.getState();
+    await store.addMessage(id, makeMessage("private-user", "private request"));
+    await store.addMessage(
+      id,
+      makeModelMessage("private-model", "private answer"),
+    );
+    store.updateMessageContent(id, "private-model", "private final answer");
+    store.updateSessionTitle(id, "private title");
+    store.updateSessionCompression(id, {
+      compressedContent: "private summary",
+      lastCompressedMessageId: "private-model",
+    });
+    await store.syncActiveSession(id);
+    expect(useChatStore.getState().activeMessages).toHaveLength(2);
+    expect(appDbMock.setItem).not.toHaveBeenCalled();
+    const persisted = useChatStore.persist.getOptions().partialize!(
+      useChatStore.getState(),
+    );
+    expect(JSON.stringify(persisted)).not.toContain("private");
+    expect(JSON.stringify(persisted)).not.toContain(id);
+    expect(JSON.stringify(persisted)).toContain(normalId);
+    await store.selectSession(id);
+    expect(useChatStore.getState().activeMessages).toHaveLength(2);
+    expect(appDbMock.getItem).not.toHaveBeenCalled();
+  });
+
+  it("discards on switching and prevents delayed writes from resurrecting a temporary session", async () => {
+    const normalId = useChatStore.getState().createSession();
+    const id = useChatStore.getState().createTemporarySession();
+    const lifetime = getTemporarySessionSignal(id)!;
+    await useChatStore
+      .getState()
+      .addMessage(id, makeMessage("private-user", "private"));
+    await useChatStore.getState().selectSession(normalId);
+    expect(lifetime.aborted).toBe(true);
+    expect(isTemporarySessionId(id)).toBe(true);
+    expect(useChatStore.getState().sessions.map((s) => s.id)).toEqual([
+      normalId,
+    ]);
+    await useChatStore
+      .getState()
+      .addMessage(id, makeMessage("late", "late private"));
+    await useChatStore
+      .getState()
+      .syncActiveSession(id, [makeMessage("late", "late private")]);
+    expect(appDbMock.setItem).not.toHaveBeenCalled();
+    expect(useChatStore.getState().activeMessages).toEqual([]);
+    await useChatStore
+      .getState()
+      .addMessage(normalId, makeMessage("normal", "ordinary"));
+    expectStoredActivePath(normalId, [makeMessage("normal", "ordinary")]);
+  });
+
+  it("does not reuse temporary chats, upgrade their mode, or duplicate them", async () => {
+    const id = useChatStore.getState().createTemporarySession();
+    useChatStore.getState().setChatConfig({
+      chatMode: "agent",
+      useAgentMode: true,
+      useDeepResearch: true,
+    });
+    useChatStore
+      .getState()
+      .updateSessionConfig(id, { chatMode: "auto", useAgentMode: true });
+    useChatStore.getState().moveSessionToWorkspace(id, "workspace");
+    useChatStore.getState().toggleSessionPin(id);
+    await useChatStore.getState().duplicateSession(id);
+    expect(useChatStore.getState().chatConfig.chatMode).toBe("chat");
+    expect(useChatStore.getState().getCurrentSession()).toMatchObject({
+      retention: "temporary",
+      config: { chatMode: "chat", useAgentMode: false },
+    });
+    expect(
+      useChatStore.getState().getCurrentSession()?.workspaceId,
+    ).toBeUndefined();
+    expect(useChatStore.getState().sessions).toHaveLength(1);
+    const nextId = useChatStore.getState().createSession();
+    expect(nextId).not.toBe(id);
+    expect(getTemporarySessionSignal(id)?.aborted).toBe(true);
+    expect(useChatStore.getState().sessions.map((s) => s.id)).toEqual([nextId]);
+  });
+
+  it("ignores stale selection and deletion callbacks for an ended temporary chat", async () => {
+    const endedId = useChatStore.getState().createTemporarySession();
+    const activeId = useChatStore.getState().createTemporarySession();
+    await useChatStore
+      .getState()
+      .addMessage(activeId, makeMessage("new", "still active"));
+
+    await useChatStore.getState().selectSession(endedId);
+    await useChatStore.getState().deleteSession(endedId);
+
+    expect(useChatStore.getState().currentSessionId).toBe(activeId);
+    expect(useChatStore.getState().activeMessages).toEqual([
+      makeMessage("new", "still active"),
+    ]);
+    expect(getTemporarySessionSignal(activeId)?.aborted).toBe(false);
+    expect(revokeSessionShareBeforeDelete).not.toHaveBeenCalled();
+    expect(appDbMock.getItem).not.toHaveBeenCalled();
+    expect(appDbMock.removeItem).not.toHaveBeenCalled();
   });
 
   it("starts without a hard-coded selected model", () => {
@@ -1470,6 +1588,30 @@ describe("chat store persistence", () => {
     ]);
   });
 
+  it("preserves local content when revoking a share before deletion fails", async () => {
+    const activeMessage = makeMessage("a1", "still present");
+    useChatStore.setState({
+      sessions: [makeSession("a")],
+      currentSessionId: "a",
+      activeMessages: [activeMessage],
+    });
+    vi.mocked(revokeSessionShareBeforeDelete).mockRejectedValueOnce(
+      new Error("revocation failed"),
+    );
+
+    await expect(useChatStore.getState().deleteSession("a")).rejects.toThrow(
+      "revocation failed",
+    );
+
+    expect(
+      useChatStore.getState().sessions.map((session) => session.id),
+    ).toEqual(["a"]);
+    expect(useChatStore.getState().currentSessionId).toBe("a");
+    expect(useChatStore.getState().activeMessages).toEqual([activeMessage]);
+    expect(appDbMock.removeItem).not.toHaveBeenCalled();
+    expect(cancelSessionShareDeletion).not.toHaveBeenCalled();
+  });
+
   it("restores inactive session metadata when session deletion storage fails", async () => {
     const deletedMessage = makeMessage("a1", "still stored");
     storedItems.set("session_messages_a", [deletedMessage]);
@@ -1490,6 +1632,7 @@ describe("chat store persistence", () => {
     expect(useChatStore.getState().currentSessionId).toBe("b");
     expect(storedItems.get("session_messages_a")).toEqual([deletedMessage]);
     expect(deleteFromOPFSMock).not.toHaveBeenCalled();
+    expect(cancelSessionShareDeletion).toHaveBeenCalledWith("a");
   });
 
   it("queues deletion after pending writes so a deleted tree cannot reappear", async () => {

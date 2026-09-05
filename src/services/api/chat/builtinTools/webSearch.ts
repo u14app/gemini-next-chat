@@ -19,7 +19,7 @@ import {
   createSearchProvider,
   type SearchOptions,
 } from "@/services/api/searchService";
-import type { SearchTimeRange } from "@/types";
+import type { ImageSource, SearchTimeRange } from "@/types";
 
 import type { BuiltinResearchQueryBudget, BuiltinToolBinding } from "./types";
 
@@ -175,7 +175,13 @@ export function createWebSearchBinding(
           ),
         );
         const images = normalizeImageSources(
-          result.images,
+          result.images.filter((image: ImageSource) =>
+            isAllowedImageResult(
+              image,
+              scopedFilters.domains,
+              scopedFilters.excludedDomains,
+            ),
+          ),
           Math.min(
             maxResults ?? SEARCH_RESULT_LIMITS.maxImages,
             SEARCH_RESULT_LIMITS.maxImages,
@@ -248,6 +254,25 @@ function isAllowedSearchResult(
   } catch {
     return false;
   }
+}
+
+function isAllowedImageResult(
+  image: Pick<ImageSource, "url" | "sourceUrl">,
+  domains: readonly string[],
+  excludedDomains: readonly string[],
+): boolean {
+  if (domains.length === 0 && excludedDomains.length === 0) return true;
+  // Prefer the provider's source page when available; otherwise apply the
+  // approved domain policy to the image host itself. This keeps providers
+  // that omit page provenance usable without allowing a known out-of-scope
+  // source page to be hidden behind an in-scope CDN URL.
+  return Boolean(
+    isAllowedSearchResult(
+      { url: image.sourceUrl || image.url },
+      domains,
+      excludedDomains,
+    ),
+  );
 }
 
 function applyApprovedSearchPolicy(
@@ -531,7 +556,9 @@ export function createSearchWebV2Binding(
               ),
             ),
             images: normalizeImageSources(
-              result.images,
+              result.images.filter((image: ImageSource) =>
+                isAllowedImageResult(image, domains, excludedDomains),
+              ),
               SEARCH_RESULT_LIMITS.maxImages,
             ),
           };

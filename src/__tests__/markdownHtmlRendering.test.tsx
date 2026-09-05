@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it, vi } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 
 vi.mock("next-intl", () => ({
   useTranslations: () => (key: string, values?: Record<string, unknown>) =>
@@ -106,21 +106,55 @@ vi.mock("@/lib/utils/model", () => ({
   parseModelString: () => ({ modelName: "test-model" }),
 }));
 
+// This suite exercises fully loaded output; lazy transitions are tested separately.
+vi.mock(
+  "../components/content/markdown/extensionResources",
+  async (importOriginal) => {
+    const actual =
+      await importOriginal<
+        typeof import("../components/content/markdown/extensionResources")
+      >();
+    return {
+      ...actual,
+      useExtension: (
+        resource: { getSnapshot: () => unknown },
+        enabled = true,
+      ) => (enabled ? resource.getSnapshot() : { value: null, error: null }),
+    };
+  },
+);
+beforeAll(async () => {
+  const modules =
+    await import("../components/content/markdown/extensionResources");
+  await Promise.all([
+    modules.gfmResource.load(),
+    modules.mathSyntaxResource.load(),
+    modules.htmlResource.load(),
+    modules.highlightResource.load(),
+    modules.artifactResource.load(),
+    modules.diagramResource.load(),
+  ]);
+});
+
 describe("MarkdownRenderer bundle boundary", () => {
-  it("keeps the public MarkdownRenderer entry as a lightweight client-only dynamic wrapper", () => {
+  it("renders the basic client synchronously and keeps heavy extensions behind imports", () => {
     const source = readFileSync(
       resolve(process.cwd(), "src/components/content/MarkdownRenderer.tsx"),
       "utf8",
     );
-
-    expect(source).toContain("next/dynamic");
-    expect(source).toContain("ssr: false");
-    expect(source).toContain("./MarkdownRendererClient");
-    expect(source).not.toContain("react-markdown");
-    expect(source).not.toContain("rehype-highlight");
-    expect(source).not.toContain("rehype-katex");
-    expect(source).not.toContain("mermaid");
-    expect(source).not.toContain("@xiangfa/mindmap");
+    const client = readFileSync(
+      resolve(
+        process.cwd(),
+        "src/components/content/MarkdownRendererClient.tsx",
+      ),
+      "utf8",
+    );
+    expect(source).not.toContain("next/dynamic");
+    expect(client).not.toMatch(
+      /import .* from ["'](?:remark-gfm|remark-math|rehype-raw|rehype-katex|rehype-highlight)["']/,
+    );
+    expect(client).not.toContain("IntersectionObserver");
+    expect(client).toContain("reconcileMarkdownBlocks");
   });
 });
 
@@ -224,7 +258,7 @@ describe("MarkdownRenderer HTML support", () => {
     expect(html).not.toContain("border-radius:16px");
   });
 
-  it("renders safe visual HTML from markdown fences but preserves explicit html code blocks", async () => {
+  it("preserves all code fences literally, including markdown and unlabeled HTML examples", async () => {
     const { default: MarkdownRenderer } =
       await import("../components/content/MarkdownRendererClient");
 
@@ -236,8 +270,8 @@ describe("MarkdownRenderer HTML support", () => {
       />,
     );
 
-    expect(visualHtml).toContain("<section");
-    expect(visualHtml).toContain("display:grid");
+    expect(visualHtml).not.toContain("<section");
+    expect(visualHtml).toContain("Visual");
     expect(visualHtml).toContain("Visual");
 
     const unlabeledVisualHtml = renderToStaticMarkup(
@@ -248,7 +282,7 @@ describe("MarkdownRenderer HTML support", () => {
       />,
     );
 
-    expect(unlabeledVisualHtml).toContain("<section");
+    expect(unlabeledVisualHtml).not.toContain("<section");
     expect(unlabeledVisualHtml).toContain("display:flex");
     expect(unlabeledVisualHtml).toContain("Unlabeled");
 
@@ -290,14 +324,14 @@ describe("MarkdownRenderer HTML support", () => {
     const source = readFileSync(
       resolve(
         process.cwd(),
-        "src/components/content/MarkdownRendererClient.tsx",
+        "src/components/content/markdown/ArtifactBlock.tsx",
       ),
       "utf8",
     );
 
     expect(source).not.toContain("overflow-y-hidden");
     expect(source).toContain("overflow-auto");
-    expect(source).toContain('sandbox="allow-scripts"');
+    expect(source).toContain('sandbox={readOnly ? "" : "allow-scripts"}');
     expect(source).not.toContain('sandbox=""');
     expect(source).not.toContain("allow-same-origin");
     const toggleCollapseSource = source.slice(
@@ -316,13 +350,14 @@ describe("MarkdownRenderer HTML support", () => {
     const source = readFileSync(
       resolve(
         process.cwd(),
-        "src/components/content/MarkdownRendererClient.tsx",
+        "src/components/content/markdown/ArtifactBlock.tsx",
       ),
       "utf8",
     );
-    const css = readFileSync(resolve(process.cwd(), "src/app/globals.css"), {
-      encoding: "utf8",
-    });
+    const css = readFileSync(
+      resolve(process.cwd(), "src/components/content/markdown/highlight.css"),
+      { encoding: "utf8" },
+    );
 
     expect(source.indexOf("/* Copy Button */")).toBeLessThan(
       source.indexOf("/* Fullscreen Toggle */"),
@@ -419,7 +454,7 @@ describe("MarkdownRenderer HTML support", () => {
     const source = readFileSync(
       resolve(
         process.cwd(),
-        "src/components/content/MarkdownRendererClient.tsx",
+        "src/components/content/markdown/ArtifactBlock.tsx",
       ),
       "utf8",
     );
@@ -462,10 +497,27 @@ describe("MarkdownRenderer HTML support", () => {
     );
 
     expect(html).toContain('data-markdown-diagram="mindmap"');
-    expect(html).toContain('role="status"');
-    expect(html).toContain('aria-live="polite"');
+    expect(html).toContain("Roadmap");
     expect(html).toContain("diagramStreaming");
     expect(html).toContain("diagramMindmap");
+  });
+
+  it("preserves footnote targets and inert task checkboxes when HTML is present", async () => {
+    const { default: MarkdownRenderer } =
+      await import("../components/content/MarkdownRendererClient");
+    const html = renderToStaticMarkup(
+      <MarkdownRenderer
+        content={
+          "<section>Article</section>\n\nA[^note]\n\n- [x] Done\n\n[^note]: Footnote"
+        }
+      />,
+    );
+    const target = html.match(/href="#([^"]*-fn-note)"/)?.[1];
+    expect(target).toBeTruthy();
+    expect(html).toContain(`id="${target}"`);
+    expect(html).toContain('type="checkbox"');
+    expect(html).toContain('disabled=""');
+    expect(html).toContain('checked=""');
   });
 
   it("renders tables and blockquotes without legacy heavy borders", async () => {

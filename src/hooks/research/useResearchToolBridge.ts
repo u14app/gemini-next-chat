@@ -2,10 +2,10 @@ import { useEffect } from "react";
 
 import {
   createResearchTask,
-  resolveResearchStrategy,
   transitionResearchTask,
-  type ResearchTask,
-} from "@/lib/research";
+} from "@/lib/research/task";
+import { resolveResearchStrategy } from "@/lib/research/orchestration/strategy";
+import { type ResearchTask } from "@/lib/research/types";
 import { useResearchStore } from "@/store/core/researchStore";
 import { useChatStore } from "@/store/core/chatStore";
 import {

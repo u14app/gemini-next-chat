@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useMemo } from "react";
+import dynamic from "next/dynamic";
 import { ImageOff } from "lucide-react";
 import { useTranslations } from "next-intl";
 import type {
@@ -34,7 +35,30 @@ import AgentRunBar from "./AgentRunBar";
 import SafeImage from "../ui/SafeImage";
 import { Button } from "@/components/ui/primitives";
 import { useAgentRunStore } from "@/store/core/agentRunStore";
-import { ConnectedResearchTaskCard } from "@/components/research/ConnectedResearchViews";
+
+function ResearchTaskCardLoading() {
+  const t = useTranslations("Research");
+  return (
+    <div
+      role="status"
+      aria-busy="true"
+      className="grid min-h-20 gap-2 rounded-xl border border-border px-4 py-3"
+    >
+      <span className="text-sm text-muted-foreground">
+        {t("workbench.loading")}
+      </span>
+      <span aria-hidden="true" className="h-1.5 w-2/3 rounded bg-muted" />
+    </div>
+  );
+}
+
+const ConnectedResearchTaskCard = dynamic(
+  () =>
+    import("@/components/research/ConnectedResearchViews").then(
+      (module) => module.ConnectedResearchTaskCard,
+    ),
+  { ssr: false, loading: ResearchTaskCardLoading },
+);
 
 interface MessageOutputRendererProps {
   message: Message;
@@ -48,6 +72,7 @@ interface MessageOutputRendererProps {
   forcedTheme?: MarkdownRendererProps["forcedTheme"];
   forceExpandCodeBlocks?: boolean;
   forceExpandLongTextBlocks?: boolean;
+  readOnly?: boolean;
   hideReasoning?: boolean;
   hideToolCalls?: boolean;
   onImageCached?: (image: Attachment) => void;
@@ -107,12 +132,13 @@ const ImageGenerationStatusBlock: React.FC<{ label: string }> = ({ label }) => (
 const GeneratedImageBlock: React.FC<{
   image: Attachment;
   onImageCached?: (image: Attachment) => void;
-}> = ({ image, onImageCached }) => {
+  readOnly?: boolean;
+}> = ({ image, onImageCached, readOnly = false }) => {
   const t = useTranslations("Message");
   const openImagePreview = useUIStore((state) => state.openImagePreview);
   const src = useAttachmentDisplayUrl(image, {
-    enableCacheBackfill: true,
-    onCacheReady: onImageCached,
+    enableCacheBackfill: !readOnly,
+    onCacheReady: readOnly ? undefined : onImageCached,
   });
   const canPreview = Boolean(src);
 
@@ -203,6 +229,7 @@ const MessageOutputRenderer: React.FC<MessageOutputRendererProps> = ({
   forcedTheme,
   forceExpandCodeBlocks,
   forceExpandLongTextBlocks = false,
+  readOnly = false,
   hideReasoning = false,
   hideToolCalls = false,
   onImageCached,
@@ -282,6 +309,7 @@ const MessageOutputRenderer: React.FC<MessageOutputRendererProps> = ({
           framed: false,
           node: (
             <MarkdownRenderer
+              readOnly={readOnly}
               content={block.content}
               className={isErrorMessage ? "text-red-500" : undefined}
               searchSources={searchSources}
@@ -368,6 +396,7 @@ const MessageOutputRenderer: React.FC<MessageOutputRendererProps> = ({
           framed: true,
           node: (
             <GeneratedImageBlock
+              readOnly={readOnly}
               image={block.image}
               onImageCached={onImageCached}
             />

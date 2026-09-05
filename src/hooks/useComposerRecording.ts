@@ -367,11 +367,19 @@ export function useComposerRecording({
     releaseMediaStream();
   }, [clearRecordingTimer, releaseMediaStream]);
 
+  const resetRecording = useCallback(() => {
+    teardownRecording();
+    setIsRecording(false);
+    setIsTranscribing(false);
+    setRecordingSeconds(0);
+  }, [teardownRecording]);
+
   return {
     isRecording,
     isTranscribing,
     recordingSeconds,
     toggleRecording,
     teardownRecording,
+    resetRecording,
   };
 }

@@ -1,4 +1,4 @@
-import { createReportSectionLabels } from "@/lib/research/reportSections";
+import { createReportSectionLabels } from "@/lib/research/reportSectionLabels";
 import { v7 as uuidv7 } from "uuid";
 
 import {
@@ -101,6 +101,7 @@ export async function runSynthesisStage(ctx: ResearchExecutionContext) {
         plan,
         run: ctx.run,
         evidence: ctx.evidence,
+        imageSources: ctx.imageSources,
         priorReport: ctx.priorReport,
         sectionLabels,
       }) +

@@ -1,0 +1,18 @@
+.markdown-html-visual {
+  color: inherit;
+  max-width: 100%;
+  min-width: 0;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+}
+
+.markdown-html-visual :where(*) {
+  box-sizing: border-box;
+}
+
+.markdown-html-visual
+  :where(div, section, article, aside, main, details, table) {
+  max-width: 100%;
+  min-width: 0;
+}

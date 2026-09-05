@@ -17,5 +17,8 @@
   "replaceSecretPlaceholder": "Enter a new key to replace saved key…",
   "pwaOfflineReadOnly": "Offline read-only · history, local search, knowledge, and backup export remain available",
   "pwaUpdateReady": "A new offline app version is ready",
-  "pwaReload": "Reload"
+  "pwaReload": "Reload",
+  "close": "Close",
+  "save": "Save",
+  "cancel": "Cancel"
 }

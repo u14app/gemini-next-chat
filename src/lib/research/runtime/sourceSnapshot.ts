@@ -1,13 +1,15 @@
 import type { Message, SessionMessageTree } from "@/types";
 import { freezeResearchSourceContracts } from "@/lib/plugin/researchSources/contracts";
+import { findInvalidResearchWorkspaceSource } from "@/lib/research/orchestration/stopConditions";
 import {
-  findInvalidResearchWorkspaceSource,
   getResearchSourceBuiltinToolNames,
   isResearchReadOnlyPolicy,
   isResearchWorkspaceSnapshotPath,
+} from "@/lib/research/toolPolicy";
+import {
   type ResearchSourceSnapshot,
   type ResearchTask,
-} from "@/lib/research";
+} from "@/lib/research/types";
 import { isAgentWorkspaceAvailable } from "@/lib/agent";
 import { normalizeSessionMessageTree } from "@/lib/chat/messageTree";
 import { getEnabledPluginFunctions } from "@/lib/plugin/resolve";

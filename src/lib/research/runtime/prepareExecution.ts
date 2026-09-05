@@ -12,6 +12,7 @@ import {
   getResearchExplorationQueryLimit,
   getResearchExplorationToolCallLimit,
   getResearchSourceBodyLimit,
+  mergeResearchImageSources,
   transitionResearchTask,
   upsertResearchReportRun,
   type ResearchReportRun,
@@ -174,6 +175,14 @@ export async function prepareResearchExecution({
   }));
   task = updatedTask ?? task;
 
+  // Older persisted tasks may only have image materials pinned on a report
+  // version or a completed run. Carry those materials forward so a resumed
+  // execution can still expose the same catalog to synthesis and publication.
+  const imageSources = mergeResearchImageSources(task.imageSources ?? [], [
+    ...task.reportVersions.flatMap((report) => report.imageSources ?? []),
+    ...task.reportRuns.flatMap((run) => run.imageSources ?? []),
+  ]);
+
   const explorationQueryLimit = getResearchExplorationQueryLimit(
     researchRun.strategy,
   );
@@ -215,5 +224,6 @@ export async function prepareResearchExecution({
     sourceContext,
     run: researchRun,
     evidence: [...task.evidence],
+    imageSources,
   };
 }

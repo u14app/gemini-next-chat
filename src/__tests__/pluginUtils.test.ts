@@ -1,9 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { AGNES_VIDEO_PLUGIN } from "../config/plugins";
+import { AGNES_VIDEO_PLUGIN, JINA_READER_PLUGIN } from "../config/plugins";
 import { executePluginFunction } from "../utils/pluginUtils";
 import { createPluginFunctionFingerprint } from "../lib/plugin/confirmation";
 import { getPluginFunctionRisk } from "../lib/plugin/risk";
 import type { Plugin } from "../types";
+import { normalizeToolResultEnvelope } from "../lib/agent/toolResult";
 
 const mockStore = vi.hoisted(() => ({
   state: {
@@ -73,6 +74,32 @@ describe("plugin execution utility", () => {
         message: "Error: Plugin execution failed",
       },
     });
+  });
+
+  it("keeps Reader challenge failures out of successful Research tool results", async () => {
+    mockStore.state.installedPlugins = [JINA_READER_PLUGIN];
+    const fetch = vi.fn(async () =>
+      Response.json(
+        {
+          error: "The webpage requires human verification.",
+          code: "WEB_PAGE_CHALLENGE",
+          statusCode: 502,
+        },
+        { status: 502 },
+      ),
+    );
+    vi.stubGlobal("fetch", fetch);
+
+    const result = await executePluginFunction("read_webpage", {
+      url: "https://example.com/article",
+    });
+    expect(
+      normalizeToolResultEnvelope(result, {
+        trust: "external_untrusted",
+        provenance: { origin: "plugin", toolName: "read_webpage" },
+      }),
+    ).toMatchObject({ ok: false, error: { code: "WEB_PAGE_CHALLENGE" } });
+    expect(fetch).toHaveBeenCalledTimes(1);
   });
 
   it("marks a failed mutating dispatch as an unknown external effect", async () => {

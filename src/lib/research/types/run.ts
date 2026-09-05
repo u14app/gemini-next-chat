@@ -4,6 +4,7 @@ import type {
   ResearchStrategy,
   ResearchTaskStatus,
 } from "./primitives";
+import type { ResearchImageSource } from "./images";
 
 export type ResearchNodeStatus =
   | "pending"
@@ -128,6 +129,8 @@ export interface ResearchRunCheckpoint {
   frontierNodeIds: string[];
   committedEvidenceIds: string[];
   committedToolExecutionIds: string[];
+  /** Image material is separate from formal evidence and never affects budget. */
+  committedImageSourceIds?: string[];
 }
 
 export type ResearchReportKind = "initial" | "continue" | "update";
@@ -151,6 +154,8 @@ export interface ResearchReportRun {
   nodes: ResearchNode[];
   learningPackets: LearningPacket[];
   claims: ClaimRecord[];
+  /** Illustrative search material collected during this run. */
+  imageSources?: ResearchImageSource[];
   executedQueries: string[];
   frontierNodeIds: string[];
   coverage: ResearchCoverage;
@@ -175,6 +180,8 @@ export interface ResearchReportVersion {
   gaps: string[];
   coveredStepIds?: string[];
   evidenceIds?: string[];
+  /** Snapshot of the image catalog available when this report was published. */
+  imageSources?: ResearchImageSource[];
   /** Missing only on legacy versions, which may use restricted reconstruction. */
   evidenceSnapshotStatus?: "available" | "unavailable";
   diff?: {
@@ -194,4 +201,5 @@ export interface ResearchCheckpoint {
   committedToolExecutionIds: string[];
   researchRunId?: string;
   historyPath?: string;
+  committedImageSourceIds?: string[];
 }

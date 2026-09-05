@@ -1,6 +1,6 @@
 import { v7 as uuidv7 } from "uuid";
 
-import type { ResearchTask } from "@/lib/research";
+import type { ResearchImageSource, ResearchTask } from "@/lib/research";
 import type { MessageOutputBlock, SessionMessageTree } from "@/types";
 import { useResearchStore } from "@/store/core/researchStore";
 
@@ -23,6 +23,18 @@ export function getReferencedResearchTaskIds(
     }
   }
   return [...taskIds];
+}
+
+function cloneResearchImageSources(
+  images: readonly ResearchImageSource[] | undefined,
+  reportRunIdMap: ReadonlyMap<string, string>,
+): ResearchImageSource[] | undefined {
+  if (!images) return undefined;
+  return images.map((image) => ({
+    ...image,
+    researchRunId:
+      reportRunIdMap.get(image.researchRunId) || image.researchRunId,
+  }));
 }
 
 export async function prepareResearchTaskSnapshots(
@@ -70,6 +82,8 @@ function cloneResearchTask(
     source.reportRuns.map((run) => [run.id, uuidv7()] as const),
   );
   const evidenceIdMap = new Map<string, string>();
+  const cloneImages = (images: readonly ResearchImageSource[] | undefined) =>
+    cloneResearchImageSources(images, reportRunIdMap);
   const evidence = source.evidence.map((item) => {
     const id = uuidv7();
     evidenceIdMap.set(item.id, id);
@@ -144,6 +158,11 @@ function cloneResearchTask(
         return mapped ? [mapped] : [];
       }),
     })),
+    ...(cloneImages(run.imageSources)
+      ? {
+          imageSources: cloneImages(run.imageSources),
+        }
+      : {}),
     executedQueries: [...run.executedQueries],
     frontierNodeIds: [...run.frontierNodeIds],
     coverage: { ...run.coverage },
@@ -160,6 +179,11 @@ function cloneResearchTask(
     endedAt: now,
     budget: { ...source.budget },
     usage: { ...source.usage },
+    ...(cloneImages(source.imageSources)
+      ? {
+          imageSources: cloneImages(source.imageSources),
+        }
+      : {}),
     sourceSnapshot: source.sourceSnapshot
       ? {
           ...source.sourceSnapshot,
@@ -248,6 +272,11 @@ function cloneResearchTask(
               const mapped = evidenceIdMap.get(id);
               return mapped ? [mapped] : [];
             }),
+          }
+        : {}),
+      ...(cloneImages(report.imageSources)
+        ? {
+            imageSources: cloneImages(report.imageSources),
           }
         : {}),
       ...(report.diff

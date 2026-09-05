@@ -229,6 +229,7 @@ export function SupplementPanel({
   report,
   supplementsMarkdown,
   reportSources,
+  imageSources,
   onSelectVersion,
   onInspectEvidence,
 }: {
@@ -236,6 +237,9 @@ export function SupplementPanel({
   report: ResearchTaskViewModel["reportVersions"][number] | undefined;
   supplementsMarkdown: string;
   reportSources: Source[];
+  imageSources: NonNullable<
+    ResearchTaskViewModel["reportVersions"][number]["imageSources"]
+  >;
   onSelectVersion: (versionId: string) => void;
   onInspectEvidence: (evidenceId: string) => void;
 }) {
@@ -290,6 +294,7 @@ export function SupplementPanel({
         <MarkdownRenderer
           content={supplementsMarkdown}
           searchSources={reportSources}
+          imageSources={imageSources}
           onCitationClick={(source) => {
             const evidenceId = source.metadata?.researchEvidenceId;
             if (typeof evidenceId === "string") onInspectEvidence(evidenceId);
@@ -309,6 +314,7 @@ export function ReportPanel({
   report,
   reportMarkdown,
   reportSources,
+  imageSources,
   onSelectVersion,
   onInspectEvidence,
   onDownloadMarkdown,
@@ -320,6 +326,9 @@ export function ReportPanel({
   report: ResearchTaskViewModel["reportVersions"][number] | undefined;
   reportMarkdown: string;
   reportSources: Source[];
+  imageSources: NonNullable<
+    ResearchTaskViewModel["reportVersions"][number]["imageSources"]
+  >;
   onSelectVersion: (versionId: string) => void;
   onInspectEvidence: (evidenceId: string) => void;
   onDownloadMarkdown?: (versionId: string) => void;
@@ -404,6 +413,7 @@ export function ReportPanel({
       <MarkdownRenderer
         content={reportMarkdown}
         searchSources={reportSources}
+        imageSources={imageSources}
         onCitationClick={(source) => {
           const evidenceId = source.metadata?.researchEvidenceId;
           if (typeof evidenceId === "string") onInspectEvidence(evidenceId);

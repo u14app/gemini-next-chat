@@ -258,15 +258,27 @@ describe("MessageItem composition", () => {
       ),
       "utf8",
     );
-    const markdownSurface = `${markdownRenderer}\n${diagramBlock}`;
+    const markdownSurface = [
+      markdownRenderer,
+      diagramBlock,
+      ...[
+        "src/components/content/markdown/types.ts",
+        "src/components/content/markdown/MarkdownNodes.tsx",
+        "src/components/content/markdown/ArtifactBlock.tsx",
+        "src/components/content/markdown/ReadOnlyCodeBlock.tsx",
+      ].map((path) => readFileSync(resolve(process.cwd(), path), "utf8")),
+    ].join("\n");
     expect(markdownSurface).toContain("forcedTheme?: DiagramTheme");
     expect(markdownSurface).toContain("forcedTheme || resolvedTheme");
     expect(markdownSurface).toContain("forceExpandCodeBlocks?: boolean");
     expect(markdownSurface).toContain(
       "!forceExpandCodeBlocks && (system.enableCodeCollapse ?? true)",
     );
-    expect(markdownSurface).toContain(
+    expect(messageOutputRenderer).toContain(
       "forceExpandCodeBlocks={forceExpandCodeBlocks}",
+    );
+    expect(markdownSurface).toContain(
+      "forceExpandCodeBlocks={options.forceExpandCodeBlocks}",
     );
 
     expect(globals).toContain("@page");
@@ -322,20 +334,40 @@ describe("MessageItem composition", () => {
       "utf8",
     );
 
-    expect(markdownRenderer).toContain("const MarkdownCode =");
-    expect(markdownRenderer).toContain("code: MarkdownCode");
-    expect(markdownRenderer).toContain(
-      "<CodeBlockRenderOptionsContext.Provider",
+    const markdownNodes = readFileSync(
+      resolve(
+        process.cwd(),
+        "src/components/content/markdown/MarkdownNodes.tsx",
+      ),
+      "utf8",
     );
-    expect(markdownRenderer).toContain(
+    const artifactBlock = readFileSync(
+      resolve(
+        process.cwd(),
+        "src/components/content/markdown/ArtifactBlock.tsx",
+      ),
+      "utf8",
+    );
+
+    expect(markdownRenderer).toContain("reconcileMarkdownBlocks");
+    expect(markdownRenderer).toContain("snapshot.blocks.map");
+    expect(markdownRenderer).toContain("key={snapshot.id}");
+    expect(markdownNodes).toContain(
+      "const MarkdownBlock = memo(function MarkdownBlock",
+    );
+    expect(markdownNodes).toContain(
+      "<CodeNode value={value} options={options} />",
+    );
+    expect(markdownNodes).toContain("isStreaming={value.incomplete}");
+    expect(artifactBlock).toContain(
       "if (isStreaming) return; // Do not calculate during streaming",
     );
-    expect(markdownRenderer).toContain("const vh50 = window.innerHeight * 0.5");
-    expect(markdownRenderer).toContain("onClick={toggleCollapse}");
-    expect(markdownRenderer).toContain("aria-expanded={!isCollapsed}");
-    expect(markdownRenderer).toContain("isMountedRef.current = true");
+    expect(artifactBlock).toContain("const vh50 = window.innerHeight * 0.5");
+    expect(artifactBlock).toContain("onClick={toggleCollapse}");
+    expect(artifactBlock).toContain("aria-expanded={!isCollapsed}");
+    expect(artifactBlock).toContain("isMountedRef.current = true");
     expect(markdownBoundary).toContain(
-      "const MarkdownRenderer = memo(function MarkdownRenderer",
+      "export default memo(MarkdownRendererClient)",
     );
     expect(messageOutputRenderer).toContain(
       "export default React.memo(MessageOutputRenderer)",

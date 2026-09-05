@@ -465,6 +465,8 @@ export interface SessionConfig {
 
 export interface Session {
   id: string;
+  /** Temporary conversations exist only for the current page lifetime. */
+  retention?: "temporary";
   title: string;
   messages?: Message[];
   messageCount: number;

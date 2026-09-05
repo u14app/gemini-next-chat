@@ -5,14 +5,10 @@ import {
 } from "@/lib/research/runtime/taskLifecycle";
 import { useCallback } from "react";
 
-import {
-  DEEP_RESEARCH_INSTRUCTION_MAX_CHARS,
-  markMutableResearchEvidenceStale,
-  transitionResearchTask,
-} from "@/lib/research";
+import { DEEP_RESEARCH_INSTRUCTION_MAX_CHARS } from "@/lib/research/toolArguments";
+import { markMutableResearchEvidenceStale } from "@/lib/research/evidence";
+import { transitionResearchTask } from "@/lib/research/task";
 import { useResearchStore } from "@/store/core/researchStore";
-
-import { resumeLegacyScopeApproval } from "@/lib/research/runtime/resumeLegacyScope";
 
 /**
  * The task-lifecycle actions that are not plan-stage specific: retrying a
@@ -68,6 +64,8 @@ export function useResearchTaskActions({
         )
           return;
         if (task.error?.code === "RESEARCH_SCOPE_APPROVAL_REQUIRED") {
+          const { resumeLegacyScopeApproval } =
+            await import("@/lib/research/runtime/resumeLegacyScope");
           const resumed = await resumeLegacyScopeApproval({
             task,
             lease,

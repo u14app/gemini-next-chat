@@ -210,7 +210,7 @@ export async function POST(request: NextRequest) {
       }
 
       if (isResearchSourceProvider(pluginId)) {
-        return executeResearchSourceRequest({
+        return await executeResearchSourceRequest({
           provider: pluginId,
           functionName,
           args,
@@ -219,7 +219,7 @@ export async function POST(request: NextRequest) {
         });
       }
 
-      return executePluginFunctionRequest({
+      return await executePluginFunctionRequest({
         plugin,
         functionDef,
         args,
@@ -283,7 +283,7 @@ export async function POST(request: NextRequest) {
         throw error;
       }
     }
-    return executePluginFunctionRequest({
+    return await executePluginFunctionRequest({
       plugin,
       functionDef,
       args: legacyBody.args,

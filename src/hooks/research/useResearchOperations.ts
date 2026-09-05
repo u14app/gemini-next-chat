@@ -7,12 +7,12 @@ import { useCallback, useRef } from "react";
 import { v7 as uuidv7 } from "uuid";
 
 import type { AgentUserInputController } from "@/types";
+import { applyResearchRunUserStop } from "@/lib/research/orchestration/stopConditions";
 import {
-  applyResearchRunUserStop,
   isActiveResearchStatus,
   isTerminalResearchStatus,
   transitionResearchTask,
-} from "@/lib/research";
+} from "@/lib/research/task";
 import { useResearchStore } from "@/store/core/researchStore";
 import { logDevError } from "@/lib/utils/devLogger";
 

@@ -526,86 +526,106 @@ export async function applySyncedAppData(
   if (!changed) return false;
 
   await runWithExclusiveAppDataLock(async () => {
-    const journalOptions = createBrowserSyncApplyJournalOptions();
-    await ensureInterruptedSyncApplyRecovery(journalOptions, true);
-    const existingKeys = await appDb.keys();
-    const managedKeys = [
-      STORAGE_KEYS.SETTINGS,
-      STORAGE_KEYS.CHAT,
-      STORAGE_KEYS.KNOWLEDGE,
-      STORAGE_KEYS.MEMORY,
-      ...existingKeys.filter((key) => key.startsWith(sessionPrefix)),
-      ...Object.keys(restoredData.sessionMessages).map(
-        (id) => `${sessionPrefix}${id}`,
+    const { withSessionSharesRemoved } =
+      await import("@/services/sharing/client");
+    const nextSessions = getPersistedState(restoredData.chat).sessions;
+    await withSessionSharesRemoved(
+      new Set(
+        Array.isArray(nextSessions)
+          ? nextSessions.flatMap((session) =>
+              isRecord(session) && typeof session.id === "string"
+                ? [session.id]
+                : [],
+            )
+          : [],
       ),
-    ];
-    const uniqueManagedKeys = [...new Set(managedKeys)];
-
-    try {
-      let journal = await createSyncApplyTransaction(journalOptions, {
-        managedDbKeys: uniqueManagedKeys,
-        fileUrls: [...downloadedFiles.keys()],
-      });
-      journal = await setSyncApplyPhase(journalOptions, journal, "applying");
-      for (const [url, bytes] of downloadedFiles) {
-        await writeBlobToOPFS(url, bytes);
-      }
-      const mainValues: Array<[string, unknown]> = [
-        [STORAGE_KEYS.SETTINGS, restoredData.settings],
-        [STORAGE_KEYS.CHAT, restoredData.chat],
-        [STORAGE_KEYS.KNOWLEDGE, restoredData.knowledge],
-        [STORAGE_KEYS.MEMORY, restoredData.memory],
-      ];
-      for (const [key, value] of mainValues) {
-        const serialized = serializePersisted(value);
-        if (serialized === null) await appDb.removeItem(key);
-        else await appDb.setItem(key, serialized);
-      }
-      for (const key of existingKeys.filter((item) =>
-        item.startsWith(sessionPrefix),
-      )) {
-        if (
-          !(key.slice(sessionPrefix.length) in restoredData.sessionMessages)
-        ) {
-          await appDb.removeItem(key);
-        }
-      }
-      for (const [sessionId, value] of Object.entries(
-        restoredData.sessionMessages,
-      )) {
-        await appDb.setItem(
-          `${sessionPrefix}${sessionId}`,
-          JSON.stringify(value),
-        );
-      }
-      const core = serializePersisted(restoredData.coreSettings);
-      if (core === null)
-        window.localStorage.removeItem(STORAGE_KEYS.CORE_SETTINGS);
-      else window.localStorage.setItem(STORAGE_KEYS.CORE_SETTINGS, core);
-
-      const validationSnapshot: AppRestoreSnapshot = {
-        version: 1,
-        transactionId: `sync-${Date.now()}`,
-        managedDbKeys: uniqueManagedKeys,
-        dbEntries: [],
-        localStorageEntries: [],
-        stagedOpfsUrls: [],
-        previousOpfsUrls: [],
-      };
-      await validateRestoredAppData(validationSnapshot);
-      journal = await setSyncApplyPhase(journalOptions, journal, "applied");
-      await commitSyncApplyTransaction(journalOptions, journal);
-    } catch (error) {
-      try {
+      async () => {
+        const journalOptions = createBrowserSyncApplyJournalOptions();
         await ensureInterruptedSyncApplyRecovery(journalOptions, true);
-      } catch (recoveryError) {
-        throw new AggregateError(
-          [error, recoveryError],
-          "Sync apply failed and its rollback could not be completed.",
-        );
-      }
-      throw error;
-    }
+        const existingKeys = await appDb.keys();
+        const managedKeys = [
+          STORAGE_KEYS.SETTINGS,
+          STORAGE_KEYS.CHAT,
+          STORAGE_KEYS.KNOWLEDGE,
+          STORAGE_KEYS.MEMORY,
+          ...existingKeys.filter((key) => key.startsWith(sessionPrefix)),
+          ...Object.keys(restoredData.sessionMessages).map(
+            (id) => `${sessionPrefix}${id}`,
+          ),
+        ];
+        const uniqueManagedKeys = [...new Set(managedKeys)];
+
+        try {
+          let journal = await createSyncApplyTransaction(journalOptions, {
+            managedDbKeys: uniqueManagedKeys,
+            fileUrls: [...downloadedFiles.keys()],
+          });
+          journal = await setSyncApplyPhase(
+            journalOptions,
+            journal,
+            "applying",
+          );
+          for (const [url, bytes] of downloadedFiles) {
+            await writeBlobToOPFS(url, bytes);
+          }
+          const mainValues: Array<[string, unknown]> = [
+            [STORAGE_KEYS.SETTINGS, restoredData.settings],
+            [STORAGE_KEYS.CHAT, restoredData.chat],
+            [STORAGE_KEYS.KNOWLEDGE, restoredData.knowledge],
+            [STORAGE_KEYS.MEMORY, restoredData.memory],
+          ];
+          for (const [key, value] of mainValues) {
+            const serialized = serializePersisted(value);
+            if (serialized === null) await appDb.removeItem(key);
+            else await appDb.setItem(key, serialized);
+          }
+          for (const key of existingKeys.filter((item) =>
+            item.startsWith(sessionPrefix),
+          )) {
+            if (
+              !(key.slice(sessionPrefix.length) in restoredData.sessionMessages)
+            ) {
+              await appDb.removeItem(key);
+            }
+          }
+          for (const [sessionId, value] of Object.entries(
+            restoredData.sessionMessages,
+          )) {
+            await appDb.setItem(
+              `${sessionPrefix}${sessionId}`,
+              JSON.stringify(value),
+            );
+          }
+          const core = serializePersisted(restoredData.coreSettings);
+          if (core === null)
+            window.localStorage.removeItem(STORAGE_KEYS.CORE_SETTINGS);
+          else window.localStorage.setItem(STORAGE_KEYS.CORE_SETTINGS, core);
+
+          const validationSnapshot: AppRestoreSnapshot = {
+            version: 1,
+            transactionId: `sync-${Date.now()}`,
+            managedDbKeys: uniqueManagedKeys,
+            dbEntries: [],
+            localStorageEntries: [],
+            stagedOpfsUrls: [],
+            previousOpfsUrls: [],
+          };
+          await validateRestoredAppData(validationSnapshot);
+          journal = await setSyncApplyPhase(journalOptions, journal, "applied");
+          await commitSyncApplyTransaction(journalOptions, journal);
+        } catch (error) {
+          try {
+            await ensureInterruptedSyncApplyRecovery(journalOptions, true);
+          } catch (recoveryError) {
+            throw new AggregateError(
+              [error, recoveryError],
+              "Sync apply failed and its rollback could not be completed.",
+            );
+          }
+          throw error;
+        }
+      },
+    );
   });
   return true;
 }

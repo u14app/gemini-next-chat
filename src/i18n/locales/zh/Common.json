@@ -17,5 +17,8 @@
   "replaceSecretPlaceholder": "输入新密钥以覆盖已保存密钥…",
   "pwaOfflineReadOnly": "离线只读 · 仍可查看历史、本地搜索、知识库和导出备份",
   "pwaUpdateReady": "新的离线应用版本已就绪",
-  "pwaReload": "重新加载"
+  "pwaReload": "重新加载",
+  "close": "关闭",
+  "save": "保存",
+  "cancel": "取消"
 }

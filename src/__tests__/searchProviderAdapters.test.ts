@@ -22,7 +22,13 @@ describe("search provider adapters", () => {
             url: "https://example.com/empty",
           },
         ],
-        images: [{ url: "https://example.com/neo.png", description: "Neo" }],
+        images: [
+          {
+            url: "https://example.com/neo.png",
+            description: "Neo",
+            sourceUrl: "https://example.com/neo",
+          },
+        ],
       },
     });
 
@@ -62,7 +68,13 @@ describe("search provider adapters", () => {
           url: "https://example.com/neo",
         },
       ],
-      images: [{ url: "https://example.com/neo.png", description: "Neo" }],
+      images: [
+        {
+          url: "https://example.com/neo.png",
+          description: "Neo",
+          sourceUrl: "https://example.com/neo",
+        },
+      ],
     });
   });
 
@@ -104,6 +116,7 @@ describe("search provider adapters", () => {
       {
         url: "https://example.com/image.jpg",
         description: "Bocha Result",
+        sourceUrl: "https://example.com/result",
       },
     ]);
   });
@@ -173,6 +186,7 @@ describe("search provider adapters", () => {
         {
           url: "https://example.com/firecrawl.png",
           description: "Firecrawl image",
+          sourceUrl: "https://example.com/firecrawl",
         },
       ],
     });

@@ -21,6 +21,8 @@ export interface CitationSource extends Source {
 export interface ImageSource {
   url: string;
   description?: string;
+  /** The page that published or embeds the image, when the provider reports it. */
+  sourceUrl?: string;
 }
 
 export type SearchProviderID =

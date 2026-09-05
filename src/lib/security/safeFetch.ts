@@ -518,6 +518,27 @@ function createLimitedResponse(
   return limited;
 }
 
+function validateFetchUrl(input: string | URL, policy: SafeUrlPolicy) {
+  try {
+    return validateOutboundUrl(input, policy);
+  } catch (error) {
+    if (policy.context !== "webFetch") throw error;
+    throw new HostedProxyBlockedError(
+      "Webpage requests must target public network addresses using an allowed URL.",
+    );
+  }
+}
+
+function redirectLimitError(policy: SafeUrlPolicy, maxRedirects: number) {
+  return policy.context === "webFetch"
+    ? new ApiError(
+        `Too many redirects after ${maxRedirects} hops`,
+        502,
+        "WEB_FETCH_REDIRECT_LIMIT",
+      )
+    : new Error(`Too many redirects after ${maxRedirects} hops`);
+}
+
 async function safeFetchResponse(
   input: string | URL,
   init: RequestInit = {},
@@ -525,7 +546,7 @@ async function safeFetchResponse(
   timeoutSignal: AbortSignal,
 ): Promise<Response> {
   const policy = options.policy || getSafeUrlPolicy("plugin");
-  let { url } = validateOutboundUrl(input, policy);
+  let { url } = validateFetchUrl(input, policy);
   await assertResolvedAddressAllowed(url, policy, timeoutSignal);
 
   const maxRedirects = policy.maxRedirects ?? DEFAULT_MAX_REDIRECTS;
@@ -554,13 +575,13 @@ async function safeFetchResponse(
       return response;
     }
 
+    await response.body?.cancel();
     if (redirectCount === maxRedirects) {
-      throw new Error(`Too many redirects after ${maxRedirects} hops`);
+      throw redirectLimitError(policy, maxRedirects);
     }
 
-    await response.body?.cancel();
     const redirectUrl = new URL(location, url);
-    const validatedRedirect = validateOutboundUrl(redirectUrl, policy);
+    const validatedRedirect = validateFetchUrl(redirectUrl, policy);
     await assertResolvedAddressAllowed(
       validatedRedirect.url,
       policy,
@@ -590,7 +611,7 @@ async function safeFetchResponse(
     }
   }
 
-  throw new Error(`Too many redirects after ${maxRedirects} hops`);
+  throw redirectLimitError(policy, maxRedirects);
 }
 
 export async function safeFetch(

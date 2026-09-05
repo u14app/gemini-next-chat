@@ -7,7 +7,6 @@ import type {
 import type { ResearchTaskExecutionLease } from "@/services/research/taskExecutionLock";
 import { logDevError } from "@/lib/utils/devLogger";
 
-import { executeResearchRun } from "@/lib/research/runtime/executeResearch";
 import type {
   ResearchRuntimeErrorText,
   ResearchTranslate,
@@ -17,6 +16,7 @@ import type {
   RunningOperation,
 } from "@/lib/research/runtime/operations";
 import type { ResearchDependencyText } from "@/lib/research/runtime/taskContext";
+import { recordResearchModuleLoadFailure } from "@/lib/research/runtime/moduleLoadFailure";
 
 /**
  * Execution keeps the caller's explicit lease through the full run. Lifecycle
@@ -45,8 +45,24 @@ export function useResearchExecution({
 }) {
   const executeResearch = useCallback(
     async (taskId: string, lease?: ResearchTaskExecutionLease) => {
-      await runOperation(taskId, "research", (controller) =>
-        executeResearchRun({
+      await runOperation(taskId, "research", async (controller) => {
+        const runtime =
+          await import("@/lib/research/runtime/executeResearch").catch(
+            async (error) => {
+              const failed = await recordResearchModuleLoadFailure({
+                taskId,
+                phase: "research",
+                lease,
+                signal: controller.signal,
+                message: localizedRuntimeError(error, "executionFallback"),
+              });
+              if (failed) onError?.(t("runtime.error.report"));
+              return null;
+            },
+          );
+        if (!runtime) return;
+        if (controller.signal.aborted) return;
+        await runtime.executeResearchRun({
           taskId,
           lease,
           controller,
@@ -58,8 +74,8 @@ export function useResearchExecution({
           dependencyText,
           onError,
           onNotice,
-        }),
-      );
+        });
+      });
     },
     [
       dependencyText,

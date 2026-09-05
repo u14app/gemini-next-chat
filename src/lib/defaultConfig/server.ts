@@ -1,4 +1,5 @@
 import "server-only";
+import { isSharingAvailable } from "@/lib/sharing/config";
 
 import {
   RAG_LIMITS,
@@ -592,6 +593,7 @@ export function getPublicServerConfig(): PublicServerConfig {
   const deploymentMode = getDeploymentMode();
 
   return {
+    sharing: { available: isSharingAvailable() },
     modelProvider: {
       available: Boolean(defaultProvider),
       id: SERVER_DEFAULT_PROVIDER_ID,

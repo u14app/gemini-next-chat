@@ -31,6 +31,13 @@ import {
 } from "@/lib/chat/entities";
 import { DEFAULT_CHAT_CONFIG } from "@/config/defaults";
 import {
+  endTemporarySession,
+  isTemporarySession,
+  isTemporarySessionId,
+  registerTemporarySession,
+  TEMPORARY_CHAT_CONFIG,
+} from "@/lib/chat/sessionRetention";
+import {
   isReasoningEnabled,
   normalizeReasoningMode,
 } from "@/lib/chat/reasoning";
@@ -303,6 +310,8 @@ interface ChatState {
   chatConfig: ChatConfig;
 
   // Actions
+  createTemporarySession: () => string;
+  discardTemporarySession: () => void;
   createSession: (
     systemInstruction?: string,
     title?: string,
@@ -437,6 +446,7 @@ const isReusableEmptySession = (
     config?: SessionConfig;
   },
 ) => {
+  if (isTemporarySession(session)) return false;
   if (title !== DEFAULT_SESSION_TITLE) return false;
   if (session.title !== DEFAULT_SESSION_TITLE) return false;
   if (session.messageCount !== 0) return false;
@@ -504,6 +514,57 @@ export const useChatStore = create<ChatState>()(
       selectedModel: "",
       chatConfig: { ...DEFAULT_CHAT_CONFIG },
 
+      discardTemporarySession: () => {
+        const state = get();
+        const temporary = state.sessions.filter(isTemporarySession);
+        if (temporary.length === 0) return;
+        temporary.forEach((session) => endTemporarySession(session.id));
+        selectSessionRequestId += 1;
+        const wasTemporary = temporary.some(
+          (s) => s.id === state.currentSessionId,
+        );
+        set({
+          sessions: state.sessions.filter((s) => !isTemporarySession(s)),
+          ...(wasTemporary
+            ? {
+                currentSessionId: null,
+                activeMessages: [],
+                activeMessageTree: createEmptyMessageTree(),
+                isActiveSessionLoading: false,
+                pendingSessionId: null,
+                activeSessionLoadError: null,
+              }
+            : {}),
+        });
+      },
+
+      createTemporarySession: () => {
+        get().discardTemporarySession();
+        const id = uuidv7();
+        registerTemporarySession(id);
+        selectSessionRequestId += 1;
+        const session: Session = {
+          id,
+          retention: "temporary",
+          title: "New Chat",
+          messageCount: 0,
+          updatedAt: Date.now(),
+          model: get().selectedModel,
+          config: { ...TEMPORARY_CHAT_CONFIG },
+        };
+        set((state) => ({
+          sessions: [session, ...state.sessions],
+          currentSessionId: id,
+          activeMessages: [],
+          activeMessageTree: createEmptyMessageTree(),
+          isActiveSessionLoading: false,
+          pendingSessionId: null,
+          activeSessionLoadError: null,
+          chatConfig: { ...state.chatConfig, ...TEMPORARY_CHAT_CONFIG },
+        }));
+        return id;
+      },
+
       createSession: (
         systemInstruction,
         title = "New Chat",
@@ -512,6 +573,7 @@ export const useChatStore = create<ChatState>()(
         _initialAttachments = [],
         config,
       ) => {
+        get().discardTemporarySession();
         const normalizedTitle = normalizeSessionTitle(title);
         const normalizedConfig = normalizeSessionConfig(config);
         const reusableSession = get().sessions.find((session) =>
@@ -570,8 +632,10 @@ export const useChatStore = create<ChatState>()(
       },
 
       selectSession: async (id) => {
+        if (id === get().currentSessionId && isTemporarySessionId(id)) return;
         const session = get().sessions.find((candidate) => candidate.id === id);
         if (!session) return;
+        get().discardTemporarySession();
 
         const requestId = selectSessionRequestId + 1;
         selectSessionRequestId = requestId;
@@ -627,6 +691,15 @@ export const useChatStore = create<ChatState>()(
       },
 
       deleteSession: async (id) => {
+        if (isTemporarySessionId(id)) {
+          if (get().sessions.some((session) => session.id === id)) {
+            get().discardTemporarySession();
+          }
+          return;
+        }
+        const { revokeSessionShareBeforeDelete, cancelSessionShareDeletion } =
+          await import("@/services/sharing/client");
+        await revokeSessionShareBeforeDelete(id);
         selectSessionRequestId += 1;
         const deleteRequestId = selectSessionRequestId;
         const stateBeforeDelete = get();
@@ -727,6 +800,12 @@ export const useChatStore = create<ChatState>()(
                   : {}),
               };
             });
+            await cancelSessionShareDeletion(id).catch((cleanupError) => {
+              logDevError(
+                "Failed to restore session sharing availability",
+                cleanupError,
+              );
+            });
           }
 
           throw error;
@@ -806,6 +885,7 @@ export const useChatStore = create<ChatState>()(
                   config: normalizeSessionConfig({
                     ...s.config,
                     ...config,
+                    ...(isTemporarySession(s) ? TEMPORARY_CHAT_CONFIG : {}),
                   }),
                   updatedAt: Date.now(),
                 })
@@ -829,6 +909,7 @@ export const useChatStore = create<ChatState>()(
       },
 
       updateSessionMemoryContext: (id, memoryContext) => {
+        if (isTemporarySessionId(id)) return;
         set((state) => ({
           sessions: state.sessions.map((s) =>
             s.id === id
@@ -843,6 +924,7 @@ export const useChatStore = create<ChatState>()(
       },
 
       moveSessionToWorkspace: (sessionId, workspaceId) => {
+        if (isTemporarySessionId(sessionId)) return;
         set((state) => ({
           sessions: state.sessions.map((s) =>
             s.id === sessionId
@@ -857,6 +939,7 @@ export const useChatStore = create<ChatState>()(
       },
 
       toggleSessionPin: (id) => {
+        if (isTemporarySessionId(id)) return;
         set((state) => ({
           sessions: state.sessions.map((s) =>
             s.id === id ? { ...s, pinned: !s.pinned } : s,
@@ -865,6 +948,8 @@ export const useChatStore = create<ChatState>()(
       },
 
       duplicateSession: async (id, duplicateTitle) => {
+        if (isTemporarySessionId(id)) return;
+        get().discardTemporarySession();
         const requestId = selectSessionRequestId + 1;
         selectSessionRequestId = requestId;
         const state = get();
@@ -1036,7 +1121,7 @@ export const useChatStore = create<ChatState>()(
           };
         });
 
-        if (!sessionExists) return;
+        if (!sessionExists || isTemporarySessionId(sessionId)) return;
 
         // Save to DB
         // We need to fetch current messages if not active, or use the mutation snapshot if active.
@@ -1168,6 +1253,7 @@ export const useChatStore = create<ChatState>()(
         const { currentSessionId, activeMessageTree } = get();
         const targetSessionId = sessionId ?? currentSessionId;
         if (!targetSessionId) return;
+        if (isTemporarySessionId(targetSessionId)) return;
         if (!get().sessions.some((session) => session.id === targetSessionId)) {
           return;
         }
@@ -1671,7 +1757,13 @@ export const useChatStore = create<ChatState>()(
 
       setChatConfig: (config) =>
         set((state) => ({
-          chatConfig: normalizeChatConfig({ ...state.chatConfig, ...config }),
+          chatConfig: normalizeChatConfig({
+            ...state.chatConfig,
+            ...config,
+            ...(isTemporarySessionId(state.currentSessionId)
+              ? TEMPORARY_CHAT_CONFIG
+              : {}),
+          }),
         })),
 
       getCurrentSession: () => {
@@ -1705,9 +1797,13 @@ export const useChatStore = create<ChatState>()(
       skipHydration: false,
       // Only persist metadata and config, do NOT persist activeMessages in main key
       partialize: (state) => ({
-        sessions: state.sessions,
+        sessions: state.sessions.filter(
+          (session) => !isTemporarySession(session),
+        ),
         workspaces: state.workspaces, // Persist workspaces
-        currentSessionId: state.currentSessionId,
+        currentSessionId: isTemporarySessionId(state.currentSessionId)
+          ? null
+          : state.currentSessionId,
         selectedModel: state.selectedModel,
         chatConfig: state.chatConfig,
       }),

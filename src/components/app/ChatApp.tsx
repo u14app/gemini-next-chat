@@ -1,4 +1,8 @@
 "use client";
+import {
+  endTemporarySession,
+  isTemporarySessionId,
+} from "@/lib/chat/sessionRetention";
 import React, {
   useState,
   useEffect,
@@ -260,6 +264,7 @@ const ChatApp = () => {
       assistantMessage: Pick<Message, "id" | "content">,
       signal?: AbortSignal,
     ) => {
+      if (isTemporarySessionId(sessionId)) return;
       loadChatService()
         .then(({ performBackgroundMemoryExtraction }) =>
           performBackgroundMemoryExtraction({
@@ -333,6 +338,7 @@ const ChatApp = () => {
       messageId: string,
       options: { expectedRequestId?: string; signal?: AbortSignal } = {},
     ) => {
+      if (isTemporarySessionId(sessionId)) return Promise.resolve();
       const queueKey = `${sessionId}:${messageId}`;
       const previous =
         longTextPersistenceQueueRef.current.get(queueKey) || Promise.resolve();
@@ -571,6 +577,12 @@ const ChatApp = () => {
     [abortBackgroundPostProcessing, currentSessionId],
   );
   useEffect(
+    () => () => {
+      if (currentSessionId) endTemporarySession(currentSessionId);
+    },
+    [currentSessionId],
+  );
+  useEffect(
     () => () => abortManualCompression(),
     [abortManualCompression, currentSessionId],
   );
@@ -584,12 +596,21 @@ const ChatApp = () => {
       if (document.visibilityState === "hidden") flushCheckpoint();
     };
     document.addEventListener("visibilitychange", handleVisibilityChange);
-    window.addEventListener("pagehide", flushCheckpoint);
+    const handlePageHide = () => {
+      if (isTemporarySessionId(useChatStore.getState().currentSessionId)) {
+        abortBackgroundPostProcessing();
+        abortManualCompression();
+      }
+      useChatStore.getState().discardTemporarySession();
+      flushCheckpoint();
+    };
+    window.addEventListener("pagehide", handlePageHide);
     return () => {
       document.removeEventListener("visibilitychange", handleVisibilityChange);
-      window.removeEventListener("pagehide", flushCheckpoint);
+      window.removeEventListener("pagehide", handlePageHide);
+      useChatStore.getState().discardTemporarySession();
     };
-  }, []);
+  }, [abortBackgroundPostProcessing, abortManualCompression]);
 
   useEffect(() => {
     if (!currentSessionId) return;
@@ -1012,6 +1033,14 @@ const ChatApp = () => {
     navigateToPanel("chat");
   };
 
+  const handleStartTemporaryChat = () => {
+    abortBackgroundPostProcessing();
+    abortManualCompression();
+    if (isGenerating) void stopActiveGenerationWithFeedback();
+    useChatStore.getState().createTemporarySession();
+    navigateToPanel("chat");
+  };
+
   const handleSelectSession = async (sessionId: string) => {
     abortBackgroundPostProcessing();
     await selectSession(sessionId);
@@ -1127,6 +1156,7 @@ const ChatApp = () => {
         stopActiveGenerationWithFeedback={stopActiveGenerationWithFeedback}
         selectSession={handleSelectSession}
         handleNewChat={handleNewChat}
+        handleStartTemporaryChat={handleStartTemporaryChat}
         handleDeleteSession={handleDeleteSession}
         updateSessionTitle={updateSessionTitle}
         toggleSessionPin={toggleSessionPin}

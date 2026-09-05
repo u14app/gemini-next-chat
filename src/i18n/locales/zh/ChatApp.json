@@ -37,5 +37,9 @@
   "configureProviders": "服务商设置",
   "pendingToolAction": "有工具操作正在等待您的确认",
   "reviewToolAction": "返回查看",
-  "denyToolAction": "拒绝"
+  "denyToolAction": "拒绝",
+  "temporaryChat": "临时会话",
+  "temporaryChatDescription": "聊天和搜索不保存会话记录，离开此会话后即销毁。",
+  "endTemporaryChat": "退出临时会话",
+  "temporaryChatHistoryNotice": "该对话不会出现在您的历史记录中。"
 }

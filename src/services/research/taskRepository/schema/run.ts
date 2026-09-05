@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { prioritySchema, sourceTypeSchema, strategySchema } from "./primitives";
+import { researchImageSourceSchema } from "./images";
 
 export const evidenceSchema = z
   .object({
@@ -152,6 +153,10 @@ export const runCheckpointSchema = z
     frontierNodeIds: z.array(z.string().min(1).max(240)).max(2_000),
     committedEvidenceIds: z.array(z.string().min(1).max(240)).max(2_000),
     committedToolExecutionIds: z.array(z.string().min(1).max(240)).max(2_000),
+    committedImageSourceIds: z
+      .array(z.string().min(1).max(240))
+      .max(2_000)
+      .optional(),
   })
   .strict();
 
@@ -255,6 +260,7 @@ export const reportRunSchema = z
       .max(2_000),
     learningPackets: z.array(learningPacketSchema).max(2_000),
     claims: z.array(claimSchema).max(2_000),
+    imageSources: z.array(researchImageSourceSchema).max(2_000).optional(),
     frontierNodeIds: z.array(z.string().min(1).max(240)).max(2_000),
     executedQueries: z.array(z.string().min(1).max(8_000)).max(48),
     coverage: z

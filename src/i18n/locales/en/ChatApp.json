@@ -37,5 +37,9 @@
   "configureProviders": "Provider settings",
   "pendingToolAction": "A tool operation is waiting for your approval",
   "reviewToolAction": "Review",
-  "denyToolAction": "Deny"
+  "denyToolAction": "Deny",
+  "temporaryChat": "Temporary chat",
+  "temporaryChatDescription": "Chat and search without saving conversation history. Leaving this chat deletes it.",
+  "endTemporaryChat": "Exit temporary chat",
+  "temporaryChatHistoryNotice": "This conversation will not appear in your history."
 }

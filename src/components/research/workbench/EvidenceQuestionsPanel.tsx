@@ -4,8 +4,7 @@ import { useId, useState } from "react";
 import { MessageSquarePlus, Pencil, Send, Square, Trash2 } from "lucide-react";
 import { useTranslations } from "next-intl";
 
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
+import MarkdownRenderer from "@/components/content/MarkdownRenderer";
 import { validateEvidenceAnswerCitations } from "@/lib/research/evidenceConversations";
 import {
   Button,
@@ -220,27 +219,12 @@ export default function EvidenceQuestionsPanel({
                   turn.answer,
                   conversation.snapshot,
                 ) ? (
-                  <div className="markdown-content text-sm leading-7">
-                    <ReactMarkdown
-                      remarkPlugins={[remarkGfm]}
-                      skipHtml
-                      components={{
-                        img: () => null,
-                        a: ({ href, children }) => (
-                          <a
-                            href={href}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-research-accent underline underline-offset-2"
-                          >
-                            {children}
-                          </a>
-                        ),
-                      }}
-                    >
-                      {turn.answer}
-                    </ReactMarkdown>
-                  </div>
+                  <MarkdownRenderer
+                    content={turn.answer}
+                    contentPolicy="evidence-answer"
+                    readOnly
+                    className="markdown-content text-sm leading-7"
+                  />
                 ) : (
                   <InlineStatus tone="danger">
                     {errorMessage("INVALID_CITATION")}

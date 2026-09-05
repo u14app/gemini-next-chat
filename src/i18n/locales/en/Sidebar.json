@@ -57,5 +57,11 @@
   "workspaceActions": "Workspace actions",
   "moveToWorkspaceAria": "Move chat to workspace",
   "skillMarket": "Skills",
-  "openSkillMarket": "Open Skills"
+  "openSkillMarket": "Open Skills",
+  "share": "Share",
+  "chatTitle": "Chat title",
+  "actionError": "Could not complete this action. Please try again.",
+  "you": "You",
+  "assistant": "Assistant",
+  "endTemporary": "End temporary chat"
 }

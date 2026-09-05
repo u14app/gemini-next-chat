@@ -274,5 +274,8 @@
   "artifactDrawerTrash": "{name} をゴミ箱へ移動",
   "artifactDrawerRestore": "{name} を復元",
   "artifactDrawerDiff": "公開済み {name} と scratch を比較",
-  "artifactDrawerCloseDiff": "Artifact Diff を閉じる"
+  "artifactDrawerCloseDiff": "Artifact Diff を閉じる",
+  "renderRetry": "表示を再試行",
+  "renderFailed": "拡張表示を利用できません。元のテキストを表示しています。",
+  "imageSource": "画像の出典"
 }

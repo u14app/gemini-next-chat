@@ -17,6 +17,7 @@ import { Button } from "@/components/ui/primitives";
 interface MessageAttachmentViewProps {
   attachment: Attachment;
   onImageClick: () => void;
+  readOnly?: boolean;
   onDocumentClick?: (attachment: Attachment) => void;
   onAttachmentCached?: (attachment: Attachment) => void;
 }
@@ -30,6 +31,7 @@ const documentCardClass =
 const MessageAttachmentView: React.FC<MessageAttachmentViewProps> = ({
   attachment,
   onImageClick,
+  readOnly = false,
   onDocumentClick,
   onAttachmentCached,
 }) => {
@@ -67,8 +69,8 @@ const MessageAttachmentView: React.FC<MessageAttachmentViewProps> = ({
         : ""
       : fallbackUrl;
   const imageDisplayUrl = useAttachmentDisplayUrl(attachment, {
-    enableCacheBackfill: true,
-    onCacheReady: onAttachmentCached,
+    enableCacheBackfill: !readOnly,
+    onCacheReady: readOnly ? undefined : onAttachmentCached,
   });
 
   if (attachment.localFileMissing) {

@@ -1,3 +1,9 @@
+import {
+  isTemporarySessionId,
+  readTemporaryDraft,
+  writeTemporaryDraft,
+} from "./sessionRetention";
+
 const COMPOSER_DRAFTS_STORAGE_KEY = "neo-chat-composer-drafts-v1";
 const MAX_COMPOSER_DRAFTS = 100;
 const MAX_DRAFT_LENGTH = 50_000;
@@ -44,6 +50,7 @@ const readDraftMap = (storage: Storage): ComposerDraftMap => {
 };
 
 export const readComposerDraft = (sessionId: string): string => {
+  if (isTemporarySessionId(sessionId)) return readTemporaryDraft(sessionId);
   const storage = getStorage();
   if (!storage || !sessionId) return "";
   return readDraftMap(storage)[sessionId]?.text || "";
@@ -54,6 +61,10 @@ export const writeComposerDraft = (
   text: string,
   now = Date.now(),
 ): void => {
+  if (isTemporarySessionId(sessionId)) {
+    writeTemporaryDraft(sessionId, text);
+    return;
+  }
   const storage = getStorage();
   if (!storage || !sessionId) return;
 

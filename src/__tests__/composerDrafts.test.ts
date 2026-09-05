@@ -1,5 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  registerTemporarySession,
+  endTemporarySession,
+} from "@/lib/chat/sessionRetention";
+import {
   COMPOSER_DRAFTS_STORAGE_KEY,
   clearComposerDraft,
   readComposerDraft,
@@ -26,6 +30,19 @@ describe("composer drafts", () => {
   beforeEach(() => {
     values.clear();
     vi.stubGlobal("window", { localStorage: storage });
+  });
+
+  it("keeps a temporary draft only in memory and rejects late writes after ending", () => {
+    registerTemporarySession("temporary-draft-test");
+    writeComposerDraft("session-a", "ordinary");
+    const before = storage.getItem(COMPOSER_DRAFTS_STORAGE_KEY);
+    writeComposerDraft("temporary-draft-test", "private draft");
+    expect(readComposerDraft("temporary-draft-test")).toBe("private draft");
+    expect(storage.getItem(COMPOSER_DRAFTS_STORAGE_KEY)).toBe(before);
+    endTemporarySession("temporary-draft-test");
+    writeComposerDraft("temporary-draft-test", "late unmount draft");
+    expect(readComposerDraft("temporary-draft-test")).toBe("");
+    expect(storage.getItem(COMPOSER_DRAFTS_STORAGE_KEY)).toBe(before);
   });
 
   it("keeps independent drafts for each session", () => {

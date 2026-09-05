@@ -153,6 +153,11 @@ export function cloneReportRun(run: ResearchReportRun): ResearchReportRun {
       supportingEvidenceIds: [...claim.supportingEvidenceIds],
       contradictingEvidenceIds: [...claim.contradictingEvidenceIds],
     })),
+    ...(run.imageSources
+      ? {
+          imageSources: run.imageSources.map((image) => ({ ...image })),
+        }
+      : {}),
     frontierNodeIds: [...run.frontierNodeIds],
     executedQueries: [...run.executedQueries],
     coverage: { ...run.coverage },
@@ -166,6 +171,13 @@ export function cloneReportRun(run: ResearchReportRun): ResearchReportRun {
           committedToolExecutionIds: [
             ...run.checkpoint.committedToolExecutionIds,
           ],
+          ...(run.checkpoint.committedImageSourceIds
+            ? {
+                committedImageSourceIds: [
+                  ...run.checkpoint.committedImageSourceIds,
+                ],
+              }
+            : {}),
         }
       : undefined,
   };

@@ -43,7 +43,8 @@ import {
   getSessionWorkspaceRoot,
   normalizeWorkspacePath,
 } from "@/lib/agent/workspace";
-import { recoverResearchTask, type ResearchTask } from "@/lib/research";
+import { recoverResearchTask } from "@/lib/research/task";
+import { type ResearchTask } from "@/lib/research/types";
 import {
   getResearchTaskRepository,
   parseResearchTaskValue,
@@ -1129,6 +1130,9 @@ async function applyRestoredData(
   data: AppExportPayload["data"],
   snapshot: AppRestoreSnapshot,
 ): Promise<void> {
+  const { revokeAllSessionSharesBeforeDelete } =
+    await import("@/services/sharing/client");
+  await revokeAllSessionSharesBeforeDelete();
   const dbValues = new Map<string, unknown>([
     [STORAGE_KEYS.SETTINGS, data.settings],
     [STORAGE_KEYS.CHAT, data.chat],

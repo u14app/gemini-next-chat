@@ -27,18 +27,11 @@ describe("global Research activity bar composition", () => {
     const connected = readFileSync(
       resolve(
         process.cwd(),
-        "src/components/research/ConnectedResearchViews.tsx",
+        "src/components/research/ConnectedResearchGlobalBar.tsx",
       ),
       "utf8",
     );
-    const barStart = connected.indexOf(
-      "export function ConnectedResearchGlobalBar()",
-    );
-    const barEnd = connected.indexOf(
-      "export function ConnectedResearchTaskList",
-      barStart,
-    );
-    const bar = connected.slice(barStart, barEnd);
+    const bar = connected;
 
     expect(bar).toContain("selectGlobalResearchAttentionTaskId");
     expect(bar).toContain("getResearchRunResumeDecision(task, runsById)");

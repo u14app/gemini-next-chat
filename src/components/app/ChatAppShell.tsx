@@ -3,9 +3,20 @@
 import React from "react";
 import dynamic from "next/dynamic";
 import { useTranslations } from "next-intl";
-import { MessageSquarePlus, PanelLeftClose, PanelLeftOpen } from "lucide-react";
+import {
+  MessageSquarePlus,
+  PanelLeftClose,
+  PanelLeftOpen,
+  MessageCircleDashed,
+  MessageCircleDashedCheck,
+} from "lucide-react";
 
 import Sidebar from "@/components/layout/Sidebar";
+import {
+  SessionActionsMenu,
+  SessionActionsProvider,
+} from "@/components/chat/SessionActions";
+import { isTemporarySession } from "@/lib/chat/sessionRetention";
 import MessageInput, {
   type ComposerForcedInvocations,
   type MessageInputRef,
@@ -38,6 +49,7 @@ import { getSessionDisplayTitle } from "@/lib/chat/sessionTitle";
 import { getReplyExcerpt } from "@/lib/chat/streamResilience";
 import type { GlobalSearchNavigationTarget } from "@/lib/global-search";
 import { useChatStore } from "@/store/core/chatStore";
+import { useUIStore } from "@/store/core/uiStore";
 import { useCoreSettingsStore } from "@/store/core/coreSettingsStore";
 import { getSyncDeviceId } from "@/lib/sync/deviceIdentity";
 import {
@@ -49,15 +61,26 @@ import {
   type KnowledgeSourceNavigationDetail,
 } from "@/lib/knowledge/navigation";
 import { Button } from "@/components/ui/primitives";
-import {
-  ConnectedResearchGlobalBar,
-  ConnectedResearchTaskList,
-  ConnectedResearchWorkbench,
-} from "@/components/research/ConnectedResearchViews";
+import { ConnectedResearchGlobalBar } from "@/components/research/ConnectedResearchGlobalBar";
 import {
   RESEARCH_TASK_NAVIGATE_EVENT,
   type ResearchTaskNavigationDetail,
 } from "@/lib/research/navigation";
+
+const ConnectedResearchTaskList = dynamic(
+  () =>
+    import("@/components/research/ConnectedResearchViews").then(
+      (module) => module.ConnectedResearchTaskList,
+    ),
+  { ssr: false },
+);
+const ConnectedResearchWorkbench = dynamic(
+  () =>
+    import("@/components/research/ConnectedResearchViews").then(
+      (module) => module.ConnectedResearchWorkbench,
+    ),
+  { ssr: false },
+);
 
 const ImagePreview = dynamic(() => import("@/components/media/ImagePreview"), {
   ssr: false,
@@ -131,6 +154,7 @@ interface ChatAppShellProps {
   stopActiveGenerationWithFeedback: () => Promise<void>;
   selectSession: (id: string) => Promise<void>;
   handleNewChat: () => void;
+  handleStartTemporaryChat: () => void;
   handleDeleteSession: (sessionId: string) => Promise<void>;
   updateSessionTitle: (id: string, title: string) => void;
   toggleSessionPin: (id: string) => void;
@@ -204,6 +228,7 @@ const ChatAppShell = ({
   stopActiveGenerationWithFeedback,
   selectSession,
   handleNewChat,
+  handleStartTemporaryChat,
   handleDeleteSession,
   updateSessionTitle,
   toggleSessionPin,
@@ -231,6 +256,11 @@ const ChatAppShell = ({
   onRevokeToolSessionApproval,
 }: ChatAppShellProps) => {
   const t = useTranslations("ChatApp");
+  const imagePreviewOpen = useUIStore((state) => state.imagePreview.isOpen);
+  React.useEffect(() => {
+    if (viewMode !== "chat" && viewMode !== "settings")
+      useChatStore.getState().discardTemporarySession();
+  }, [viewMode]);
   const newChatShortcut = useShortcutPresentation("newChat");
   const toggleSidebarShortcut = useShortcutPresentation("toggleSidebar");
   const shortcutBindings = useCoreSettingsStore(
@@ -603,417 +633,470 @@ const ChatAppShell = ({
     ],
   );
   return (
-    <div
-      data-chat-app-shell
-      inert={viewMode === "search" ? true : undefined}
-      aria-hidden={viewMode === "search" ? true : undefined}
-      className="relative flex h-dvh w-full overflow-hidden bg-background font-sans text-foreground transition-colors duration-300"
+    <SessionActionsProvider
+      onDelete={handleDeleteSession}
+      onRename={updateSessionTitle}
+      onTogglePin={toggleSessionPin}
+      onDuplicate={handleDuplicateSession}
+      onSmartRename={handleSmartRename}
+      duplicateDisabled={isGenerating || isActiveSessionLoading}
     >
-      <ImagePreview />
-
-      {isSidebarDrawerOpen && (
-        <div
-          className="fixed inset-0 z-30 bg-black/10 transition-opacity duration-200 dark:bg-black/50 lg:hidden"
-          onClick={() => setIsSidebarOpen(false)}
-          aria-hidden="true"
-        />
-      )}
-
-      <Sidebar
-        sessions={sessions}
-        currentSessionId={currentSessionId}
-        onSelectSession={(id) => {
-          if (isGenerating) {
-            void stopActiveGenerationWithFeedback();
-          }
-          void selectSession(id);
-          navigateToPanel("chat");
-        }}
-        onNewChat={handleNewChat}
-        onDeleteSession={handleDeleteSession}
-        onRenameSession={updateSessionTitle}
-        onTogglePin={toggleSessionPin}
-        onDuplicate={handleDuplicateSession}
-        isDuplicateDisabled={isGenerating || isActiveSessionLoading}
-        onSmartRename={handleSmartRename}
-        isOpen={isSidebarOpen}
-        isHidden={isNonDesktopViewport && !isSidebarOpen}
-        toggleSidebar={() => setIsSidebarOpen((open) => !open)}
-        isModal={isSidebarDrawerOpen}
-        onRequestClose={() => setIsSidebarOpen(false)}
-        onOpenPluginMarket={() => navigateToPanel("plugins")}
-        isPluginMarketOpen={viewMode === "plugins"}
-        onOpenSkillMarket={() => navigateToPanel("skills")}
-        isSkillMarketOpen={viewMode === "skills"}
-        onOpenAssistantHub={() => navigateToPanel("assistants")}
-        isAssistantHubOpen={viewMode === "assistants"}
-        onOpenKnowledgeBase={() => navigateToPanel("knowledge")}
-        isKnowledgeBaseOpen={viewMode === "knowledge"}
-        onOpenSettings={() => navigateToPanel("settings", "system")}
-        isSettingsOpen={viewMode === "settings"}
-        onOpenGlobalSearch={openGlobalSearch}
-        isGlobalSearchOpen={viewMode === "search"}
-        focusedWorkspaceId={focusedWorkspaceId}
-        onLogoClick={() => navigateToPanel("chat")}
-      />
-
-      <main
-        {...mainInertProps}
-        className="flex-1 flex flex-col h-full relative z-0 min-w-0 overflow-hidden"
+      <div
+        data-chat-app-shell
+        inert={viewMode === "search" ? true : undefined}
+        aria-hidden={viewMode === "search" ? true : undefined}
+        className="relative flex h-dvh w-full overflow-hidden bg-background font-sans text-foreground transition-colors duration-300"
       >
-        {viewMode !== "research" ? (
-          <div className="shrink-0">
-            <ConnectedResearchGlobalBar />
-          </div>
-        ) : null}
-        <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
-          {actionError && (
-            <div
-              role="alert"
-              className="absolute top-16 left-4 right-4 z-30 pointer-events-none"
-            >
-              <div className="mx-auto max-w-3xl rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 shadow-sm dark:border-red-900/60 dark:bg-red-950/90 dark:text-red-100">
-                {actionError}
-              </div>
-            </div>
-          )}
-          {actionNotice && !actionError && (
-            <div
-              role="status"
-              aria-live="polite"
-              className="absolute top-16 left-4 right-4 z-30 pointer-events-none"
-            >
-              <div className="mx-auto max-w-3xl rounded-md border border-border bg-popover px-3 py-2 text-sm text-popover-foreground shadow-sm">
-                {actionNotice}
-              </div>
-            </div>
-          )}
-          {shouldShowPendingToolBanner && pendingToolConfirmation ? (
-            <div className="absolute inset-x-4 top-3 z-40 mx-auto flex max-w-3xl items-center gap-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950 shadow-lg dark:border-amber-800 dark:bg-amber-950 dark:text-amber-100">
-              <div className="min-w-0 flex-1">
-                <p className="font-medium">{t("pendingToolAction")}</p>
-                <p className="truncate text-xs opacity-80">
-                  {pendingToolConfirmation.pluginTitle} ·{" "}
-                  {pendingToolConfirmation.functionName}
-                </p>
-              </div>
-              <Button
-                variant="bare"
-                type="button"
-                onClick={() => void returnToPendingToolSession()}
-                className="rounded-md bg-amber-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-amber-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
-              >
-                {t("reviewToolAction")}
-              </Button>
+        {imagePreviewOpen && <ImagePreview />}
+
+        {isSidebarDrawerOpen && (
+          <div
+            className="fixed inset-0 z-30 bg-black/10 transition-opacity duration-200 dark:bg-black/50 lg:hidden"
+            onClick={() => setIsSidebarOpen(false)}
+            aria-hidden="true"
+          />
+        )}
+
+        <Sidebar
+          sessions={sessions}
+          currentSessionId={currentSessionId}
+          onSelectSession={(id) => {
+            if (isGenerating) {
+              void stopActiveGenerationWithFeedback();
+            }
+            void selectSession(id);
+            navigateToPanel("chat");
+          }}
+          onNewChat={handleNewChat}
+          isOpen={isSidebarOpen}
+          isHidden={isNonDesktopViewport && !isSidebarOpen}
+          toggleSidebar={() => setIsSidebarOpen((open) => !open)}
+          isModal={isSidebarDrawerOpen}
+          onRequestClose={() => setIsSidebarOpen(false)}
+          onOpenPluginMarket={() => navigateToPanel("plugins")}
+          isPluginMarketOpen={viewMode === "plugins"}
+          onOpenSkillMarket={() => navigateToPanel("skills")}
+          isSkillMarketOpen={viewMode === "skills"}
+          onOpenAssistantHub={() => navigateToPanel("assistants")}
+          isAssistantHubOpen={viewMode === "assistants"}
+          onOpenKnowledgeBase={() => navigateToPanel("knowledge")}
+          isKnowledgeBaseOpen={viewMode === "knowledge"}
+          onOpenSettings={() => navigateToPanel("settings", "system")}
+          isSettingsOpen={viewMode === "settings"}
+          onOpenGlobalSearch={openGlobalSearch}
+          isGlobalSearchOpen={viewMode === "search"}
+          focusedWorkspaceId={focusedWorkspaceId}
+          onLogoClick={handleNewChat}
+        />
+
+        <main
+          {...mainInertProps}
+          className="flex-1 flex flex-col h-full relative z-0 min-w-0 overflow-hidden"
+        >
+          {viewMode !== "research" ? (
+            <div className="shrink-0">
+              <ConnectedResearchGlobalBar />
             </div>
           ) : null}
-          {viewMode === "research" ? (
-            researchTaskId ? (
-              <ConnectedResearchWorkbench
-                taskId={researchTaskId}
+          <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
+            {actionError && (
+              <div
+                role="alert"
+                className="absolute top-16 left-4 right-4 z-30 pointer-events-none"
+              >
+                <div className="mx-auto max-w-3xl rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 shadow-sm dark:border-red-900/60 dark:bg-red-950/90 dark:text-red-100">
+                  {actionError}
+                </div>
+              </div>
+            )}
+            {actionNotice && !actionError && (
+              <div
+                role="status"
+                aria-live="polite"
+                className="absolute top-16 left-4 right-4 z-30 pointer-events-none"
+              >
+                <div className="mx-auto max-w-3xl rounded-md border border-border bg-popover px-3 py-2 text-sm text-popover-foreground shadow-sm">
+                  {actionNotice}
+                </div>
+              </div>
+            )}
+            {shouldShowPendingToolBanner && pendingToolConfirmation ? (
+              <div className="absolute inset-x-4 top-3 z-40 mx-auto flex max-w-3xl items-center gap-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950 shadow-lg dark:border-amber-800 dark:bg-amber-950 dark:text-amber-100">
+                <div className="min-w-0 flex-1">
+                  <p className="font-medium">{t("pendingToolAction")}</p>
+                  <p className="truncate text-xs opacity-80">
+                    {pendingToolConfirmation.pluginTitle} ·{" "}
+                    {pendingToolConfirmation.functionName}
+                  </p>
+                </div>
+                <Button
+                  variant="bare"
+                  type="button"
+                  onClick={() => void returnToPendingToolSession()}
+                  className="rounded-md bg-amber-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-amber-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
+                >
+                  {t("reviewToolAction")}
+                </Button>
+              </div>
+            ) : null}
+            {viewMode === "research" ? (
+              researchTaskId ? (
+                <ConnectedResearchWorkbench
+                  taskId={researchTaskId}
+                  onClose={() => navigateToPanel("chat")}
+                />
+              ) : (
+                <ConnectedResearchTaskList
+                  onClose={() => navigateToPanel("chat")}
+                />
+              )
+            ) : viewMode === "plugins" ? (
+              <PluginMarket onClose={() => navigateToPanel("chat")} />
+            ) : viewMode === "skills" ? (
+              <SkillMarket onClose={() => navigateToPanel("chat")} />
+            ) : viewMode === "assistants" ? (
+              <AssistantHub
                 onClose={() => navigateToPanel("chat")}
+                onSelect={handleAssistantSelect}
+              />
+            ) : viewMode === "knowledge" ? (
+              <KnowledgeBase
+                onClose={() => navigateToPanel("chat")}
+                initialCollectionId={focusedKnowledgeTarget?.collectionId}
+                initialFileId={focusedKnowledgeTarget?.fileId}
+                initialChunkIndex={focusedKnowledgeTarget?.chunkIndex}
+                initialExcerpt={focusedKnowledgeTarget?.excerpt}
+              />
+            ) : viewMode === "settings" ? (
+              <SettingsPage
+                activeTab={settingsTab}
+                onTabChange={handleSettingsTabChange}
+                onClose={() => navigateToPanel("chat")}
+                focusMemoryId={focusedMemoryId}
               />
             ) : (
-              <ConnectedResearchTaskList
-                onClose={() => navigateToPanel("chat")}
-              />
-            )
-          ) : viewMode === "plugins" ? (
-            <PluginMarket onClose={() => navigateToPanel("chat")} />
-          ) : viewMode === "skills" ? (
-            <SkillMarket onClose={() => navigateToPanel("chat")} />
-          ) : viewMode === "assistants" ? (
-            <AssistantHub
-              onClose={() => navigateToPanel("chat")}
-              onSelect={handleAssistantSelect}
-            />
-          ) : viewMode === "knowledge" ? (
-            <KnowledgeBase
-              onClose={() => navigateToPanel("chat")}
-              initialCollectionId={focusedKnowledgeTarget?.collectionId}
-              initialFileId={focusedKnowledgeTarget?.fileId}
-              initialChunkIndex={focusedKnowledgeTarget?.chunkIndex}
-              initialExcerpt={focusedKnowledgeTarget?.excerpt}
-            />
-          ) : viewMode === "settings" ? (
-            <SettingsPage
-              activeTab={settingsTab}
-              onTabChange={handleSettingsTabChange}
-              onClose={() => navigateToPanel("chat")}
-              focusMemoryId={focusedMemoryId}
-            />
-          ) : (
-            <>
-              <header className="relative z-10 flex h-14 items-center justify-between px-4 md:px-6">
-                <div className="flex min-w-10 items-center">
-                  <Tooltip
-                    content={
-                      <ShortcutTooltipContent
-                        label={
-                          isSidebarOpen ? t("closeSidebar") : t("openSidebar")
-                        }
-                        shortcut={toggleSidebarShortcut.display}
-                      />
-                    }
-                    position="right"
-                    className="lg:hidden"
-                  >
-                    <Button
-                      variant="bare"
-                      type="button"
-                      aria-label={
-                        isSidebarOpen
-                          ? t("closeSidebarAria")
-                          : t("openSidebarAria")
-                      }
-                      aria-keyshortcuts={toggleSidebarShortcut.ariaKeyShortcuts}
-                      onClick={() => setIsSidebarOpen((open) => !open)}
-                      className="p-2 -ml-2 rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-                    >
-                      {isSidebarOpen ? (
-                        <PanelLeftClose size={16} aria-hidden="true" />
-                      ) : (
-                        <PanelLeftOpen size={16} aria-hidden="true" />
-                      )}
-                    </Button>
-                  </Tooltip>
-                </div>
-
-                {shouldShowChatTitleBar && (
-                  <div
-                    suppressHydrationWarning
-                    className="absolute left-1/2 top-1/2 max-w-[50%] -translate-x-1/2 -translate-y-1/2 truncate text-center font-bold text-foreground"
-                  >
-                    {currentSession
-                      ? getSessionDisplayTitle(
-                          currentSession.title,
-                          t("newChat"),
-                        )
-                      : t("newChat")}
-                  </div>
-                )}
-
-                <div className="flex min-w-10 items-center justify-end gap-1">
-                  {!isSidebarOpen && (
+              <>
+                <header className="relative z-10 flex h-14 items-center justify-between px-4">
+                  <div className="flex min-w-10 items-center">
                     <Tooltip
                       content={
                         <ShortcutTooltipContent
-                          label={t("newChat")}
-                          shortcut={newChatShortcut.display}
+                          label={
+                            isSidebarOpen ? t("closeSidebar") : t("openSidebar")
+                          }
+                          shortcut={toggleSidebarShortcut.display}
                         />
                       }
-                      position="left"
-                      className="md:hidden"
+                      position="right"
+                      className="lg:hidden"
                     >
                       <Button
                         variant="bare"
                         type="button"
-                        aria-label={t("newChatAria")}
-                        aria-keyshortcuts={newChatShortcut.ariaKeyShortcuts}
-                        onClick={handleNewChat}
-                        className="p-2 -mr-2 rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                        aria-label={
+                          isSidebarOpen
+                            ? t("closeSidebarAria")
+                            : t("openSidebarAria")
+                        }
+                        aria-keyshortcuts={
+                          toggleSidebarShortcut.ariaKeyShortcuts
+                        }
+                        onClick={() => setIsSidebarOpen((open) => !open)}
+                        className="p-2 -ml-2 rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
                       >
-                        <MessageSquarePlus size={16} aria-hidden="true" />
+                        {isSidebarOpen ? (
+                          <PanelLeftClose size={16} aria-hidden="true" />
+                        ) : (
+                          <PanelLeftOpen size={16} aria-hidden="true" />
+                        )}
                       </Button>
                     </Tooltip>
-                  )}
-                </div>
-              </header>
+                  </div>
 
-              <div
-                ref={attachMessagesScrollElement}
-                data-chat-scroll-container
-                className="relative flex-1 overflow-y-auto px-3 md:px-6"
-              >
-                <div className="mx-auto flex min-h-full w-full max-w-3xl flex-col">
-                  {(welcomeState === "visible" ||
-                    welcomeState === "exiting") && (
+                  {shouldShowChatTitleBar && (
                     <div
-                      className={`emptyChatSurface flex-1 motion-safe:transition-[opacity,transform] motion-safe:duration-300 motion-safe:transform origin-center ${
-                        welcomeState === "exiting"
-                          ? "opacity-0 scale-95 pointer-events-none"
-                          : "opacity-100 scale-100"
-                      }`}
-                    />
+                      suppressHydrationWarning
+                      className="min-w-0 flex-1 truncate px-2 text-center font-bold text-foreground"
+                    >
+                      {currentSession
+                        ? getSessionDisplayTitle(
+                            currentSession.title,
+                            t("newChat"),
+                          )
+                        : t("newChat")}
+                    </div>
                   )}
 
-                  {welcomeState === "hidden" && (
-                    <VirtualizedMessageTimeline
-                      key={currentSession?.id}
-                      ref={timelineRef}
-                      scrollElement={messagesScrollElement}
-                      currentSession={currentSession}
-                      messages={messages}
-                      activeMessageTree={activeMessageTree}
-                      focusedMessageId={focusedMessageId}
-                      isGenerating={isGenerating}
-                      actionsDisabled={isActiveSessionLoading}
-                      mutationsDisabled={
-                        isGenerating ||
-                        isActiveSessionLoading ||
-                        !isOnline ||
-                        hasForeignActiveGeneration
-                      }
-                      toolActionsDisabled={
-                        isActiveSessionLoading ||
-                        !isOnline ||
-                        hasForeignActiveGeneration
-                      }
-                      availableModels={availableModels}
-                      onUpdateInstruction={(instruction) => {
-                        if (currentSession) {
-                          updateSessionInstruction(
-                            currentSession.id,
-                            instruction,
-                          );
+                  <div className="ml-auto flex min-w-10 shrink-0 items-center justify-end gap-1">
+                    {isTemporarySession(currentSession) ? (
+                      <Tooltip content={t("endTemporaryChat")} position="left">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-9 w-9 p-0"
+                          onClick={handleNewChat}
+                          aria-label={t("endTemporaryChat")}
+                        >
+                          <MessageCircleDashedCheck
+                            size={16}
+                            aria-hidden="true"
+                          />
+                        </Button>
+                      </Tooltip>
+                    ) : welcomeState === "visible" ? (
+                      <Tooltip
+                        content={t("temporaryChatDescription")}
+                        position="left"
+                      >
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-9 w-9 p-0"
+                          onClick={handleStartTemporaryChat}
+                          aria-label={t("temporaryChat")}
+                        >
+                          <MessageCircleDashed size={16} aria-hidden="true" />
+                        </Button>
+                      </Tooltip>
+                    ) : null}
+
+                    {!isSidebarOpen && (
+                      <Tooltip
+                        content={
+                          <ShortcutTooltipContent
+                            label={t("newChat")}
+                            shortcut={newChatShortcut.display}
+                          />
                         }
-                      }}
-                      onEdit={handleEditMessage}
-                      onDelete={handleDeleteMessage}
-                      onSubmitUserEdit={handleSubmitUserMessageEdit}
-                      onRetract={(message) =>
-                        void handleRetractMessage(message)
-                      }
-                      onRegenerate={(messageId, model) =>
-                        void handleRegenerate(messageId, model)
-                      }
-                      onContinue={(messageId) =>
-                        void handleContinueGeneration(messageId)
-                      }
-                      onStopGeneration={handleStopGeneration}
-                      onReply={selectReplyTarget}
-                      onNavigateToMessage={focusMessage}
-                      onVersionChange={handleTimelineVersionChange}
-                      onVersionSelect={handleTimelineVersionSelect}
-                      onSuggestionClick={handleSuggestionClick}
-                      onToolConfirmationDecision={onToolConfirmationDecision}
-                      onRevokeToolSessionApproval={onRevokeToolSessionApproval}
-                      pendingToolMessageId={pendingToolMessageId}
-                      onPendingToolVisibilityChange={
-                        handlePendingToolVisibilityChange
-                      }
-                    />
-                  )}
-                </div>
-              </div>
+                        position="left"
+                        className="md:hidden"
+                      >
+                        <Button
+                          variant="bare"
+                          type="button"
+                          aria-label={t("newChatAria")}
+                          aria-keyshortcuts={newChatShortcut.ariaKeyShortcuts}
+                          onClick={handleNewChat}
+                          className="p-2 -mr-2 rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                        >
+                          <MessageSquarePlus size={16} aria-hidden="true" />
+                        </Button>
+                      </Tooltip>
+                    )}
+                    {currentSession &&
+                      messages.length > 0 &&
+                      (shouldShowChatTitleBar ||
+                        isTemporarySession(currentSession)) && (
+                        <SessionActionsMenu session={currentSession} />
+                      )}
+                  </div>
+                </header>
 
-              <div className="w-full h-4 md:h-6"></div>
-
-              <div
-                className={`absolute left-0 right-0 z-20 px-4 pointer-events-none md:px-8 motion-safe:transition-[bottom,padding-bottom] motion-safe:duration-300 ${
-                  welcomeState === "visible"
-                    ? "bottom-[40vh] pb-0 md:bottom-[32vh] md:pb-0"
-                    : "bottom-0 pb-[calc(1rem+env(safe-area-inset-bottom))] md:pb-6"
-                }`}
-              >
                 <div
-                  className={`flex w-full mx-auto pointer-events-auto flex-col items-center motion-safe:transition-[max-width] motion-safe:duration-300 ${
-                    welcomeState === "visible" ? "max-w-2xl" : "max-w-3xl"
+                  ref={attachMessagesScrollElement}
+                  data-chat-scroll-container
+                  className="relative flex-1 overflow-y-auto px-3 md:px-6"
+                >
+                  <div className="mx-auto flex min-h-full w-full max-w-3xl flex-col">
+                    {(welcomeState === "visible" ||
+                      welcomeState === "exiting") && (
+                      <div
+                        className={`emptyChatSurface flex-1 motion-safe:transition-[opacity,transform] motion-safe:duration-300 motion-safe:transform origin-center ${
+                          welcomeState === "exiting"
+                            ? "opacity-0 scale-95 pointer-events-none"
+                            : "opacity-100 scale-100"
+                        }`}
+                      />
+                    )}
+
+                    {welcomeState === "hidden" && (
+                      <VirtualizedMessageTimeline
+                        key={currentSession?.id}
+                        ref={timelineRef}
+                        scrollElement={messagesScrollElement}
+                        currentSession={currentSession}
+                        messages={messages}
+                        activeMessageTree={activeMessageTree}
+                        focusedMessageId={focusedMessageId}
+                        isGenerating={isGenerating}
+                        actionsDisabled={isActiveSessionLoading}
+                        mutationsDisabled={
+                          isGenerating ||
+                          isActiveSessionLoading ||
+                          !isOnline ||
+                          hasForeignActiveGeneration
+                        }
+                        toolActionsDisabled={
+                          isActiveSessionLoading ||
+                          !isOnline ||
+                          hasForeignActiveGeneration
+                        }
+                        availableModels={availableModels}
+                        onUpdateInstruction={(instruction) => {
+                          if (currentSession) {
+                            updateSessionInstruction(
+                              currentSession.id,
+                              instruction,
+                            );
+                          }
+                        }}
+                        onEdit={handleEditMessage}
+                        onDelete={handleDeleteMessage}
+                        onSubmitUserEdit={handleSubmitUserMessageEdit}
+                        onRetract={(message) =>
+                          void handleRetractMessage(message)
+                        }
+                        onRegenerate={(messageId, model) =>
+                          void handleRegenerate(messageId, model)
+                        }
+                        onContinue={(messageId) =>
+                          void handleContinueGeneration(messageId)
+                        }
+                        onStopGeneration={handleStopGeneration}
+                        onReply={selectReplyTarget}
+                        onNavigateToMessage={focusMessage}
+                        onVersionChange={handleTimelineVersionChange}
+                        onVersionSelect={handleTimelineVersionSelect}
+                        onSuggestionClick={handleSuggestionClick}
+                        onToolConfirmationDecision={onToolConfirmationDecision}
+                        onRevokeToolSessionApproval={
+                          onRevokeToolSessionApproval
+                        }
+                        pendingToolMessageId={pendingToolMessageId}
+                        onPendingToolVisibilityChange={
+                          handlePendingToolVisibilityChange
+                        }
+                      />
+                    )}
+                  </div>
+                </div>
+
+                <div className="w-full h-4 md:h-6"></div>
+
+                <div
+                  className={`absolute left-0 right-0 z-20 px-4 pointer-events-none md:px-8 motion-safe:transition-[bottom,padding-bottom] motion-safe:duration-300 ${
+                    welcomeState === "visible"
+                      ? "bottom-[40vh] pb-0 md:bottom-[32vh] md:pb-0"
+                      : "bottom-0 pb-[calc(1rem+env(safe-area-inset-bottom))] md:pb-6"
                   }`}
                 >
-                  {hasForeignActiveGeneration || !isOnline ? (
-                    <div
-                      role="status"
-                      className="mb-2 w-full rounded-lg border border-blue-200 bg-blue-50/95 px-3 py-2 text-xs text-blue-800 shadow-sm backdrop-blur dark:border-blue-900/60 dark:bg-blue-950/90 dark:text-blue-100"
-                    >
-                      {hasForeignActiveGeneration
-                        ? t("foreignGenerationActive")
-                        : t("offlineReadOnly")}
-                    </div>
-                  ) : null}
-                  {(welcomeState === "visible" ||
-                    welcomeState === "exiting") && (
-                    <div
-                      className={`mb-8 md:mb-8 flex items-center gap-3 text-center motion-safe:transition-[opacity,transform] motion-safe:duration-300 ${
-                        welcomeState === "exiting"
-                          ? "pointer-events-none opacity-0 scale-95"
-                          : "opacity-100 scale-100"
-                      }`}
-                    >
-                      <div className="flex h-10 w-10 shrink-0 items-center justify-center md:h-11 md:w-11">
-                        <Logo className="h-10 w-10 md:h-11 md:w-11" />
-                      </div>
-                      <h1 className="neoChatWordmark bg-clip-text text-[1.75rem] font-bold leading-none tracking-[0.01em] text-transparent bg-[linear-gradient(to_right,#00DEB9,#03B2DE,#1D88E1)]">
-                        {t("productName")}
-                      </h1>
-                    </div>
-                  )}
-                  {isModelBootstrapReady && availableModels.length === 0 && (
-                    <div
-                      role="status"
-                      className="mb-2 flex w-full flex-col gap-2 rounded-xl border border-border bg-card/95 px-3 py-2.5 text-left shadow-sm sm:flex-row sm:items-center sm:justify-between"
-                    >
-                      <div className="min-w-0">
-                        <p className="text-sm font-medium text-foreground">
-                          {t("noModelsTitle")}
-                        </p>
-                        <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
-                          {t("noModelsDescription")}
-                        </p>
-                      </div>
-                      <Button
-                        variant="bare"
-                        type="button"
-                        onClick={() => navigateToPanel("settings", "providers")}
-                        className="shrink-0 self-start rounded-lg bg-brand px-3 py-1.5 text-xs font-medium text-brand-foreground transition-colors hover:bg-brand-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/50 focus-visible:ring-offset-2 focus-visible:ring-offset-card sm:self-auto"
+                  <div
+                    className={`flex w-full mx-auto pointer-events-auto flex-col items-center motion-safe:transition-[max-width] motion-safe:duration-300 ${
+                      welcomeState === "visible" ? "max-w-2xl" : "max-w-3xl"
+                    }`}
+                  >
+                    {hasForeignActiveGeneration || !isOnline ? (
+                      <div
+                        role="status"
+                        className="mb-2 w-full rounded-lg border border-blue-200 bg-blue-50/95 px-3 py-2 text-xs text-blue-800 shadow-sm backdrop-blur dark:border-blue-900/60 dark:bg-blue-950/90 dark:text-blue-100"
                       >
-                        {t("configureProviders")}
-                      </Button>
-                    </div>
-                  )}
-                  <MessageInput
-                    ref={messageInputRef}
-                    variant={messageInputVariant}
-                    onSend={(
-                      text,
-                      attachments,
-                      replyTo,
-                      skillParameters,
-                      forced,
-                    ) => {
-                      void handleSendMessage(
+                        {hasForeignActiveGeneration
+                          ? t("foreignGenerationActive")
+                          : t("offlineReadOnly")}
+                      </div>
+                    ) : null}
+                    {(welcomeState === "visible" ||
+                      welcomeState === "exiting") && (
+                      <div
+                        className={`mb-8 md:mb-8 flex items-center gap-3 text-center motion-safe:transition-[opacity,transform] motion-safe:duration-300 ${
+                          welcomeState === "exiting"
+                            ? "pointer-events-none opacity-0 scale-95"
+                            : "opacity-100 scale-100"
+                        }`}
+                      >
+                        <div className="flex h-10 w-10 shrink-0 items-center justify-center md:h-11 md:w-11">
+                          <Logo className="h-10 w-10 md:h-11 md:w-11" />
+                        </div>
+                        <h1 className="neoChatWordmark bg-clip-text text-[1.75rem] font-bold leading-none tracking-[0.01em] text-transparent bg-[linear-gradient(to_right,#00DEB9,#03B2DE,#1D88E1)]">
+                          {t("productName")}
+                        </h1>
+                      </div>
+                    )}
+                    {isModelBootstrapReady && availableModels.length === 0 && (
+                      <div
+                        role="status"
+                        className="mb-2 flex w-full flex-col gap-2 rounded-xl border border-border bg-card/95 px-3 py-2.5 text-left shadow-sm sm:flex-row sm:items-center sm:justify-between"
+                      >
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium text-foreground">
+                            {t("noModelsTitle")}
+                          </p>
+                          <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
+                            {t("noModelsDescription")}
+                          </p>
+                        </div>
+                        <Button
+                          variant="bare"
+                          type="button"
+                          onClick={() =>
+                            navigateToPanel("settings", "providers")
+                          }
+                          className="shrink-0 self-start rounded-lg bg-brand px-3 py-1.5 text-xs font-medium text-brand-foreground transition-colors hover:bg-brand-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/50 focus-visible:ring-offset-2 focus-visible:ring-offset-card sm:self-auto"
+                        >
+                          {t("configureProviders")}
+                        </Button>
+                      </div>
+                    )}
+                    <MessageInput
+                      ref={messageInputRef}
+                      variant={messageInputVariant}
+                      onSend={(
                         text,
                         attachments,
                         replyTo,
                         skillParameters,
                         forced,
-                      );
-                      setReplyTarget(undefined);
-                    }}
-                    onPrepareSend={prepareComposerSkillParameters}
-                    onStop={isGenerating ? handleStopGeneration : undefined}
-                    disabled={
-                      isGenerating ||
-                      isActiveSessionLoading ||
-                      hasForeignActiveGeneration ||
-                      availableModels.length === 0
-                    }
-                    offline={!isOnline}
-                    availableModels={availableModels}
-                    selectedModel={selectedModel}
-                    onSelectModel={setModel}
-                    isSearchEnabled={isSearchEnabled}
-                    onToggleSearch={onToggleSearch}
-                    replyTo={replyTarget}
-                    onCancelReply={() => setReplyTarget(undefined)}
-                    onNavigateReply={focusMessage}
-                    onNewChat={handleNewChat}
-                    onCompressContext={handleCompressContext}
-                  />
+                      ) => {
+                        void handleSendMessage(
+                          text,
+                          attachments,
+                          replyTo,
+                          skillParameters,
+                          forced,
+                        );
+                        setReplyTarget(undefined);
+                      }}
+                      onPrepareSend={prepareComposerSkillParameters}
+                      onStop={isGenerating ? handleStopGeneration : undefined}
+                      disabled={
+                        isGenerating ||
+                        isActiveSessionLoading ||
+                        hasForeignActiveGeneration ||
+                        availableModels.length === 0
+                      }
+                      offline={!isOnline}
+                      availableModels={availableModels}
+                      selectedModel={selectedModel}
+                      onSelectModel={setModel}
+                      isSearchEnabled={isSearchEnabled}
+                      onToggleSearch={onToggleSearch}
+                      replyTo={replyTarget}
+                      onCancelReply={() => setReplyTarget(undefined)}
+                      onNavigateReply={focusMessage}
+                      onNewChat={handleNewChat}
+                      onCompressContext={handleCompressContext}
+                      footerNote={
+                        isTemporarySession(currentSession) &&
+                        welcomeState === "visible"
+                          ? t("temporaryChatHistoryNotice")
+                          : undefined
+                      }
+                    />
+                  </div>
                 </div>
-              </div>
-            </>
-          )}
-        </div>
-      </main>
-      {viewMode === "search" && (
-        <GlobalSearchCenter
-          onClose={() => navigateToPanel("chat")}
-          returnFocusRef={searchReturnFocusRef}
-          onNavigate={handleGlobalSearchNavigate}
-        />
-      )}
-    </div>
+              </>
+            )}
+          </div>
+        </main>
+        {viewMode === "search" && (
+          <GlobalSearchCenter
+            onClose={() => navigateToPanel("chat")}
+            returnFocusRef={searchReturnFocusRef}
+            onNavigate={handleGlobalSearchNavigate}
+          />
+        )}
+      </div>
+    </SessionActionsProvider>
   );
 };
 

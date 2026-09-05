@@ -1,7 +1,7 @@
 import {
   isActiveResearchStatus,
   isTerminalResearchStatus,
-} from "@/lib/research";
+} from "@/lib/research/task";
 import type { ResearchTask } from "@/lib/research";
 import { useResearchStore } from "@/store/core/researchStore";
 

@@ -37,5 +37,9 @@
   "configureProviders": "プロバイダー設定",
   "pendingToolAction": "ツール操作が承認を待っています",
   "reviewToolAction": "確認する",
-  "denyToolAction": "拒否"
+  "denyToolAction": "拒否",
+  "temporaryChat": "一時的な会話",
+  "temporaryChatDescription": "履歴を保存せずにチャットと検索を行います。この会話を離れると削除されます。",
+  "endTemporaryChat": "一時的な会話を終了",
+  "temporaryChatHistoryNotice": "この会話は履歴に表示されません。"
 }

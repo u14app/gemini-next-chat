@@ -7,7 +7,7 @@ import { useTranslations } from "next-intl";
 
 import { Button, InlineStatus } from "@/components/ui/primitives";
 import { cn } from "@/lib/utils/cn";
-import { createReportSectionLabels } from "@/lib/research/reportSections";
+import { createReportSectionLabels } from "@/lib/research/reportSectionLabels";
 
 import { StatusLabel, TaskActions } from "../ui";
 import type { ResearchTaskActions, ResearchTaskViewModel } from "../types";
@@ -210,6 +210,7 @@ export default function ResearchWorkbench({
             report={report}
             reportMarkdown={reportPresentation.bodyMarkdown}
             reportSources={reportPresentation.sources}
+            imageSources={report?.imageSources ?? []}
             onSelectVersion={selectVersion}
             onInspectEvidence={inspectEvidence}
             onDownloadMarkdown={onDownloadMarkdown}
@@ -230,6 +231,7 @@ export default function ResearchWorkbench({
             report={report}
             supplementsMarkdown={reportPresentation.supplementsMarkdown}
             reportSources={reportPresentation.sources}
+            imageSources={report?.imageSources ?? []}
             onSelectVersion={selectVersion}
             onInspectEvidence={inspectEvidence}
           />

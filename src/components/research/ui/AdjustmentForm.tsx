@@ -4,7 +4,7 @@ import React, { useId, useState } from "react";
 import { useTranslations } from "next-intl";
 
 import { Button } from "@/components/ui/primitives";
-import { DEEP_RESEARCH_INSTRUCTION_MAX_CHARS } from "@/lib/research";
+import { DEEP_RESEARCH_INSTRUCTION_MAX_CHARS } from "@/lib/research/toolArguments";
 import { cn } from "@/lib/utils/cn";
 
 import type { ResearchStrategyView } from "../types";

@@ -14,6 +14,7 @@ import {
   usageSchema,
 } from "./primitives";
 import { evidenceSchema, reportRunSchema } from "./run";
+import { researchImageSourceSchema } from "./images";
 
 export const reportSchema = z
   .object({
@@ -29,6 +30,7 @@ export const reportSchema = z
     coveredStepIds: z.array(z.string().min(1).max(240)).max(100).optional(),
     evidenceIds: z.array(z.string().min(1).max(240)).max(2_000).optional(),
     evidenceSnapshotStatus: z.enum(["available", "unavailable"]).optional(),
+    imageSources: z.array(researchImageSourceSchema).max(2_000).optional(),
     diff: z
       .object({
         addedEvidenceIds: z.array(z.string().min(1).max(240)).max(2_000),
@@ -60,6 +62,10 @@ export const checkpointSchema = z
     committedToolExecutionIds: z.array(z.string().min(1).max(240)).max(2_000),
     researchRunId: z.string().min(1).max(240).optional(),
     historyPath: z.string().min(1).max(1_024).optional(),
+    committedImageSourceIds: z
+      .array(z.string().min(1).max(240))
+      .max(2_000)
+      .optional(),
   })
   .strict();
 
@@ -88,6 +94,7 @@ export const researchTaskSchema = z
     budget: budgetSchema,
     requestedStrategy: strategySchema.optional(),
     usage: usageSchema,
+    imageSources: z.array(researchImageSourceSchema).max(2_000).optional(),
     sourceSnapshot: sourceSnapshotSchema.optional(),
     planVersions: z.array(planSchema).max(100),
     activePlanVersion: z.number().int().positive().optional(),

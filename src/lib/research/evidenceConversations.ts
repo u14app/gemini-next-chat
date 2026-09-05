@@ -114,8 +114,10 @@ interface MarkdownNode {
   identifier?: string;
   children?: MarkdownNode[];
 }
-const markdownParser = unified().use(remarkParse).use(remarkGfm);
+const createMarkdownParser = () => unified().use(remarkParse).use(remarkGfm);
+let markdownParser: ReturnType<typeof createMarkdownParser> | undefined;
 function markdownNodes(markdown: string): MarkdownNode[] {
+  markdownParser ??= createMarkdownParser();
   const nodes: MarkdownNode[] = [
     markdownParser.parse(markdown) as MarkdownNode,
   ];

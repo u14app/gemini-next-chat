@@ -65,8 +65,8 @@ it.each(["tavily", "default"])(
     expect(JSON.parse(init.body)).toMatchObject({
       search_depth: "advanced",
       include_raw_content: false,
-      include_images: false,
-      include_image_descriptions: false,
+      include_images: true,
+      include_image_descriptions: true,
     });
     expect(await response.json()).toMatchObject({
       sources: [{ content: "Summary" }],

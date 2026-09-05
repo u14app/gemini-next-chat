@@ -66,9 +66,15 @@ importers:
       fflate:
         specifier: ^0.8.3
         version: 0.8.3
+      hast-util-to-jsx-runtime:
+        specifier: ^2.3.6
+        version: 2.3.6
       html-to-image:
         specifier: ^1.11.13
         version: 1.11.13
+      html-url-attributes:
+        specifier: ^3.0.1
+        version: 3.0.1
       katex:
         specifier: ^0.18.4
         version: 0.18.5
@@ -76,8 +82,8 @@ importers:
         specifier: ^1.10.0
         version: 1.10.0
       lucide-react:
-        specifier: 1.31.0
-        version: 1.31.0(react@19.2.7)
+        specifier: 1.36.0
+        version: 1.36.0(react@19.2.7)
       mermaid:
         specifier: ^11.17.2
         version: 11.17.2
@@ -129,6 +135,9 @@ importers:
       remark-parse:
         specifier: ^11.0.0
         version: 11.0.0
+      remark-rehype:
+        specifier: ^11.1.2
+        version: 11.1.2
       tailwind-merge:
         specifier: ^3.6.0
         version: 3.6.0
@@ -160,6 +169,12 @@ importers:
       '@testing-library/user-event':
         specifier: ^14.6.5
         version: 14.6.5(@testing-library/dom@10.4.1)
+      '@types/hast':
+        specifier: ^3.0.4
+        version: 3.0.4
+      '@types/mdast':
+        specifier: ^4.0.4
+        version: 4.0.4
       '@types/node':
         specifier: ^26.1.1
         version: 26.1.1
@@ -4631,8 +4646,8 @@ packages:
   lru-cache@5.1.1:
     resolution: {integrity: sha512-KpNARQA3Iwv+jTA0utUVVbrh+Jlrr1Fv0e56GGzAFOXN7dk/FviaDW8LHmK52DlcH4WP2n6gI8vN1aesBFgo9w==}
 
-  lucide-react@1.31.0:
-    resolution: {integrity: sha512-G8u2eEtoHUnUa9f8lbvqDhCiORMnYLdUEo06EEG9MQvHQrInKcX3Pa2TH39MM5qyzRcWETxB0+aOwAPI1g1kEg==}
+  lucide-react@1.36.0:
+    resolution: {integrity: sha512-LPBZ5rzU4B/V8rBW66Sa7mWJQrutM4LcMmQ++Q+ziQspDEGJ2ORs7TlYm0UnixvSpZqgeRCJCZrzFXeTHTjDbg==}
     peerDependencies:
       react: ^16.5.1 || ^17.0.0 || ^18.0.0 || ^19.0.0
 
@@ -10814,7 +10829,7 @@ snapshots:
     dependencies:
       yallist: 3.1.1
 
-  lucide-react@1.31.0(react@19.2.7):
+  lucide-react@1.36.0(react@19.2.7):
     dependencies:
       react: 19.2.7
 

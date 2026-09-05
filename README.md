@@ -114,7 +114,9 @@ See [CHANGELOG.md](CHANGELOG.md) for the complete release notes.
   Artifacts referenced by chat. Report headings support English, Chinese, and
   Japanese; appendices have their own tab and a shared Markdown/PDF download menu.
   Research searches run serially with two-second spacing, and Tavily Research
-  requests allow up to 90 seconds. Document previews open directly when clicked.
+  requests allow up to 90 seconds. Search images and their sources can illustrate
+  reports without being counted as verified evidence. Document previews open
+  directly when clicked.
 - Parameterized text Skills with localized public catalogs, install/uninstall
   flows, local edits, custom skills, auto-selection, workspace presets, and
   ordered non-nested bundles of up to four Skills.
@@ -142,6 +144,24 @@ See [CHANGELOG.md](CHANGELOG.md) for the complete release notes.
 - Local memory with optional memory search, background extraction, and dream consolidation.
 - Voice input and output through browser APIs, ElevenLabs, Mimo, or compatible configured providers.
 - Rich message rendering for Markdown, safe inline HTML visual blocks, GFM tables, math, code highlighting, Mermaid diagrams, mind maps, citations, reasoning, tool calls, images, audio, and artifacts.
+  CommonMark appears immediately; extension syntax loads as it is discovered,
+  with original-text placeholders and independent block updates. HTML visual
+  instructions apply only to narrative prose, leaving code, math and diagram
+  syntax intact.
+  Default chat instructions use standalone Markdown images when a relevant,
+  real image URL is available; Research uses its saved illustration catalog
+  without a separate gallery or export appendix.
+- Shared conversation actions in both the sidebar and titlebar, including
+  Redis-backed read-only snapshots with images and research reports. Links expire
+  after 1, 7 or 30 days, or never, selected with expiry buttons; deleting the
+  conversation cancels its share. Sharing is off by default; enable it with
+  `SHARING_ENABLED=true` and both Redis REST configuration values.
+- Temporary chat and search from the welcome screen, without saved conversation
+  history or a conversation-list entry. Its icon toggles to an exit action and
+  the welcome composer explains the history behavior. Leaving the chat discards it;
+  Agent, Research, attachments, tools,
+  image generation and Memory are unavailable in temporary chats.
+
 - Local BYOK encryption for user-entered provider, plugin, MCP, search, RAG, and
   voice secrets, with fail-closed server-default provider validation.
 - Deployment health checks for BYOK, access password, shared stores, default model, search, RAG, and voice readiness.
@@ -149,7 +169,7 @@ See [CHANGELOG.md](CHANGELOG.md) for the complete release notes.
 
 See [End-to-end encrypted sync](docs/encrypted-sync.md),
 [MCP stdio bridge](docs/mcp-stdio-bridge.md), and
-[Offline PWA](docs/offline-pwa.md), and [Deep Research workflows](docs/research-workflows.md)
+[Offline PWA](docs/offline-pwa.md), [Conversation sharing and temporary chats](docs/conversation-sharing.md), and [Deep Research workflows](docs/research-workflows.md)
 for deployment and trust-boundary details.
 
 ## Screenshots

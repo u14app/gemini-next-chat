@@ -194,8 +194,11 @@ export async function runSearchProvider({
           search_depth: "advanced",
           topic: scope || "general",
           max_results: maxResultNumber,
-          include_images: profile !== "research_summary",
-          include_image_descriptions: profile !== "research_summary",
+          // Research reports can use provider images as illustrative material.
+          // Keep descriptions enabled so the synthesis pass can write useful
+          // alt text and captions without guessing.
+          include_images: true,
+          include_image_descriptions: true,
           include_answer: false,
           include_raw_content:
             profile === "research_summary" ? false : "markdown",
@@ -280,6 +283,11 @@ export async function runSearchProvider({
         .map((result: any) => ({
           url: result.imageUrl,
           ...(result.title ? { description: result.title } : {}),
+          ...(result.url || result.sourceUrl || result.hostPageUrl
+            ? {
+                sourceUrl: result.sourceUrl || result.hostPageUrl || result.url,
+              }
+            : {}),
         })),
     };
   }
@@ -330,7 +338,11 @@ export async function runSearchProvider({
         .map((result: any) => {
           if (result.extras?.imageLinks?.length > 0) {
             result.extras.imageLinks.forEach((url: string) => {
-              images.push({ url, description: result.text });
+              images.push({
+                url,
+                description: result.text,
+                sourceUrl: result.url,
+              });
             });
           }
           return {
@@ -384,6 +396,9 @@ export async function runSearchProvider({
         return {
           url: item.contentUrl,
           description: item.name || matchingResult?.name,
+          ...(item.hostPageUrl || matchingResult?.url
+            ? { sourceUrl: item.hostPageUrl || matchingResult?.url }
+            : {}),
         };
       }),
     };
@@ -430,6 +445,9 @@ export async function runSearchProvider({
         .map((result: any) => ({
           url: result.img_src,
           description: result.title,
+          ...(result.url || result.source_url
+            ? { sourceUrl: result.source_url || result.url }
+            : {}),
         })),
     };
   }

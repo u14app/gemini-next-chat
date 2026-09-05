@@ -274,5 +274,8 @@
   "artifactDrawerTrash": "将 {name} 移入回收站",
   "artifactDrawerRestore": "恢复 {name}",
   "artifactDrawerDiff": "比较已发布 {name} 与 scratch",
-  "artifactDrawerCloseDiff": "关闭 Artifact Diff"
+  "artifactDrawerCloseDiff": "关闭 Artifact Diff",
+  "renderRetry": "重试渲染",
+  "renderFailed": "增强渲染暂不可用，已保留原文。",
+  "imageSource": "图片来源"
 }

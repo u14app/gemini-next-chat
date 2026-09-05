@@ -17,5 +17,8 @@
   "replaceSecretPlaceholder": "保存されたキーを置き換えるには、新しいキーを入力してください…",
   "pwaOfflineReadOnly": "オフライン読み取り専用 · 履歴、ローカル検索、ナレッジ、バックアップ出力は利用できます",
   "pwaUpdateReady": "新しいオフラインアプリのバージョンを利用できます",
-  "pwaReload": "再読み込み"
+  "pwaReload": "再読み込み",
+  "close": "閉じる",
+  "save": "保存",
+  "cancel": "キャンセル"
 }

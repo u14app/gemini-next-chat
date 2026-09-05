@@ -10,6 +10,7 @@ import {
 } from "./lib/security/accessControl";
 import { applyRequestGuards } from "./lib/security/requestGuards";
 import { REQUEST_PROOF_SESSION_PATH } from "./lib/security/requestProof";
+import { isPublicShareRead, SHARE_RESPONSE_HEADERS } from "./lib/sharing/types";
 
 const ACCESS_VERIFY_PATH = "/api/access/verify";
 
@@ -26,10 +27,21 @@ function jsonError(
 }
 
 export async function middleware(request: NextRequest) {
+  if (request.nextUrl.pathname.startsWith("/share/")) {
+    const response = NextResponse.next();
+    for (const [name, value] of Object.entries(SHARE_RESPONSE_HEADERS)) {
+      response.headers.set(name, value);
+    }
+    return response;
+  }
   const guardResponse = await applyRequestGuards(request);
   if (guardResponse) return guardResponse;
 
   if (!isAccessPasswordEnabled()) {
+    return NextResponse.next();
+  }
+
+  if (isPublicShareRead(request.nextUrl.pathname, request.method)) {
     return NextResponse.next();
   }
 
@@ -63,5 +75,5 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: "/api/:path*",
+  matcher: ["/api/:path*", "/share/:path*"],
 };
