@@ -1785,6 +1785,10 @@ export const useChatStore = create<ChatState>()(
           workspaces: (state.workspaces || []).map((workspace) =>
             normalizeWorkspace(workspace),
           ),
+          // The selected conversation is runtime UI state. Older persisted
+          // records may contain it, but a reload should still start at the
+          // welcome screen.
+          currentSessionId: null,
           activeMessages: normalizeMessages(state.activeMessages),
           activeMessageTree: normalizeSessionMessageTree(state.activeMessages),
           selectedModel:
@@ -1801,32 +1805,29 @@ export const useChatStore = create<ChatState>()(
           (session) => !isTemporarySession(session),
         ),
         workspaces: state.workspaces, // Persist workspaces
-        currentSessionId: isTemporarySessionId(state.currentSessionId)
-          ? null
-          : state.currentSessionId,
         selectedModel: state.selectedModel,
         chatConfig: state.chatConfig,
+      }),
+      // Keep the active conversation and its loaded messages in memory when a
+      // store is rehydrated after a sync materialization. The initial store
+      // state has no active conversation, so this also prevents an older
+      // persisted currentSessionId from selecting a conversation on reload.
+      merge: (persistedState, currentState) => ({
+        ...currentState,
+        ...(persistedState as Partial<ChatState>),
+        currentSessionId: currentState.currentSessionId,
+        activeMessages: currentState.activeMessages,
+        activeMessageTree: currentState.activeMessageTree,
+        isActiveSessionLoading: currentState.isActiveSessionLoading,
+        pendingSessionId: currentState.pendingSessionId,
+        activeSessionLoadError: currentState.activeSessionLoadError,
       }),
       onRehydrateStorage: () => {
         return (state, error) => {
           if (typeof window === "undefined") return;
           if (error) logDevError("Chat store hydration failed:", error);
           void (async () => {
-            let completionError = error;
-            if (!completionError && state?.currentSessionId) {
-              try {
-                await state.selectSession(state.currentSessionId);
-                if (useChatStore.getState().activeSessionLoadError) {
-                  completionError = new Error(
-                    "The restored current session message tree could not be loaded.",
-                  );
-                }
-              } catch (loadError) {
-                completionError = loadError;
-              }
-            }
-
-            await reportAppRestoreHydration("chat", completionError);
+            await reportAppRestoreHydration("chat", error);
             state?.setHasHydrated(true);
           })().catch((restoreError) => {
             logDevError(

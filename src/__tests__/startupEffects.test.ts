@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   getSessionPluginPresetSyncKey,
+  shouldCreateInitialChatSession,
   shouldDisableSearchToggle,
   shouldApplySessionPluginPreset,
   shouldResolveSelectedModelAfterBootstrap,
@@ -10,6 +11,18 @@ import {
 import { getSearchCompatibility } from "../lib/settings/searchRag";
 
 describe("app startup effects", () => {
+  it("creates a session only for an empty hydrated chat store", () => {
+    expect(
+      shouldCreateInitialChatSession({ chatHydrated: false, sessionCount: 0 }),
+    ).toBe(false);
+    expect(
+      shouldCreateInitialChatSession({ chatHydrated: true, sessionCount: 1 }),
+    ).toBe(false);
+    expect(
+      shouldCreateInitialChatSession({ chatHydrated: true, sessionCount: 0 }),
+    ).toBe(true);
+  });
+
   it("waits for settings hydration before running settings writes", () => {
     expect(shouldRunSettingsStartupEffects(false)).toBe(false);
     expect(shouldRunSettingsStartupEffects(true)).toBe(true);

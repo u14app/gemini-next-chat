@@ -23,6 +23,7 @@ import type {
 } from "./markdownDocument";
 import {
   artifactResource,
+  chartResource,
   readOnlyCodeResource,
   citationResource,
   diagramResource,
@@ -177,21 +178,27 @@ function CodeNode({
       : value.language === "mindmap"
         ? "mindmap"
         : null;
+  const chartType = ["chart", "markdown-chart"].includes(value.language);
   const diagram = useExtension(diagramResource, Boolean(diagramType));
+  const chart = useExtension(chartResource, chartType);
   const artifact = useExtension(
     artifactResource,
-    !diagramType && Boolean(value.language) && !options.readOnly,
+    !diagramType && !chartType && Boolean(value.language) && !options.readOnly,
   );
   const readOnlyCode = useExtension(
     readOnlyCodeResource,
-    !diagramType && Boolean(value.language) && Boolean(options.readOnly),
+    !diagramType &&
+      !chartType &&
+      Boolean(value.language) &&
+      Boolean(options.readOnly),
   );
   const highlight = useExtension(
     highlightResource,
-    !diagramType && Boolean(value.language),
+    !diagramType && !chartType && Boolean(value.language),
   );
   const rendered = useMemo(() => {
-    if (!highlight.value || value.incomplete || diagramType) return null;
+    if (!highlight.value || value.incomplete || diagramType || chartType)
+      return null;
     try {
       const tree = highlight.value.highlightCode(value.value, value.language);
       const pre = tree.children[0];
@@ -211,6 +218,7 @@ function CodeNode({
     value.language,
     value.incomplete,
     diagramType,
+    chartType,
   ]);
   if (!value.value.trim()) return null;
   if (!value.language)
@@ -236,6 +244,26 @@ function CodeNode({
           content: value.value,
           incomplete: value.incomplete,
         }}
+        forcedTheme={options.forcedTheme}
+      />
+    );
+  }
+  if (chartType) {
+    if (!chart.value || value.incomplete) {
+      return (
+        <div data-markdown-chart-ready={chart.error ? "error" : "false"}>
+          <RawFallback
+            source={value.source}
+            error={chart.error}
+            retry={chartResource.retry}
+          />
+        </div>
+      );
+    }
+    return (
+      <chart.value.ChartBlock
+        source={value.value}
+        incomplete={value.incomplete}
         forcedTheme={options.forcedTheme}
       />
     );

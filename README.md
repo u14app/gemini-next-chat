@@ -137,11 +137,14 @@ See [CHANGELOG.md](CHANGELOG.md) for the complete release notes.
 - Installable offline PWA for local deployments, with read-only history, local search, knowledge access, and backup export; hosted deployments unregister it.
 - Local memory with optional memory search, background extraction, and dream consolidation.
 - Voice input and output through browser APIs, ElevenLabs, Mimo, or compatible configured providers.
-- Rich message rendering for Markdown, safe inline HTML visual blocks, GFM tables, math, code highlighting, Mermaid diagrams, mind maps, citations, reasoning, tool calls, images, audio, and artifacts.
+- Rich message rendering for Markdown, safe inline HTML visual blocks, GFM tables, math, code highlighting, Mermaid diagrams, mind maps, ECharts charts, citations, reasoning, tool calls, images, audio, and artifacts.
   CommonMark appears immediately; extension syntax loads as it is discovered,
   with original-text placeholders and independent block updates. HTML visual
-  instructions apply only to narrative prose, leaving code, math and diagram
-  syntax intact.
+  instructions apply only to narrative prose, leaving code, math, diagram, and
+  chart syntax intact. `chart` fences use strict JSON with an inline dataset and
+  ECharts specification; `markdown-chart` remains a compatibility alias.
+  Charts show a chart-only view with Markdown table copying. Charts, Mermaid,
+  and mind maps support saving PNG images.
   Default chat instructions use standalone Markdown images when a relevant,
   real image URL is available; Research uses its saved illustration catalog
   without a separate gallery or export appendix.

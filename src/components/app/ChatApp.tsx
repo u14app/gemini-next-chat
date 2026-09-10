@@ -553,7 +553,6 @@ const ChatApp = () => {
     sessions,
     currentSessionId,
     createSession,
-    selectSession,
   });
 
   useEffect(() => {

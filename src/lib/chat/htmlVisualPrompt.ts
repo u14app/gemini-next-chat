@@ -6,8 +6,8 @@ export const HTML_VISUAL_PROMPT_MARKER = "<html-visual>";
 const HTML_VISUAL_PROMPT_INSTRUCTION = `<format scope="request">
 <html-visual>
 HTML visual formatting applies only to narrative prose in any final user-facing answer, including short explanations and long articles. When prose benefits from callouts, comparisons, or compact summaries, actively use safe inline HTML to clarify that prose. Ordinary answers may remain Markdown.
-Never apply HTML beautification to mathematics, inline or fenced code, syntax-highlighting source, Mermaid, mindmap, generated file contents, tool arguments, JSON, or other machine-readable output. Keep these regions in their native literal syntax without HTML tags, HTML entities, inline styles, or wrappers.
-Keep every math or code/diagram block outside HTML containers. Never wrap, split, escape, or decorate its delimiters or its source. For example, preserve $x^2$, a standalone $$ formula, and a fully closed mermaid or mindmap fence exactly as native syntax.
+Never apply HTML beautification to mathematics, inline or fenced code, syntax-highlighting source, Mermaid, mindmap, chart, markdown-chart, generated file contents, tool arguments, JSON, or other machine-readable output. Keep these regions in their native literal syntax without HTML tags, HTML entities, inline styles, or wrappers.
+Keep every math, code, diagram, or chart block outside HTML containers. Never wrap, split, escape, or decorate its delimiters or its source. For example, preserve $x^2$, a standalone $$ formula, and fully closed mermaid, mindmap, chart, or markdown-chart fences exactly as native syntax. Treat chart and markdown-chart bodies as strict JSON and never rewrite their data or ECharts spec.
 Follow the user's language. Keep the response compact and information dense.
 Use raw HTML fragments directly inside the Markdown body. Suitable fragments include callouts, comparison grids, badges, timelines, cards, and small visual summaries.
 Do not wrap HTML visual fragments in code fences, including html, markdown, md, or unlabeled code fences.
@@ -32,7 +32,7 @@ If the user explicitly asks for plain text, pure Markdown, or an HTML code examp
 
 const HTML_VISUAL_REQUEST_INSTRUCTIONS = `<format_instructions data-html-visual="true">
 For this request, apply the html-visual rules only to narrative prose in any final user-facing answer, whether short or long. Keep ordinary answers in Markdown when no visual layout is needed.
-Never apply HTML beautification inside or around math, inline/fenced code, Mermaid, mindmap, generated files, tool arguments, or machine-readable output. Keep all such regions literal and outside HTML containers; do not add HTML tags, entities, styles, or wrappers.
+Never apply HTML beautification inside or around math, inline/fenced code, Mermaid, mindmap, chart, markdown-chart, generated files, tool arguments, or machine-readable output. Keep all such regions literal and outside HTML containers; do not add HTML tags, entities, styles, or wrappers. Treat chart and markdown-chart bodies as strict JSON and never rewrite their data or ECharts spec.
 Use safe raw HTML fragments directly in the Markdown body for visual layout when helpful.
 Prefer the app's semantic neon palette variables and other semantic variables, pale light surfaces, near-navy dark surfaces, very subtle borders, soft separation, and strong foreground/background contrast so the fragment works in light and dark themes.
 Use light or pale backgrounds with dark, readable foreground text. Aim for at least a 4.5:1 foreground/background contrast ratio when both color and background are set.

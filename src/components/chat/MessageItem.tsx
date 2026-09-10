@@ -74,6 +74,7 @@ import { useSettingsStore } from "@/store/core/settingsStore";
 import { synthesizeSpeech } from "@/services/api/voiceService";
 import type { DisposableAudioElement } from "@/lib/utils/disposableAudio";
 import { sanitizeDownloadFilename } from "@/lib/utils/filename";
+import { waitForMarkdownCharts } from "@/lib/utils/markdownChartExport";
 import {
   normalizeMarkdownGeneratedFile,
   type MarkdownGeneratedFile,
@@ -176,6 +177,9 @@ const MESSAGE_IMAGE_EXPORT_PADDING_PX = 24;
 const MESSAGE_EXPORT_EXCLUDED_SELECTORS = [
   ".markdown-codeblock-header",
   ".markdown-diagram-header",
+  ".markdown-chart-actions",
+  ".markdown-chart-toggle",
+  ".markdown-chart-dialog",
   ".markdown-codeblock-fade",
   ".markdown-console",
   ".markdown-preview-dialog",
@@ -413,6 +417,7 @@ const MessageItem: React.FC<MessageItemProps> = ({
 
   const readingDialogRef = useRef<HTMLDivElement>(null);
   const imageExportRootRef = useRef<HTMLDivElement>(null);
+  const pdfPrintRootRef = useRef<HTMLDivElement>(null);
   const visibleMessageContentRef = useRef<HTMLDivElement>(null);
   const downloadLockRef = useRef<MessageDownloadFormat | null>(null);
   const downloadResetTimerRef = useRef<number | null>(null);
@@ -598,6 +603,7 @@ const MessageItem: React.FC<MessageItemProps> = ({
     let secondFrame: number | null = null;
     let cleanupTimer: ReturnType<typeof setTimeout> | null = null;
     let cleanedUp = false;
+    const readyController = new AbortController();
 
     const restoreDocumentTitle = () => {
       document.title = originalTitle;
@@ -622,14 +628,27 @@ const MessageItem: React.FC<MessageItemProps> = ({
 
     firstFrame = requestAnimationFrame(() => {
       secondFrame = requestAnimationFrame(() => {
-        window.print();
-        cleanupTimer = setTimeout(cleanupPrintJob, 30000);
+        const print = async () => {
+          const root = pdfPrintRootRef.current;
+          if (root) {
+            await waitForMarkdownCharts(root, {
+              signal: readyController.signal,
+            });
+          }
+          if (readyController.signal.aborted) return;
+          window.print();
+          if (!cleanedUp) {
+            cleanupTimer = setTimeout(cleanupPrintJob, 30000);
+          }
+        };
+        void print();
       });
     });
 
     return () => {
       if (firstFrame !== null) cancelAnimationFrame(firstFrame);
       if (secondFrame !== null) cancelAnimationFrame(secondFrame);
+      readyController.abort();
       window.removeEventListener("afterprint", cleanupPrintJob);
       if (cleanupTimer) clearTimeout(cleanupTimer);
       if (!cleanedUp) {
@@ -692,7 +711,10 @@ const MessageItem: React.FC<MessageItemProps> = ({
           proxyController.signal,
         );
         cleanupProxiedImages = proxyResult.cleanup;
-        await waitForMessageExportImages(root);
+        await Promise.all([
+          waitForMessageExportImages(root),
+          waitForMarkdownCharts(root, { signal: proxyController.signal }),
+        ]);
         const dataUrl = await exportRootToPng(root);
         if (!cancelled) downloadImageDataUrl(dataUrl);
       } catch (error) {
@@ -1256,6 +1278,7 @@ const MessageItem: React.FC<MessageItemProps> = ({
       {pdfPrintJob &&
         createPortal(
           <div
+            ref={pdfPrintRootRef}
             className="message-pdf-print-root"
             aria-hidden="true"
             data-print-job-id={pdfPrintJob.id}

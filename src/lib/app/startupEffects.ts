@@ -6,6 +6,16 @@ export function shouldRunSettingsStartupEffects(
   return settingsHydrated;
 }
 
+export function shouldCreateInitialChatSession({
+  chatHydrated,
+  sessionCount,
+}: {
+  chatHydrated: boolean;
+  sessionCount: number;
+}): boolean {
+  return chatHydrated && sessionCount === 0;
+}
+
 export function shouldSyncSessionPlugins(
   settingsHydrated: boolean,
   chatHydrated: boolean,

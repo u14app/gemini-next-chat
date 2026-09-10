@@ -2818,6 +2818,8 @@ describe("chat service tool execution", () => {
     expect(body.newMessage).toContain('data-diagram-rendering="true"');
     expect(body.newMessage).toContain("Mermaid");
     expect(body.newMessage).toContain("mindmap");
+    expect(body.newMessage).toContain("```chart");
+    expect(body.newMessage).toContain('renderer: "echarts"');
     expect(body.systemInstruction).toContain("<html-visual>");
     expect(body.systemInstruction).toContain("<diagram-rendering>");
     expect(body.systemInstruction).toContain("<diagram-visual-polish>");

@@ -18,6 +18,7 @@ import {
 } from "@/lib/defaultConfig/shared";
 import {
   shouldDisableSearchToggle,
+  shouldCreateInitialChatSession,
   shouldResolveSelectedModelAfterBootstrap,
   shouldRunSettingsStartupEffects,
 } from "@/lib/app/startupEffects";
@@ -57,7 +58,6 @@ interface UseChatBootstrapOptions {
   sessions: Session[];
   currentSessionId: string | null;
   createSession: () => void;
-  selectSession: (sessionId: string) => void;
 }
 
 /**
@@ -86,7 +86,6 @@ export function useChatBootstrap({
   sessions,
   currentSessionId,
   createSession,
-  selectSession,
 }: UseChatBootstrapOptions) {
   const [serverConfigResolved, setServerConfigResolved] = useState(false);
   const [serverModelBootstrapReady, setServerModelBootstrapReady] =
@@ -309,26 +308,25 @@ export function useChatBootstrap({
     setModel,
   ]);
 
-  // Ensure a session exists on mount
+  // Create the first session on mount. Existing conversations stay available in
+  // the sidebar, while a page reload remains on the welcome screen until the
+  // user explicitly opens one or starts a message.
   useEffect(() => {
-    // Wait for chat store to hydrate before creating/selecting sessions
+    // Wait for chat store to hydrate before creating the first session.
     if (!chatHasHydrated) return;
 
     const timer = setTimeout(() => {
-      if (sessions.length === 0) {
+      if (
+        shouldCreateInitialChatSession({
+          chatHydrated: chatHasHydrated,
+          sessionCount: sessions.length,
+        })
+      ) {
         createSession();
-      } else if (!currentSessionId) {
-        selectSession(sessions[0].id);
       }
     }, 100);
     return () => clearTimeout(timer);
-  }, [
-    chatHasHydrated,
-    sessions,
-    currentSessionId,
-    createSession,
-    selectSession,
-  ]);
+  }, [chatHasHydrated, sessions, createSession]);
 
   return { serverModelBootstrapReady };
 }

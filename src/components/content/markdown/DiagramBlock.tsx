@@ -6,6 +6,7 @@ import { useTranslations } from "next-intl";
 import {
   Check,
   Copy,
+  ImageDown,
   Maximize2,
   RotateCcw,
   SquareCode,
@@ -23,6 +24,7 @@ import {
   normalizeMindMapSvg,
 } from "@/lib/utils/diagramSvg";
 import { copyTextToClipboard } from "@/lib/utils/clipboard";
+import { saveDiagramImage } from "@/lib/utils/diagramImageExport";
 import type { ExportMindMapToSVGOptions } from "@xiangfa/mindmap";
 import Tooltip from "@/components/ui/Tooltip";
 import { Button } from "@/components/ui/primitives";
@@ -614,6 +616,10 @@ export const DiagramBlock = ({
   const [isFullscreen, setIsFullscreen] = React.useState(false);
   const diagramBodyRef = React.useRef<HTMLDivElement>(null);
   const copyResetTimerRef = React.useRef<TimeoutHandle | null>(null);
+  const saveResetTimerRef = React.useRef<TimeoutHandle | null>(null);
+  const [saveStatus, setSaveStatus] = React.useState<
+    "idle" | "saving" | "error"
+  >("idle");
   const [lastRenderedDiagram, setLastRenderedDiagram] =
     React.useState<MarkdownDiagramBlock | null>(() =>
       diagram.incomplete ? null : diagram,
@@ -626,7 +632,10 @@ export const DiagramBlock = ({
     diagram.type === "mermaid" ? t("diagramMermaid") : t("diagramMindmap");
 
   React.useEffect(() => {
-    return () => clearTimeoutRef(copyResetTimerRef);
+    return () => {
+      clearTimeoutRef(copyResetTimerRef);
+      clearTimeoutRef(saveResetTimerRef);
+    };
   }, []);
 
   const renderableDiagram = getRenderableDiagram(diagram, lastRenderedDiagram);
@@ -671,6 +680,39 @@ export const DiagramBlock = ({
     const didCopy = await copyTextToClipboard(diagram.content);
     setCopyStatus(didCopy ? "copied" : "error");
     scheduleCopyReset();
+  };
+
+  const scheduleSaveReset = () => {
+    clearTimeoutRef(saveResetTimerRef);
+    saveResetTimerRef.current = setTimeout(() => {
+      setSaveStatus("idle");
+      saveResetTimerRef.current = null;
+    }, 3000);
+  };
+
+  const handleSave = async () => {
+    const svgElement = diagramBodyRef.current?.querySelector<SVGSVGElement>(
+      ".markdown-diagram-svg > svg",
+    );
+    if (!svgElement || diagram.incomplete) {
+      setSaveStatus("error");
+      scheduleSaveReset();
+      return;
+    }
+
+    clearTimeoutRef(saveResetTimerRef);
+    setSaveStatus("saving");
+    try {
+      await saveDiagramImage({
+        svg: svgElement.outerHTML,
+        filename: `diagram-${diagram.type}.png`,
+        theme,
+      });
+      setSaveStatus("idle");
+    } catch {
+      setSaveStatus("error");
+      scheduleSaveReset();
+    }
   };
 
   const handleDialogKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
@@ -748,6 +790,22 @@ export const DiagramBlock = ({
           ) : (
             <Copy size={14} aria-hidden="true" />
           )}
+        </Button>
+      </Tooltip>
+      <Tooltip
+        content={saveStatus === "error" ? t("saveImageFailed") : t("saveImage")}
+        position="bottom"
+      >
+        <Button
+          variant="bare"
+          type="button"
+          onClick={() => void handleSave()}
+          aria-label={t("saveDiagramImage")}
+          aria-busy={saveStatus === "saving"}
+          disabled={saveStatus === "saving" || diagram.incomplete}
+          className="markdown-icon-button markdown-focus-ring flex items-center justify-center rounded p-1.5"
+        >
+          <ImageDown size={14} aria-hidden="true" />
         </Button>
       </Tooltip>
       <Tooltip content={t("fullscreenDiagram")} position="bottom">
@@ -839,6 +897,9 @@ export const DiagramBlock = ({
           >
             {t("renderRetry")}
           </button>
+        ) : null}
+        {saveStatus === "error" ? (
+          <DiagramStatus tone="error" label={t("saveImageFailed")} />
         ) : null}
         <div ref={diagramBodyRef} className="markdown-diagram-body">
           <DiagramRenderer

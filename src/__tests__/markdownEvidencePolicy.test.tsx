@@ -5,6 +5,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import MarkdownRenderer from "@/components/content/MarkdownRenderer";
 import {
   artifactResource,
+  chartResource,
   citationResource,
   diagramResource,
   fileResource,
@@ -22,6 +23,7 @@ afterEach(() => {
 it("keeps evidence answers restricted before and after lazy GFM/highlighting loads", async () => {
   const blocked = [
     artifactResource,
+    chartResource,
     citationResource,
     diagramResource,
     fileResource,
@@ -42,6 +44,7 @@ it("keeps evidence answers restricted before and after lazy GFM/highlighting loa
     '```html\n<button onclick="bad()">literal code</button>\n```',
     "```mermaid\ngraph TD\nA-->B\n```",
     "```mindmap\nRoot\n  - Child\n```",
+    '```chart\n{"version":1,"renderer":"echarts"}\n```',
     '<file name="answer.txt">\nHidden file body\n</file>',
     "| A | B |\n| - | - |\n| one | two |",
     "[Safe source](https://example.com/evidence)",
@@ -67,9 +70,10 @@ it("keeps evidence answers restricted before and after lazy GFM/highlighting loa
   expect(view.container.textContent).toContain('onclick="bad()"');
   expect(view.container.textContent).toContain("graph TD");
   expect(view.container.textContent).toContain("Root");
+  expect(view.container.textContent).toContain('"renderer":"echarts"');
   expect(
     view.container.querySelector(
-      "button, [data-markdown-diagram], [data-readonly-code], img",
+      "button, [data-markdown-diagram], [data-markdown-chart-ready], [data-readonly-code], img",
     ),
   ).toBeNull();
   const link = screen.getByRole("link", { name: "Safe source" });

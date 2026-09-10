@@ -96,6 +96,7 @@ const theme = useStoreWithSSR(
 - Use IndexedDB for larger or structured data such as sessions, messages, plugins, skills, assistants, knowledge metadata, and memories.
 - Use OPFS for uploaded file bytes and local file handles.
 - Do not persist transient UI state.
+- Keep the active conversation selection in runtime state so a page reload opens the welcome view; conversations and their messages remain durable, and explicit session navigation still selects them normally.
 - Use `partialize` to persist only fields that need to survive reloads.
 
 ## Performance Guidelines

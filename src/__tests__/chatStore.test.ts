@@ -282,6 +282,63 @@ describe("chat store persistence", () => {
     expect(useChatStore.getInitialState().selectedModel).toBe("");
   });
 
+  it("keeps conversations durable without persisting the active selection", () => {
+    const history = makeSession("history");
+    useChatStore.setState({
+      sessions: [history],
+      currentSessionId: history.id,
+      activeMessages: [makeMessage("history-message", "saved")],
+      activeMessageTree: normalizeSessionMessageTree([
+        makeMessage("history-message", "saved"),
+      ]),
+    });
+
+    const partialize = useChatStore.persist.getOptions().partialize!;
+    const persisted = partialize(useChatStore.getState()) as Record<
+      string,
+      unknown
+    >;
+
+    expect(persisted.sessions).toEqual([history]);
+    expect(persisted).not.toHaveProperty("currentSessionId");
+  });
+
+  it("starts on the hero when current-version storage contains a previous selection", () => {
+    const merge = useChatStore.persist.getOptions().merge!;
+    const history = makeSession("history");
+    const merged = merge(
+      { sessions: [history], currentSessionId: history.id },
+      useChatStore.getInitialState(),
+    );
+    expect(merged.currentSessionId).toBeNull();
+    expect(merged.activeMessages).toEqual([]);
+    expect(merged.sessions).toEqual([history]);
+  });
+
+  it("preserves an explicitly selected conversation during rehydration", () => {
+    const activeMessage = makeMessage("active-message", "current");
+    const currentState = {
+      ...useChatStore.getState(),
+      currentSessionId: "active",
+      activeMessages: [activeMessage],
+      activeMessageTree: normalizeSessionMessageTree([activeMessage]),
+    };
+    const merge = useChatStore.persist.getOptions().merge!;
+
+    const merged = merge(
+      {
+        currentSessionId: "persisted",
+        sessions: [makeSession("persisted")],
+      },
+      currentState,
+    );
+
+    expect(merged.currentSessionId).toBe("active");
+    expect(merged.activeMessages).toEqual([activeMessage]);
+    expect(merged.activeMessageTree).toEqual(currentState.activeMessageTree);
+    expect(merged.sessions).toEqual([makeSession("persisted")]);
+  });
+
   it("clears the deprecated Gemini selected model during migration", async () => {
     const migrate = (useChatStore as any).persist.getOptions().migrate;
 
@@ -289,7 +346,7 @@ describe("chat store persistence", () => {
       {
         sessions: [],
         workspaces: [],
-        currentSessionId: null,
+        currentSessionId: "legacy",
         activeMessages: [],
         selectedModel: "GEMINI:gemini-flash-latest",
         chatConfig: {
@@ -303,6 +360,7 @@ describe("chat store persistence", () => {
     );
 
     expect(migrated.selectedModel).toBe("");
+    expect(migrated.currentSessionId).toBeNull();
   });
 
   it("reuses an existing default empty chat instead of creating another one", () => {

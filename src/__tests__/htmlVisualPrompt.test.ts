@@ -19,6 +19,11 @@ describe("HTML visual prompt helpers", () => {
     );
     expect(instruction).toContain("Never apply HTML beautification");
     expect(instruction).toContain("Mermaid, mindmap");
+    expect(instruction).toContain("chart, markdown-chart");
+    expect(instruction).toContain(
+      "Treat chart and markdown-chart bodies as strict JSON",
+    );
+    expect(instruction).toContain("never rewrite their data or ECharts spec");
     expect(instruction).toContain("outside HTML containers");
     expect(instruction).toContain(
       "Do not wrap HTML visual fragments in code fences",
@@ -77,6 +82,8 @@ describe("HTML visual prompt helpers", () => {
 
     expect(requestMessage).toContain(message);
     expect(requestMessage).toContain("<format_instructions");
+    expect(requestMessage).toContain("chart, markdown-chart");
+    expect(requestMessage).toContain("strict JSON");
     expect(requestMessage).toContain("raw HTML fragments directly");
     expect(requestMessage).toContain("semantic neon palette");
     expect(requestMessage).toContain("semantic variables");

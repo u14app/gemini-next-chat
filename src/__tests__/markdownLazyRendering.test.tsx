@@ -13,6 +13,7 @@ import MarkdownRenderer from "../components/content/MarkdownRenderer";
 import {
   createExtensionResource,
   artifactResource,
+  chartResource,
   gfmResource,
   highlightResource,
   htmlResource,
@@ -47,6 +48,19 @@ vi.mock("../components/content/markdown/MarkdownImage", () => ({
     <img src={src} alt={alt} />
   ),
 }));
+vi.mock("../components/content/markdown/ChartBlock", () => ({
+  ChartBlock: ({
+    source,
+    incomplete,
+  }: {
+    source: string;
+    incomplete: boolean;
+  }) => (
+    <div data-testid="chart-block" data-incomplete={String(incomplete)}>
+      {source}
+    </div>
+  ),
+}));
 afterEach(cleanup);
 
 describe("syntax-triggered rendering", () => {
@@ -55,9 +69,45 @@ describe("syntax-triggered rendering", () => {
     expect(screen.getByRole("heading").textContent).toBe("Title");
     expect(screen.getByText("Bold").tagName).toBe("STRONG");
     expect(gfmResource.getSnapshot().value).toBeNull();
+    expect(chartResource.getSnapshot().value).toBeNull();
     expect(highlightResource.getSnapshot().value).toBeNull();
     expect(htmlResource.getSnapshot().value).toBeNull();
     expect(mathSyntaxResource.getSnapshot().value).toBeNull();
+  });
+
+  it("loads chart rendering only for chart fences and accepts the compatibility alias", async () => {
+    const source = '{"version":1,"renderer":"echarts"}';
+    const view = render(
+      <MarkdownRenderer content={`\`\`\`chart\n${source}`} />,
+    );
+
+    expect(view.container.textContent).toContain(source);
+    expect(screen.queryByTestId("chart-block")).toBeNull();
+
+    view.rerender(
+      <MarkdownRenderer content={`\`\`\`chart\n${source}\n\`\`\``} />,
+    );
+    const chart = await screen.findByTestId("chart-block");
+    expect(chart.textContent).toBe(source);
+    expect(chart.dataset.incomplete).toBe("false");
+    expect(artifactResource.getSnapshot().value).toBeNull();
+
+    view.rerender(
+      <MarkdownRenderer
+        content={`\`\`\`chart\n${source}\n\`\`\`\n\nFollowing text`}
+      />,
+    );
+    expect(screen.getByTestId("chart-block")).toBe(chart);
+    expect(screen.getByText("Following text")).toBeTruthy();
+
+    view.rerender(
+      <MarkdownRenderer
+        readOnly
+        content={`\`\`\`markdown-chart\n${source}\n\`\`\``}
+      />,
+    );
+    expect(await screen.findByTestId("chart-block")).toBeTruthy();
+    expect(artifactResource.getSnapshot().value).toBeNull();
   });
 
   it("uses a pure read-only viewer without loading connected chat stores or actions", async () => {

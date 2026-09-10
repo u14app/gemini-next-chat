@@ -904,7 +904,13 @@ samp {
 }
 
 .message-pdf-print-root {
-  display: none;
+  position: fixed;
+  top: 0;
+  left: -10000px;
+  z-index: -1;
+  display: block;
+  width: calc(210mm - 32mm);
+  pointer-events: none;
 }
 
 .message-image-export-root {
@@ -937,6 +943,9 @@ samp {
 
 .message-export-content-root .markdown-codeblock-header,
 .message-export-content-root .markdown-diagram-header,
+.message-export-content-root .markdown-chart-actions,
+.message-export-content-root .markdown-chart-toggle,
+.message-export-content-root .markdown-chart-dialog,
 .message-export-content-root .markdown-codeblock-fade,
 .message-export-content-root .markdown-console,
 .message-export-content-root .markdown-preview-dialog,
@@ -1005,9 +1014,14 @@ samp {
     --markdown-surface: #ffffff;
     --markdown-surface-muted: #f9fafb;
     --markdown-surface-hover: #f3f4f6;
+    position: static !important;
+    top: auto !important;
+    left: auto !important;
+    z-index: auto !important;
     display: block !important;
     width: 100% !important;
     min-height: auto !important;
+    pointer-events: auto !important;
     background: #ffffff !important;
     color: var(--markdown-foreground) !important;
   }
@@ -1021,6 +1035,9 @@ samp {
 
   .message-pdf-print-root .markdown-codeblock-header,
   .message-pdf-print-root .markdown-diagram-header,
+  .message-pdf-print-root .markdown-chart-actions,
+  .message-pdf-print-root .markdown-chart-toggle,
+  .message-pdf-print-root .markdown-chart-dialog,
   .message-pdf-print-root .markdown-codeblock-fade,
   .message-pdf-print-root .markdown-console,
   .message-pdf-print-root .markdown-preview-dialog,

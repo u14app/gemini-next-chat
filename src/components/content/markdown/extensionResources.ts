@@ -81,6 +81,9 @@ export const artifactResource = createExtensionResource(
 export const diagramResource = createExtensionResource(
   () => import("./DiagramBlock"),
 );
+export const chartResource = createExtensionResource(
+  () => import("./ChartBlock"),
+);
 export const fileResource = createExtensionResource(() => import("./FileCard"));
 export const citationResource = createExtensionResource(
   () => import("./CitationLink"),

@@ -252,6 +252,7 @@ describe("effective chat context", () => {
     );
     expect(context.systemInstruction).toContain("raw HTML");
     expect(context.systemInstruction).toContain("<diagram-visual-polish>");
+    expect(context.systemInstruction).toContain("```chart");
     expect(context.systemInstruction).toContain(
       "Do not wrap HTML visual fragments in code fences",
     );
@@ -307,6 +308,8 @@ describe("effective chat context", () => {
     expect(context.systemInstruction).not.toContain("<html-visual>");
     expect(context.systemInstruction).toContain("<diagram-rendering>");
     expect(context.systemInstruction).toContain("<diagram-visual-polish>");
+    expect(context.systemInstruction).toContain("```chart");
+    expect(context.systemInstruction).toContain('"renderer": "echarts"');
     expect(context.systemInstruction).not.toContain("<format_instructions");
   });
 

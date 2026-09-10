@@ -29,6 +29,9 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.111.0",
     "@automerge/automerge": "^3.3.2",
+    "@datafe-open/markdown-chart": "0.1.16",
+    "@datafe-open/markdown-chart-echarts": "0.1.16",
+    "@datafe-open/markdown-chart-react": "0.1.16",
     "@google/genai": "^2.21.0",
     "@modelcontextprotocol/sdk": "^1.30.0",
     "@radix-ui/react-dropdown-menu": "^2.1.24",
@@ -37,6 +40,7 @@
     "ajv": "^8.20.0",
     "aws4fetch": "^1.0.20",
     "browser-image-compression": "^2.0.2",
+    "echarts": "6.1.0",
     "fast-xml-parser": "^5.11.1",
     "fflate": "^0.8.3",
     "hast-util-to-jsx-runtime": "^2.3.6",
