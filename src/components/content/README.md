@@ -24,3 +24,7 @@ Content components render model output and tool output in reusable formats.
 - Prefer shared primitives for copy, tooltip, and preview interactions.
 
 Chart headers use the shared diagram icon with a Chart label; chart titles appear centered below the drawing. Chart controls show only the chart view; copying exports the inline dataset as a Markdown table. Charts, Mermaid diagrams, and mind maps offer a Save image action for PNG export.
+
+Mermaid sources detected as `mindmap` receive the article palette, opaque borderless circular plain nodes, SVG text labels, and thin curved connections painted beneath the nodes. Explicit shapes and rich labels retain their source syntax. Appearance changes affect the render input and SVG snapshot, never the copied source. These node and connection customizations do not apply to other Mermaid types or the separate mindmap-fence renderer.
+
+Git graphs, timelines, kanban boards, radar charts, and treemaps receive explicit derived palettes to prevent Mermaid's base theme from turning dark colors black. These overrides only adjust colors and contrast, retain the original source and layout, and embed the required styles in SVG for fullscreen/export. Flowcharts and the independent mindmap appearance are unaffected.

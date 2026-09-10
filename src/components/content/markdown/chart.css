@@ -157,8 +157,7 @@
 
 .markdown-chart-dialog-header {
   flex: 0 0 auto;
-  border-bottom: 1px solid var(--html-visual-border);
-  background: var(--html-visual-surface);
+  border-bottom: 1px solid var(--markdown-codeblock-border);
 }
 
 .markdown-chart-dialog-body {

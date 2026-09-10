@@ -30,6 +30,15 @@ import Tooltip from "@/components/ui/Tooltip";
 import { Button } from "@/components/ui/primitives";
 
 import type { DiagramTheme } from "./types";
+import {
+  buildMermaidMindmapCSS,
+  curveMermaidMindmapEdges,
+  roundMindmapNodes,
+} from "./mermaidMindmapAppearance";
+import {
+  buildMermaidPaletteCSS,
+  buildMermaidPaletteOverrides,
+} from "./mermaidPalette";
 import "./diagram.css";
 export type { DiagramTheme } from "./types";
 
@@ -301,22 +310,46 @@ const MermaidDiagram = ({
             .then(async () => {
               if (cancelled) return;
               const mermaid = module.default;
-              mermaid.initialize({
+              const config = {
                 startOnLoad: false,
-                securityLevel: "strict",
+                securityLevel: "strict" as const,
                 suppressErrorRendering: true,
-                theme: "base",
+                theme: "base" as const,
                 flowchart: { htmlLabels: false },
                 sequence: { useMaxWidth: true },
                 themeVariables: buildMermaidThemeVariables(theme, enhanced),
-              });
+              };
+              mermaid.initialize(config);
+              const diagramType = mermaid.detectType(trimmedSource);
+              const isMindmap = diagramType === "mindmap";
+              const palette = buildMermaidPaletteOverrides(diagramType, theme);
+              if (isMindmap) {
+                mermaid.initialize({
+                  ...config,
+                  look: "classic",
+                  htmlLabels: false,
+                  mindmap: { padding: 18, maxNodeWidth: 120 },
+                  themeCSS: buildMermaidMindmapCSS(theme),
+                });
+              } else if (palette) {
+                mermaid.initialize({
+                  ...config,
+                  themeVariables: { ...config.themeVariables, ...palette },
+                  themeCSS: buildMermaidPaletteCSS(diagramType, theme),
+                });
+              }
+              const renderSource = isMindmap
+                ? roundMindmapNodes(trimmedSource)
+                : trimmedSource;
               const result = await mermaid.render(
                 `${renderId}-${hashDiagramKey(cacheKey)}`,
-                trimmedSource,
+                renderSource,
                 mermaidRenderHost ?? undefined,
               );
               if (!cancelled) {
-                const svg = normalizeMermaidSvg(result.svg);
+                const svg = normalizeMermaidSvg(
+                  isMindmap ? curveMermaidMindmapEdges(result.svg) : result.svg,
+                );
                 if (mermaidRenderHost) {
                   mermaidRenderHost.innerHTML = "";
                 }

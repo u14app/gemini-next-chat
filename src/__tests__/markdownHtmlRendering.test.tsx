@@ -481,7 +481,7 @@ describe("MarkdownRenderer HTML support", () => {
       'aria-live={tone === "error" ? "assertive" : "polite"}',
     );
     expect(rendererSource).toMatch(
-      /mermaid\.render\(\s*`\$\{renderId\}-\$\{hashDiagramKey\(cacheKey\)\}`,\s*trimmedSource,\s*mermaidRenderHost/u,
+      /mermaid\.render\(\s*`\$\{renderId\}-\$\{hashDiagramKey\(cacheKey\)\}`,\s*renderSource,\s*mermaidRenderHost/u,
     );
   });
 

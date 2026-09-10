@@ -78,6 +78,26 @@ when the matching tag is pushed.
   extensions load independently, preserving streaming fences and source
   placeholders. Long model output can become persistent document blocks with
   preview, editing, and export controls.
+- **Charts and visual export:** Added ECharts-backed `chart` Markdown fences
+  with a strict JSON `version: 1` / `renderer: "echarts"` envelope,
+  inline-only datasets, theme-aware defaults, and the `markdown-chart`
+  compatibility alias. Charts provide a chart-only view, fullscreen rendering,
+  localized loading/error/retry states, Markdown table copying, and PNG saving.
+  Chart-aware image and PDF exports wait for rendering, and Mermaid diagrams
+  and mind maps can also be saved as PNG images.
+- **Conversation startup:** Reloads now open the welcome view while preserving
+  durable conversations, and sync rehydration keeps an explicitly selected
+  in-memory conversation and its loaded messages instead of replacing them
+  with stale persisted selection state.
+- **Mermaid mindmap presentation:** Scoped the article palette to Mermaid
+  sources detected as `mindmap`, with opaque borderless circular nodes, SVG text
+  labels, and curved links while preserving explicit shapes, rich labels,
+  copied source, and the existing appearance of other diagram renderers.
+- **Mermaid diagram palettes:** Corrected abnormal dark-color collapse in Git
+  graphs, timelines, kanban boards, radar charts, and treemaps with derived
+  light/dark palettes, readable text and labels, and stronger boundary and
+  stroke contrast. The overrides are scoped to those diagram types, embedded
+  in rendered SVG for fullscreen and exports, and preserve source and layout.
 - **Providers and media:** Added direct browser requests for configured custom
   model providers, multi-password deployment access, HEIC/HEIF conversion, and
   staged image compression with file-backed native OpenAI, Google, and Anthropic
