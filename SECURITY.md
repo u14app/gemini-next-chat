@@ -1,37 +1,39 @@
 # Security Policy
 
 Neo Chat is designed for local-first and self-hosted use. It is not a turnkey
-public multi-user SaaS boundary.
+boundary for a public multi-user SaaS deployment.
 
-## Supported Versions
+## Supported versions
 
-Security fixes are handled on the default branch. If release branches are added
-later, this file should be updated with the supported version policy.
+Security fixes are handled on the default branch. If release branches are
+introduced, update this section with the supported-version policy.
 
-## Reporting a Vulnerability
+## Report a vulnerability
 
-Please report vulnerabilities privately through GitHub Security Advisories:
+Report vulnerabilities privately through [GitHub Security
+Advisories](https://github.com/u14app/neo-chat/security/advisories/new). Do not
+include secrets, private chat logs, or private user files in a public issue.
 
-https://github.com/u14app/neo-chat/security/advisories/new
+A useful report includes:
 
-Do not include secrets, private chat logs, or private user files in a public
-issue. A useful report includes:
-
-- Affected version or commit.
-- Deployment target: local, Docker, Cloudflare Workers, or another host.
+- The affected version or commit.
+- The deployment target: local, Docker, Cloudflare Workers, or another host.
 - `DEPLOYMENT_MODE` and relevant store settings with secrets removed.
 - Reproduction steps and expected impact.
-- Any safe proof-of-concept details.
+- Safe proof-of-concept details, where available.
 
-## Security Boundaries
+## Security boundaries
 
-- Browser storage is the primary durable data store for chats, app settings,
+- Browser storage is the primary durable store for chats, app settings,
   plugins, assistants, knowledge metadata, and files.
-- BYOK envelopes prevent user-entered secrets from being sent to server routes
-  as plain request body fields, but deployments must still protect server logs,
-  upstream services, and environment variables.
-- `DEPLOYMENT_MODE=hosted` tightens outbound URL policy and requires shared
-  stores for hosted or multi-instance deployments.
+- BYOK envelopes keep user-entered secrets out of plain server-route request
+  fields. Deployments must still protect server logs, upstream services, and
+  environment variables.
+- `DEPLOYMENT_MODE=hosted` tightens policy for fixed registries and
+  deployment-gated proxy surfaces and requires shared stores for hosted or
+  multi-instance deployments. User-configured provider, search, RAG, plugin,
+  and MCP URLs may still use HTTP or private addresses, so restrict that
+  configuration to trusted administrators.
 - `ACCESS_PASSWORD` is a deployment gate, not account authentication or tenant
   isolation.
 

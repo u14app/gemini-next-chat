@@ -1,71 +1,69 @@
 # Localization Pull Request Guide
 
-Neo Chat supports localized UI catalogs and selected localized marketplace
-metadata. Localization PRs should keep runtime behavior predictable: add the
-display language where data exists, fall back to English where it does not, and
-prove the key sets stay compatible.
+Neo Chat localizes UI catalogs and selected marketplace metadata. Keep runtime
+behavior predictable: use the translated data that exists, fall back to English
+where it does not, and verify that catalog keys stay compatible.
 
-## What To Change
+## Add a UI locale
 
-For a new interface locale:
-
-- Add namespace files under `src/i18n/locales/<locale>/` and a matching
+- Add namespace files under `src/i18n/locales/<locale>/` and the matching
   `src/i18n/locales/<locale>.ts` aggregator.
 - Add the locale to `SUPPORTED_LOCALES` and `localeLoaders` in
   `src/i18n/request.ts`.
-- Add language labels in `System.json` and update the language selector in
+- Add its label to `System.json` and update the selector in
   `src/components/settings/SystemSettings.tsx`.
-- Update `src/__tests__/messagesParity.test.ts` so the new catalog is checked
+- Update `src/__tests__/messagesParity.test.ts` so the catalog is checked
   against English.
+
+## Localize marketplace data
 
 For assistant market data:
 
-- Update `src/lib/market/agentLocale.ts` so request locales normalize to the
-  supported market locale.
+- Normalize request locales in `src/lib/market/agentLocale.ts`.
 - Map list files in `src/app/api/agents/route.ts`, for example
   `ja -> index.ja-JP.json`.
 - Map detail files in `src/app/api/agents/[identifier]/route.ts`, for example
   `ja -> <identifier>.ja-JP.json`.
-- Add route and client service tests for the list and detail file names.
+- Add route and client-service tests for both file names.
 
 For Skills marketplace data:
 
-- Add localized metadata only when there is enough translation coverage for the
-  marketplace list, for example `public/data/skills/skills.metadata.ja.json`.
-- Keep `file` values pointing at English definition files unless the PR also
-  ships complete localized definition files. This lets users see localized
-  Skills descriptions while detailed Skill content safely falls back to English.
+- Add localized metadata only when the marketplace list has enough translation
+  coverage, for example `public/data/skills/skills.metadata.ja.json`.
+- Keep `file` values pointed at English definition files unless the PR also
+  ships complete localized definitions. Detailed Skill content can then fall
+  back to English safely.
 - Add the locale to `SkillDataLocale`, `resolveSkillDataLocale`, and
   `getCatalogPath`.
 - Update `src/__tests__/skillsDataset.test.ts` and
-  `src/__tests__/skillService.test.ts` to prove localized metadata loads and
-  definition files fall back to English when intended.
+  `src/__tests__/skillService.test.ts` to cover metadata loading and the
+  intended English definition fallback.
 
-For SEO and speech:
+## Update SEO and speech
 
-- Add locale-specific metadata in `src/lib/seo.ts`, including Open Graph locale
-  and JSON-LD `inLanguage`.
-- Add speech language labels in `Voice.json` and update
+- Add locale-specific metadata in `src/lib/seo.ts`, including the Open Graph
+  locale and JSON-LD `inLanguage`.
+- Add speech-language labels in `Voice.json` and update
   `src/components/settings/VoiceSettings.tsx`.
-- Update voice language types, schema validation, browser BCP 47 language tag
-  mapping, and provider transcription language hints.
+- Update voice language types, schema validation, browser BCP 47 mapping, and
+  provider transcription-language hints.
 
-## Quality Bar
+## Review checklist
 
-- Do not machine-translate blindly without reviewing terminology, UI length,
-  placeholders, and product names.
-- Preserve placeholders such as `{name}`, rich text markers, and code-like
+- Review terminology, UI length, placeholders, and product names instead of
+  relying on unreviewed machine translation.
+- Preserve placeholders such as `{name}`, rich-text markers, and code-like
   strings exactly.
 - Keep URLs, provider names, model IDs, environment variables, and file names
-  unchanged unless the source string intentionally localizes surrounding prose.
-- Do not add placeholder locale files with English copy only. If a surface lacks
-  localized data, route it to English explicitly and document that fallback.
-- Keep PRs focused. UI locale files, assistant market mappings, Skills metadata,
-  SEO, and voice support can be one PR only when they target the same locale.
+  unchanged unless only the surrounding prose is intentionally localized.
+- Do not add locale files containing English copy only. Route surfaces without
+  localized data to English explicitly and document that fallback.
+- Keep PRs focused. Combine UI locale files, assistant mappings, Skills
+  metadata, SEO, and voice support only when they target the same locale.
 
 ## Verification
 
-Run focused checks before opening the PR:
+Run the checks that cover the changed surfaces:
 
 ```bash
 corepack pnpm exec vitest run src/__tests__/messagesParity.test.ts
@@ -77,10 +75,7 @@ corepack pnpm typecheck
 corepack pnpm build
 ```
 
-Also verify the language in the browser when the PR affects visible UI:
-
-- Select the locale in Settings.
-- Reload the app and confirm the interface language persists.
-- Open Assistants, Skills, Plugins, Settings, and Voice settings if touched.
-- Confirm missing localized Skills definitions intentionally show English
-  content rather than broken links.
+When visible UI changes, also select the locale in **Settings**, reload to
+confirm persistence, and open any affected Assistants, Skills, Plugins,
+Settings, or Voice views. Missing localized Skill definitions should show
+English content rather than broken links.

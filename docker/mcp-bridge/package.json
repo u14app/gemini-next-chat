@@ -2,6 +2,7 @@
   "name": "neo-chat-mcp-bridge",
   "version": "2.4.0",
   "private": true,
+  "packageManager": "pnpm@10.30.3",
   "type": "module",
   "scripts": {
     "start": "node server.mjs",

@@ -31,6 +31,13 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Audit dependencies
+        run: pnpm audit --audit-level moderate
+
+      - name: Audit MCP bridge dependencies
+        working-directory: docker/mcp-bridge
+        run: pnpm audit --prod --audit-level moderate
+
       - name: Format Check
         run: pnpm format:check
 
@@ -63,6 +70,3 @@ jobs:
 
       - name: Check Worker Dry-Run Size
         run: pnpm worker:size
-
-      - name: Audit dependencies
-        run: pnpm audit --prod --audit-level moderate

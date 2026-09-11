@@ -103,7 +103,6 @@ async function seedShortcutChat(page: Page) {
         },
       ],
       workspaces: [],
-      currentSessionId: sessionId,
       selectedModel: "shortcut-provider:shortcut-model",
       chatConfig: {
         useSearch: false,
@@ -120,6 +119,19 @@ async function seedShortcutChat(page: Page) {
   });
 }
 
+async function openShortcutChat(page: Page) {
+  await page.goto("/");
+
+  const session = page.getByRole("button", {
+    name: "Shortcut fixture",
+    exact: true,
+  });
+  await expect(session).toBeVisible();
+  await session.click();
+  await expect(session).toHaveAttribute("aria-current", "page");
+  await expect(page.locator('textarea[name="message"]')).toBeEnabled();
+}
+
 async function pressToggleSidebar(page: Page) {
   await page.keyboard.down("Control");
   await page.keyboard.press("\\");
@@ -131,7 +143,7 @@ test("dispatches all default shortcuts and preserves dialog priority", async ({
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await seedShortcutChat(page);
-  await page.goto("/");
+  await openShortcutChat(page);
 
   const composer = page.locator('textarea[name="message"]');
   const sidebar = page.locator('[role="dialog"], .glass-shell').first();
@@ -178,8 +190,11 @@ test("records conflicts and keeps custom bindings after reload", async ({
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await seedShortcutChat(page);
-  await page.goto("/");
+  await openShortcutChat(page);
   await page.keyboard.press("Control+Alt+s");
+  await expect(
+    page.getByRole("heading", { name: "Keyboard shortcuts" }),
+  ).toBeVisible();
 
   const recordSearch = page.getByRole("button", {
     name: "Record a shortcut for Global search",
@@ -285,7 +300,7 @@ test("stops an active generation with the default shortcut", async ({
     };
   });
   await seedShortcutChat(page);
-  await page.goto("/");
+  await openShortcutChat(page);
 
   const composer = page.locator('textarea[name="message"]');
   await composer.fill("Keep streaming");

@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { Stream } from "openai/streaming";
 
 vi.mock("server-only", () => ({}));
 
@@ -20,6 +21,41 @@ async function* asyncChunks(chunks: unknown[]) {
   for (const chunk of chunks) {
     yield chunk;
   }
+}
+
+function openAIChatCompletionSseRequest(
+  events: Array<unknown | "[DONE]">,
+  chunkSize?: number,
+) {
+  const body = events
+    .map((event) =>
+      event === "[DONE]"
+        ? "data: [DONE]\n\n"
+        : `data: ${JSON.stringify(event)}\n\n`,
+    )
+    .join("");
+  const responseBody = chunkSize
+    ? new ReadableStream<Uint8Array>({
+        start(controller) {
+          const encoder = new TextEncoder();
+          for (let offset = 0; offset < body.length; offset += chunkSize) {
+            controller.enqueue(
+              encoder.encode(body.slice(offset, offset + chunkSize)),
+            );
+          }
+          controller.close();
+        },
+      })
+    : body;
+  const response = new Response(responseBody, {
+    headers: { "content-type": "text/event-stream" },
+  });
+  const stream = Stream.fromSSEResponse(response, new AbortController());
+  const request = Promise.resolve(stream) as Promise<typeof stream> & {
+    asResponse: () => Promise<Response>;
+  };
+  request.asResponse = async () => response;
+  return request;
 }
 
 function content(messages: SSEMessage[]) {
@@ -108,13 +144,41 @@ describe("provider stream terminal validation", () => {
     );
   });
 
+  it("accepts an explicit OpenAI [DONE] sentinel without finish_reason", async () => {
+    const messages: SSEMessage[] = [];
+    const client = {
+      chat: {
+        completions: {
+          create: vi.fn(() =>
+            openAIChatCompletionSseRequest(
+              [{ choices: [{ delta: { content: "hello" } }] }, "[DONE]"],
+              3,
+            ),
+          ),
+        },
+      },
+    };
+
+    await expect(
+      streamOpenAIChatCompletions({
+        client: client as any,
+        model: "gpt-test",
+        messages: [],
+        onChunk: (message) => messages.push(message),
+      }),
+    ).resolves.toBeUndefined();
+    expect(content(messages)).toBe("hello");
+  });
+
   it("rejects premature OpenAI Chat Completions EOF after preserving content", async () => {
     const messages: SSEMessage[] = [];
     const client = {
       chat: {
         completions: {
-          create: vi.fn(async () =>
-            asyncChunks([{ choices: [{ delta: { content: "partial" } }] }]),
+          create: vi.fn(() =>
+            openAIChatCompletionSseRequest([
+              { choices: [{ delta: { content: "partial" } }] },
+            ]),
           ),
         },
       },

@@ -265,9 +265,44 @@ test("keeps an offline draft editable until connectivity returns", async ({
   page,
   context,
 }) => {
+  await page.goto("/manifest.webmanifest");
+  const model = "offline-provider:offline-model";
+  await page.evaluate(
+    (value) => localStorage.setItem("neo-chat-core-settings", value),
+    persistedState({
+      theme: "light",
+      language: "en",
+      providers: [
+        {
+          id: "offline-provider",
+          name: "Offline Provider",
+          type: "OpenAI Compatible",
+          baseUrl: "https://offline-model.example.test/v1",
+          apiKey: "",
+          enabled: true,
+          models: ["offline-model"],
+          modelsList: ["offline-model"],
+        },
+      ],
+      defaultModels: {},
+    }),
+  );
+  await setIndexedDbValue(
+    page,
+    "neo-chat-storage",
+    persistedState({
+      sessions: [],
+      workspaces: [],
+      currentSessionId: null,
+      selectedModel: model,
+      chatConfig: {},
+    }),
+  );
+
   await page.goto("/");
   const composer = page.locator('textarea[name="message"]');
   await expect(composer).toBeVisible();
+  await expect(composer).toBeEnabled();
   await page.waitForLoadState("networkidle");
 
   await context.setOffline(true);
@@ -411,15 +446,24 @@ test("gates Agent mode by tool support and isolates it per chat", async ({
   );
 
   await page.goto("/");
+  const enabledSession = page.getByRole("button", {
+    name: "Agent enabled chat",
+    exact: true,
+  });
+  await enabledSession.click();
+  await expect(enabledSession).toHaveAttribute("aria-current", "page");
+
   const enableAgentMode = page.getByRole("button", {
-    name: "Enable Agent Mode",
+    name: "Mode: Auto",
   });
   await expect(enableAgentMode).toBeEnabled();
-  await expect(enableAgentMode).toHaveAttribute("aria-pressed", "false");
   await enableAgentMode.click();
-  await expect(
-    page.getByRole("button", { name: "Disable Agent Mode" }),
-  ).toHaveAttribute("aria-pressed", "true");
+  const agentModeOption = page
+    .getByRole("group", { name: "Mode" })
+    .getByRole("button", { name: /^Agent/ });
+  await expect(agentModeOption).toBeEnabled();
+  await agentModeOption.click();
+  await expect(page.getByRole("button", { name: "Mode: Agent" })).toBeVisible();
 
   const legacySession = page.getByRole("button", {
     name: "Legacy Agent chat",
@@ -428,32 +472,21 @@ test("gates Agent mode by tool support and isolates it per chat", async ({
   await legacySession.click();
   await expect(legacySession).toHaveAttribute("aria-current", "page");
   await expect(page.locator('[aria-current="page"]')).toHaveCount(1);
-  await expect(
-    page.getByRole("button", { name: "Enable Agent Mode" }),
-  ).toHaveAttribute("aria-pressed", "false");
+  await expect(page.getByRole("button", { name: "Mode: Auto" })).toBeVisible();
 
-  const enabledSession = page.getByRole("button", {
-    name: "Agent enabled chat",
-    exact: true,
-  });
   await enabledSession.click();
   await expect(enabledSession).toHaveAttribute("aria-current", "page");
   await expect(page.locator('[aria-current="page"]')).toHaveCount(1);
-  await expect(
-    page.getByRole("button", { name: "Disable Agent Mode" }),
-  ).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByRole("button", { name: "Mode: Agent" })).toBeVisible();
 
   await page.getByRole("button", { name: "Select model: Tool Model" }).click();
   await page.getByRole("menuitemradio", { name: "Use Plain Model" }).click();
 
-  const unavailableAgentMode = page.getByRole("button", {
-    name: "Agent Mode requires a model that supports tool calls.",
-  });
+  await page.getByRole("button", { name: "Mode: Agent" }).click();
+  const unavailableAgentMode = page
+    .getByRole("group", { name: "Mode" })
+    .getByRole("button", { name: /^Agent/ });
   await expect(unavailableAgentMode).toBeDisabled();
-  await expect(unavailableAgentMode).toHaveAttribute("aria-disabled", "true");
-  await expect(unavailableAgentMode).not.toHaveAttribute("aria-pressed");
-  await unavailableAgentMode.focus();
-  await expect(unavailableAgentMode).toBeFocused();
 });
 
 test("keeps a 500-message chat timeline DOM bounded while scrolling", async ({
@@ -509,6 +542,12 @@ test("keeps a 500-message chat timeline DOM bounded while scrolling", async ({
   });
 
   await page.goto("/");
+  const session = page.getByRole("button", {
+    name: "Virtualized 500 messages",
+    exact: true,
+  });
+  await session.click();
+  await expect(session).toHaveAttribute("aria-current", "page");
   const timeline = page.getByTestId("virtualized-message-timeline");
   await expect(timeline).toBeVisible();
   const renderedRows = page.locator("[data-message-id]");
@@ -615,9 +654,13 @@ test("follows streamed output only when enabled and keeps manual scrolling stabl
               }
               push({
                 type: "content",
-                content: "// content-tail-marker\n```",
+                content: "// content-tail-marker",
               });
               fixture.phase = "content-grown";
+              await waitForGate("close-code");
+
+              push({ type: "content", content: "\n```" });
+              fixture.phase = "code-closed";
               await waitForGate("finish");
 
               push({ type: "done" });
@@ -779,6 +822,12 @@ test("follows streamed output only when enabled and keeps manual scrolling stabl
     );
 
   await page.goto("/");
+  const session = page.getByRole("button", {
+    name: "Streaming scroll fixture",
+    exact: true,
+  });
+  await session.click();
+  await expect(session).toHaveAttribute("aria-current", "page");
   const scroller = page.locator("[data-chat-scroll-container]");
   await expect(scroller).toBeVisible();
   await expect(
@@ -910,13 +959,21 @@ test("follows streamed output only when enabled and keeps manual scrolling stabl
     )
     .toBeLessThanOrEqual(48);
 
+  const codePlaceholder = scroller
+    .locator("pre")
+    .filter({ hasText: "content-tail-marker" });
+  await expect(codePlaceholder).toBeVisible();
+  await expect(scroller.locator(".markdown-codeblock")).toHaveCount(0);
+
+  await releaseStream("close-code");
+  await expect.poll(streamPhase).toBe("code-closed");
   const codeBlock = scroller.locator(".markdown-codeblock").last();
   await expect(codeBlock).toBeVisible();
   await expect(
     codeBlock.getByRole("button", { name: "Expand code" }),
-  ).toHaveCount(0);
+  ).toHaveAttribute("aria-expanded", "false");
   const codeContent = scroller.locator(".markdown-codeblock-content").last();
-  const expandedCodeBeforeFinish = await codeContent.evaluate((element) => {
+  const collapsedCodeBeforeFinish = await codeContent.evaluate((element) => {
     (
       window as typeof window & {
         __streamCodeContentNode?: Element;
@@ -928,11 +985,9 @@ test("follows streamed output only when enabled and keeps manual scrolling stabl
     };
   });
   expect(
-    Math.abs(
-      expandedCodeBeforeFinish.scrollHeight -
-        expandedCodeBeforeFinish.clientHeight,
-    ),
-  ).toBeLessThanOrEqual(2);
+    collapsedCodeBeforeFinish.scrollHeight -
+      collapsedCodeBeforeFinish.clientHeight,
+  ).toBeGreaterThan(0);
 
   await releaseStream("finish");
   await expect.poll(streamPhase).toBe("done");
@@ -1360,7 +1415,17 @@ test("compresses normal oversized images but preserves both long-image direction
   );
 
   await page.goto("/");
+  const imageSession = page.getByRole("button", {
+    name: "Image compression fixture",
+    exact: true,
+  });
+  await imageSession.click();
+  await expect(imageSession).toHaveAttribute("aria-current", "page");
   await expect(page.locator('textarea[name="message"]')).toBeVisible();
+  await expect(page.locator('textarea[name="message"]')).toBeEnabled();
+  await expect(
+    page.getByRole("button", { name: "Attach files" }),
+  ).toBeEnabled();
 
   const sourceSizes = await attachCanvasImages(page, [
     {
@@ -1419,8 +1484,13 @@ test("compresses normal oversized images but preserves both long-image direction
 test("opens and closes the global search center with the keyboard", async ({
   page,
 }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto("/");
 
+  await expect(page.locator(".glass-shell").first()).toHaveCSS(
+    "width",
+    "288px",
+  );
   const searchLauncher = page.getByRole("button", { name: "Open search" });
   await searchLauncher.focus();
   await expect(searchLauncher).toBeFocused();
@@ -1531,8 +1601,7 @@ test("opens global search from the sidebar and exposes compact controls", async 
 }) => {
   await page.goto("/");
 
-  await page.getByRole("button", { name: "Open search" }).click();
-  await expect(page).toHaveURL(/(?:\?|&)panel=search(?:&|$)/);
+  await openPanel(page, "Open search", "search");
 
   const sourceGroup = page.getByRole("group", { name: "Source" });
   const knowledgeSource = sourceGroup.getByRole("button", {
@@ -1545,13 +1614,18 @@ test("opens global search from the sidebar and exposes compact controls", async 
     name: "Filters and sort",
   });
   await filtersButton.click();
-  await expect(page.getByLabel("Role")).toBeVisible();
-  await page.getByLabel("Role").selectOption("model");
+  const roleFilter = page.getByRole("combobox", {
+    name: "Role",
+    exact: true,
+  });
+  await expect(roleFilter).toBeVisible();
+  await roleFilter.press("End");
+  await roleFilter.press("Enter");
   await expect(
     page.getByRole("button", { name: /1 active option/ }),
   ).toBeVisible();
   await page.getByRole("button", { name: "Restore defaults" }).click();
-  await expect(page.getByLabel("Role")).toHaveValue("all");
+  await expect(roleFilter).toContainText("All roles");
 
   const searchInput = page.locator(
     'input[aria-controls="global-search-results"]',

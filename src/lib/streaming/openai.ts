@@ -415,11 +415,68 @@ function emitChatCompletionChunk(
   }
 }
 
+const OPENAI_COMPLETION_SENTINEL_LINE_LIMIT = 64;
+
+async function responseHasOpenAICompletionSentinel(
+  response: Response,
+): Promise<boolean> {
+  const reader = response.body?.getReader();
+  if (!reader) return false;
+
+  const decoder = new TextDecoder();
+  let pendingLine = "";
+  let discardLine = false;
+
+  const consumeText = (text: string): boolean => {
+    let offset = 0;
+    while (offset < text.length) {
+      const newlineIndex = text.indexOf("\n", offset);
+      const end = newlineIndex === -1 ? text.length : newlineIndex;
+
+      if (!discardLine) {
+        pendingLine += text.slice(offset, end);
+        if (pendingLine.length > OPENAI_COMPLETION_SENTINEL_LINE_LIMIT) {
+          pendingLine = "";
+          discardLine = true;
+        }
+      }
+
+      if (newlineIndex === -1) return false;
+      if (!discardLine && /^data:\s*\[DONE\]\s*\r?$/.test(pendingLine)) {
+        return true;
+      }
+
+      pendingLine = "";
+      discardLine = false;
+      offset = newlineIndex + 1;
+    }
+
+    return false;
+  };
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (consumeText(decoder.decode(value, { stream: true }))) {
+        await reader.cancel().catch(() => undefined);
+        return true;
+      }
+    }
+
+    consumeText(decoder.decode());
+    return !discardLine && /^data:\s*\[DONE\]\s*\r?$/.test(pendingLine);
+  } finally {
+    reader.releaseLock();
+  }
+}
+
 async function finishChatCompletionStream(
   chunks: AsyncIterable<any>,
   startTime: number,
   emitReasoning: boolean,
   onChunk: (message: SSEMessage) => void,
+  completionSentinel?: Promise<boolean>,
 ): Promise<void> {
   const toolCalls = createOpenAIToolCallAccumulator();
   const thinkTagParser = createThinkTagStreamParser();
@@ -452,9 +509,12 @@ async function finishChatCompletionStream(
     }
   }
 
-  if (!receivedTerminalFinishReason) {
+  const receivedCompletionSentinel = completionSentinel
+    ? await completionSentinel
+    : false;
+  if (!receivedTerminalFinishReason && !receivedCompletionSentinel) {
     throw new IncompleteProviderStreamError(
-      "OpenAI Chat Completions stream ended before a terminal finish_reason.",
+      "OpenAI Chat Completions stream ended without a terminal finish_reason or [DONE] sentinel.",
     );
   }
 
@@ -506,14 +566,34 @@ export async function streamOpenAIChatCompletions(
     reasoningMode,
   });
 
-  const stream = (await (signal
-    ? client.chat.completions.create(requestParams, { signal })
-    : client.chat.completions.create(requestParams))) as any;
+  const streamRequest = (
+    signal
+      ? client.chat.completions.create(requestParams, { signal })
+      : client.chat.completions.create(requestParams)
+  ) as PromiseLike<any> & {
+    asResponse?: () => Promise<Response>;
+  };
+  let completionSentinel: Promise<boolean> | undefined;
+  if (typeof streamRequest.asResponse === "function") {
+    const response = await streamRequest.asResponse();
+    if (response.body && !response.bodyUsed) {
+      try {
+        completionSentinel = responseHasOpenAICompletionSentinel(
+          response.clone(),
+        ).catch(() => false);
+      } catch {
+        // Fall back to finish_reason validation when a runtime cannot clone.
+      }
+    }
+  }
+
+  const stream = (await streamRequest) as AsyncIterable<any>;
   await finishChatCompletionStream(
     stream,
     startTime,
     isReasoningEnabled(reasoningMode),
     onChunk,
+    completionSentinel,
   );
 }
 

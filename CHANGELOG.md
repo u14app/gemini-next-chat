@@ -9,6 +9,14 @@ when the matching tag is pushed.
 
 ## Unreleased
 
+- Fixed streaming auto-scroll with TanStack Virtual's end-anchor correction,
+  preserving the viewport when users scroll up to read earlier messages.
+- Updated E2E fixtures for explicit conversation selection, model setup, and
+  current Agent/search controls; wait for initialized layouts before testing
+  keyboard focus and shortcuts.
+- Simplified the project documentation and added a documentation hub, official
+  Docker image deployment instructions, and upgrade/rollback guidance.
+
 ## v2.5.0
 
 - **Agent runtime:** Expanded Agent mode with dynamic Tool and Skill discovery,
@@ -113,6 +121,9 @@ when the matching tag is pushed.
   and MCP dependency updates clear the production audit; tag releases validate
   the package version and pass source, Next.js, Worker, and dependency checks
   before publication.
+- **Dependency security:** Updated vulnerable root and MCP Bridge dependency
+  resolutions for Sharp, JS-YAML, Vitest, baseline-browser-mapping,
+  brace-expansion, Hono, qs, fast-uri, ip-address, and the Hono Node adapter.
 
 ## v2.4.0
 

@@ -1,280 +1,276 @@
-# Deployment Hardening
+# Deployment guide
 
-Neo Chat is local-first by default. A production self-hosted deployment should
-decide whether it is running as a private local app or as a hosted internet app,
-then configure secrets and shared state accordingly.
+Run Neo Chat with the official Docker image, build it from source, or deploy to
+Vercel or Cloudflare Workers. Model providers can be configured in the app;
+server defaults are optional.
 
-## Local or Private Self-hosted
+- [Official Docker image](#official-docker-image): start without building locally.
+- [Production configuration](#production-configuration): persistent keys, access,
+  and shared stores.
+- [Build from source](#build-from-source), [Vercel](#vercel), or
+  [Cloudflare Workers](#cloudflare-workers): alternative deployment paths.
+- [Verify and troubleshoot](#verify-and-troubleshoot): check readiness after setup.
 
-Use `DEPLOYMENT_MODE=local` for Docker, LAN, or private deployments. User-
-configured provider, search, RAG, plugin, and MCP endpoints may use HTTP(S) and
-local/private addresses in either deployment mode.
+## Official Docker image
 
-Recommended settings:
+The [Docker workflow](../.github/workflows/docker.yml) publishes
+`ghcr.io/u14app/neo-chat` to GitHub Container Registry. It builds `linux/amd64`
+images; ARM hosts need amd64 emulation or a local source build.
+
+| Image reference                           | Use                                                        |
+| ----------------------------------------- | ---------------------------------------------------------- |
+| `ghcr.io/u14app/neo-chat:latest`          | Tracks the default branch; not a stable-release channel.   |
+| `ghcr.io/u14app/neo-chat:<tag>`           | Pin a published Git tag, including its `v` prefix.         |
+| `ghcr.io/u14app/neo-chat@sha256:<digest>` | Pin an exact published image for reproducible deployments. |
+
+Choose an available tag or digest from the
+[package page](https://github.com/u14app/neo-chat/pkgs/container/neo-chat).
+
+### Try locally
 
 ```bash
+docker pull ghcr.io/u14app/neo-chat:latest
+docker run --rm --name neo-chat-demo \
+  -p 127.0.0.1:3000:3000 \
+  -e DEPLOYMENT_MODE=local \
+  -e ACCESS_PASSWORD='replace-with-a-strong-password' \
+  -e BYOK_ALLOW_EPHEMERAL_KEY=true \
+  ghcr.io/u14app/neo-chat:latest
+```
+
+Open [localhost:3000](http://localhost:3000), enter the password, and add a model
+provider in Settings. Stop the container with `Ctrl+C`.
+
+This example uses temporary BYOK keys. After a restart, users may need to
+re-enter saved service credentials. Use stable keys for a long-lived instance.
+
+### Run with Docker Compose
+
+Create a deployment directory with these two files. This setup pulls the official
+image and does not require a source checkout or local build.
+
+`compose.yaml`:
+
+```yaml
+services:
+  neo-chat:
+    image: ghcr.io/u14app/neo-chat:latest
+    ports:
+      - "127.0.0.1:3000:3000"
+    env_file:
+      - .env
+    restart: unless-stopped
+```
+
+`.env` (replace the password, private key, and key ID before starting):
+
+```dotenv
 DEPLOYMENT_MODE=local
-ACCESS_PASSWORD=first-strong-password,second-strong-password
+ACCESS_PASSWORD=replace-with-a-strong-password
+BYOK_ALLOW_EPHEMERAL_KEY=false
+BYOK_PRIVATE_KEY_PEM='-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----'
+BYOK_KEY_ID=replace-with-your-key-id
 ALLOW_INSECURE_LOCAL_PRODUCTION=false
-ALLOW_LOCAL_NETWORK_PROXY=
 TRUST_PROXY_HEADERS=false
-BYOK_ALLOW_EPHEMERAL_KEY=false
-BYOK_PRIVATE_KEY_PEM="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----"
-BYOK_KEY_ID=prod-2026-07
+RATE_LIMIT_STORE=memory
+DOCUMENT_PARSE_JOB_STORE=memory
+PLUGIN_REGISTRY_STORE=memory
 ```
 
-Production `local` mode now fails closed for `/api/*` when `ACCESS_PASSWORD` is
-empty. Set `ALLOW_INSECURE_LOCAL_PRODUCTION=true` only for a private deployment
-that is not exposed to the internet and has another access boundary.
-
-`ACCESS_PASSWORD` accepts one or more comma-separated passwords. Surrounding
-whitespace and empty entries are ignored, commas cannot be part of a password,
-and changing the list invalidates existing access sessions.
-
-If the deployment has more than one instance, use Upstash for shared request
-limits, document parse jobs, and server-registered plugins:
+Generate the BYOK pair with `corepack pnpm byok:generate` in a source checkout.
+Without a checkout, save the standalone [key generator](../scripts/generate-byok-key.mjs)
+as `generate-byok-key.mjs` and run `node generate-byok-key.mjs` with Node.js.
+Copy its three output assignments into `.env`. Keep the private key on one line with literal `\n` separators;
+Neo Chat converts them to PEM line breaks. Store the file securely and keep a
+backup of the key and ID.
 
 ```bash
-RATE_LIMIT_STORE=upstash
-DOCUMENT_PARSE_JOB_STORE=upstash
-PLUGIN_REGISTRY_STORE=upstash
-UPSTASH_REDIS_REST_URL=https://...
-UPSTASH_REDIS_REST_TOKEN=...
+chmod 600 .env
+docker compose pull
+docker compose up -d
+docker compose logs --tail=100 neo-chat
 ```
 
-## Hosted Internet Deployment
+The port binds to the host's loopback interface. For internet access, put an
+HTTPS reverse proxy in front and apply the hosted settings below. If the proxy
+runs in another container, connect it to the app's Docker network and use
+`neo-chat:3000` as its upstream.
 
-Use `DEPLOYMENT_MODE=hosted` when the app is reachable from the public internet.
-Hosted mode tightens CSP and requires shared short-lived state so rate limits,
-document parse jobs, and server-registered plugins behave consistently across
-instances. It does not reject HTTP, localhost, or private-network addresses for
-user-configured provider, search, RAG, plugin, or MCP targets.
+Conversations and uploaded files are browser-local by default; a container
+volume does not back them up. Use the app's backup/export or encrypted sync,
+and keep the browser origin (scheme, host, and port) consistent when migrating.
+See [privacy and local data](privacy-and-local-data.md).
 
-Required hosted settings:
+### Update or roll back
+
+Back up local data from the app and retain `.env`. Review the
+[changelog](../CHANGELOG.md), then pull and recreate the service:
 
 ```bash
-DEPLOYMENT_MODE=hosted
-ALLOW_LOCAL_NETWORK_PROXY=false
-TRUST_PROXY_HEADERS=false
-RATE_LIMIT_STORE=upstash
-DOCUMENT_PARSE_JOB_STORE=upstash
-PLUGIN_REGISTRY_STORE=upstash
-UPSTASH_REDIS_REST_URL=https://...
-UPSTASH_REDIS_REST_TOKEN=...
-BYOK_ALLOW_EPHEMERAL_KEY=false
-BYOK_PRIVATE_KEY_PEM="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----"
-BYOK_KEY_ID=prod-2026-07
+docker compose pull neo-chat
+docker compose up -d neo-chat
+docker compose logs --tail=100 neo-chat
 ```
 
-Enable `TRUST_PROXY_HEADERS=true` only when the platform or reverse proxy strips
-spoofed forwarded headers before requests reach Neo Chat. These headers affect
-rate-limit identity and public request metadata; trusting user-supplied values
-can weaken hosted protections.
+For a pinned deployment, change `image` to the chosen published tag or digest
+before running these commands. To roll back the server, restore the previous
+image reference and run them again. An image rollback does not reverse browser
+data migrations; retain a pre-upgrade backup. Keep the same BYOK key and ID
+across container replacements and replicas.
 
-Treat permission to configure outbound URLs as an administrative capability on
-public deployments. Private-network targets expand the SSRF surface, and HTTP
-can expose provider or plugin credentials and allow responses to be modified in
-transit. Fixed registries and built-in service endpoints remain HTTPS-only, but
-that does not protect a user-supplied target.
+## Production configuration
 
-## Vercel Environment Variables
+### Access and stable keys
 
-Vercel runs the standard Next.js build output, not the Cloudflare Workers
-OpenNext output. Import the repository with the Next.js framework preset and use
-the default output directory.
+Set `ACCESS_PASSWORD`, `BYOK_PRIVATE_KEY_PEM`, `BYOK_KEY_ID`, and
+`BYOK_ALLOW_EPHEMERAL_KEY=false` for a long-lived deployment. Generate keys once,
+not on every restart. Changing the private key makes existing encrypted
+credentials unusable until users re-enter them.
 
-Recommended project settings:
+`ACCESS_PASSWORD` accepts comma-separated passwords, trims whitespace, and
+ignores empty entries. Passwords cannot contain commas. Changing the list
+invalidates existing access sessions. Production local mode rejects API requests
+without a password unless `ALLOW_INSECURE_LOCAL_PRODUCTION=true` is explicitly
+set for a private installation protected by another access boundary.
 
-```bash
-Install Command: default, or corepack pnpm install --frozen-lockfile
-Build Command: pnpm build
-Output Directory: default
-```
+The password is a deployment gate, not an account system. A public multi-user
+service needs authentication, tenant isolation, secret management, quotas,
+auditing, abuse controls, and provider spending limits. Deployment defaults such
+as `DEFAULT_PROVIDER_API_KEY` are shared by all users; leave them unset for BYOK.
 
-For public Vercel deployments, use hosted mode and shared stores:
+### Private or hosted mode
 
-```bash
+Use `DEPLOYMENT_MODE=local` for a private single-instance installation. For an
+internet-facing deployment, add or replace these runtime values:
+
+```dotenv
 DEPLOYMENT_MODE=hosted
 ALLOW_LOCAL_NETWORK_PROXY=false
 RATE_LIMIT_STORE=upstash
 DOCUMENT_PARSE_JOB_STORE=upstash
 PLUGIN_REGISTRY_STORE=upstash
-UPSTASH_REDIS_REST_URL=https://...
-UPSTASH_REDIS_REST_TOKEN=...
-BYOK_ALLOW_EPHEMERAL_KEY=false
-BYOK_PRIVATE_KEY_PEM="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----"
-BYOK_KEY_ID=prod-2026-07
-NEXT_PUBLIC_SITE_URL=https://your-domain.com
+UPSTASH_REDIS_REST_URL=https://your-redis-rest-endpoint
+UPSTASH_REDIS_REST_TOKEN=replace-with-your-token
 ```
 
-Set these values in the Vercel project under the Production, Preview, or
-Development environments that need them. Vercel environment variables are
-available to the build step and to Next.js function execution for that
-deployment, so `NEXT_PUBLIC_SITE_URL` should be configured anywhere metadata,
-Open Graph image URLs, or generated public links must use the deployed domain.
+Hosted mode requires shared stores. Multi-instance private deployments should
+also use all three Upstash stores so rate limits, parsing jobs, and plugin
+registration remain consistent across replicas. The same Redis pair coordinates
+specialized Research sources. Sharing additionally requires
+`SHARING_ENABLED=true`; see [conversation sharing](conversation-sharing.md).
 
-Keep deployment passwords, provider keys, BYOK key material, Upstash
-credentials, and third-party service tokens out of source control. Configure
-them as Vercel environment variables instead.
+Leave `TRUST_PROXY_HEADERS=false` unless your proxy strips client-supplied
+forwarded headers. These headers affect rate-limit identity.
 
-## Cloudflare Workers Environment Variables
+User-configured provider, search, RAG, plugin, and MCP URLs can use HTTP and
+private-network addresses in either mode. Restrict configuration to trusted
+users: HTTP exposes credentials in transit, and private targets expand the
+server's SSRF surface. Fixed registries and built-in service endpoints retain
+their HTTPS and allowlist policies.
 
-OpenNext and Cloudflare Workers have separate build-time and runtime
-configuration surfaces.
+### Build-time values
 
-For Cloudflare Workers Builds, set:
+`NEXT_PUBLIC_*` values must be available during the build; changing only the
+runtime environment of a prebuilt image cannot replace values already bundled
+into client code or static output. Build from source if you need custom
+`NEXT_PUBLIC_SITE_URL` or `NEXT_PUBLIC_API_URL` values baked into the app.
+
+`NEXT_DEPLOYMENT_ID` is also build-time configuration. Use the same release ID
+for every replica in a rollout; the source Compose file passes it as a build
+argument. See the [configuration reference](environment-variables.md).
+
+## Build from source
+
+From a source checkout, the repository's [docker-compose.yml](../docker-compose.yml)
+builds a local image:
 
 ```bash
-Build command: pnpm build:worker
-Deploy command: pnpm exec opennextjs-cloudflare deploy -- --keep-vars
+ACCESS_PASSWORD='replace-with-a-strong-password' docker compose up --build -d
 ```
 
-OpenNext Cloudflare compatibility requires this repository to keep its Edge
-Middleware entry point at `src/middleware.ts`.
-Do not rename it to `src/proxy.ts`: the proxy entry point is emitted as Node.js
-middleware by the current Next.js toolchain, which OpenNext Cloudflare does not
-support. The middleware must also keep `/api/access/verify` and
-`/api/request-proof/session` available as bootstrap routes.
+This source Compose file defaults to ephemeral BYOK keys and publishes port
+3000 on all host interfaces. Set stable keys for long-lived use and restrict
+network access as appropriate. It forwards the variables listed in its
+`environment` section; add any other required defaults there or through an
+`env_file` entry. Copying `.env.local` alone does not configure container runtime
+values.
 
-Use Node 24 with Corepack-enabled `pnpm@10.30.3` for local, CI, Docker, and
-Cloudflare build parity. Before deploying Worker changes, run:
+For a Node.js deployment, use Node 24 and Corepack-managed pnpm 10.30.3:
 
 ```bash
-pnpm build:worker
-pnpm worker:size
+corepack pnpm install --frozen-lockfile
+corepack pnpm build
+corepack pnpm start
 ```
 
-`pnpm worker:size` runs `wrangler deploy --dry-run`, reads the gzip value from
-Wrangler's `Total Upload` report, and checks it against the default 3 MiB
-budget. The command fails if Wrangler fails, the report cannot be parsed, or
-the gzip value exceeds the budget. Override with `WORKER_GZIP_BUDGET_BYTES`
-only for an intentional budget change.
+Configure the production values above before starting the server. Local MCP
+stdio tools require the separate [MCP bridge](mcp-stdio-bridge.md).
 
-`--keep-vars` prevents deployments from replacing runtime variables configured
-in the Cloudflare dashboard with only the values committed in `wrangler.jsonc`.
-The default observability sampling in `wrangler.jsonc` is production-oriented;
-temporarily raise sampling while debugging noisy incidents, then lower it again.
+## Vercel
 
-Set runtime variables in the Worker dashboard under **Settings -> Variables and
-Secrets**. Use plain variables only for non-sensitive deployment defaults:
+Import the repository with the **Next.js** preset and default output directory.
+Use `corepack pnpm install --frozen-lockfile` to install and `pnpm build` to build.
+
+Set access protection, stable BYOK keys, hosted mode, and Upstash values in the
+project's environment settings. Select the relevant Production, Preview, or
+Development scope. Set `NEXT_PUBLIC_SITE_URL` before building so metadata and
+public URLs use your domain. Keep all credentials out of source control.
+
+## Cloudflare Workers
+
+Use Node 24 and pnpm 10.30.3. Build and deploy through the repository scripts:
 
 ```bash
-DEPLOYMENT_MODE=hosted
-RATE_LIMIT_STORE=upstash
-DOCUMENT_PARSE_JOB_STORE=upstash
-PLUGIN_REGISTRY_STORE=upstash
-BYOK_ALLOW_EPHEMERAL_KEY=false
-NEXT_PUBLIC_SITE_URL=https://your-domain.com
+corepack pnpm build:worker
+corepack pnpm deploy:worker
 ```
 
-Use secrets for sensitive values:
+For Workers Builds, set the build command to `pnpm build:worker` and the deploy
+command to `pnpm exec opennextjs-cloudflare deploy -- --keep-vars`.
+`--keep-vars` preserves dashboard-managed runtime variables.
 
-```bash
-BYOK_PRIVATE_KEY_PEM
-BYOK_KEY_ID
-UPSTASH_REDIS_REST_URL
-UPSTASH_REDIS_REST_TOKEN
-ACCESS_PASSWORD
-DEFAULT_PROVIDER_API_KEY
-DEFAULT_SEARCH_API_KEY
-DEFAULT_RAG_TOKEN
-DEFAULT_LLAMA_PARSE_API_KEY
-DEFAULT_ELEVENLABS_API_KEY
-DEFAULT_MIMO_API_KEY
-```
+| Configuration surface                         | Values                                                                                                            |
+| --------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| **Settings → Variables and Secrets**          | Hosted mode, store selectors, stable BYOK keys, access password, Redis credentials, and optional service defaults |
+| **Settings → Builds → Variables and Secrets** | `NEXT_PUBLIC_*`, optional `NEXT_DEPLOYMENT_ID`, and other values required by the build                            |
 
-Workers Builds also has **Settings -> Builds -> Variables and Secrets**. Values
-there are available only during the build step. Add `NEXT_PUBLIC_*` values and
-any non-public values required by static generation there as well as in runtime
-variables when the app also needs them after deployment.
+Use secrets for passwords, BYOK key material, Redis credentials, and provider
+keys. Keep only non-sensitive defaults in `wrangler.jsonc`. Build variables do
+not automatically become runtime variables; configure both when needed.
 
-Keep personal API keys and deployment secrets out of source control.
-Deployment-level defaults such as `DEFAULT_PROVIDER_API_KEY` are shared by every
-user of that Worker instance. Leave them unset when users should provide their
-own provider keys in local browser settings.
+OpenNext Cloudflare compatibility requires the Edge Middleware entry point at
+`src/middleware.ts`. Do not rename it to `src/proxy.ts`: the current OpenNext
+integration does not support its Node.js middleware. Keep `/api/access/verify`
+and `/api/request-proof/session` available as bootstrap routes. Hosted and
+Worker deployments must not run the local stdio bridge. See
+[MCP bridge boundaries](mcp-stdio-bridge.md).
 
-Hosted mode also disables legacy plugin execution payloads where the browser
-submits a complete plugin manifest and function definition to the server. Plugin
-calls must resolve through server-registered plugin ids and function names.
-Tool calls follow the selected effect-aware approval Profile. Irreversible
-operations, credential exfiltration, permission changes, and unknown MCP Tools
-always pause for a one-time allow or deny decision; destructive approval is
-never persisted for the chat. See
-[Reliability and Safety Model](reliability-and-safety.md) for tool execution
-boundaries, context budgeting, and recovery behavior.
+For Worker-specific verification, the existing `worker:dry-run` and
+`worker:size` scripts inspect deployment output after `build:worker`.
+`worker:size` checks Wrangler's reported gzip size against the existing 3 MiB
+budget. It does not deploy the Worker. Production observability sampling is
+configured in `wrangler.jsonc`; restore it after temporary debugging changes.
 
-Remote MCP servers use the same server-registered plugin path and outbound URL
-policy. Neo Chat supports `streamable-http` and legacy `sse` MCP over HTTP or
-HTTPS, including localhost and private-network targets. Streamable HTTP is
-preferred when both are available. Local Docker deployments may opt into the
-isolated [stdio bridge](mcp-stdio-bridge.md); hosted and Worker deployments must
-not run it. The official Registry remains HTTPS-only. Hosted or
-multi-instance deployments should configure
-`PLUGIN_REGISTRY_STORE=upstash` so installed MCP tools resolve consistently
-across instances.
+## Verify and troubleshoot
 
-The stdio bridge's child environment allowlist prevents accidental variable
-inheritance, but it is not an adversarial process boundary: bridge and children
-usually share one container UID and same-UID `/proc` visibility. Run only
-fully trusted and audited commands, and never inject unrelated secrets into the
-bridge container. Strong isolation requires per-server containers, distinct
-UIDs, `/proc` isolation, and a separate secret broker. The bridge container is
-memory/PID bounded, and its transport rejects oversized or unterminated raw
-stdio frames before JSON parsing as well as enforcing the parsed-result limit.
+Open **Settings → deployment health** after deployment or configuration changes.
+The `/api/health` route reports configuration readiness for keys, access, stores,
+and service defaults. A password-protected deployment may return `401` before
+authentication. Readiness does not prove that an upstream service is reachable.
 
-## Deployment Health
+| Symptom                                     | Check                                                                                    |
+| ------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| API access denied                           | Access password and deployment mode; do not disable the gate to fix a public deployment. |
+| Saved credentials fail after restart        | Stable BYOK private key and key ID are unchanged.                                        |
+| Parsing jobs or tools fail across instances | All three shared-store selectors and both Redis values are configured.                   |
+| Custom site URL does not appear             | Public URL values were set during the build.                                             |
+| Local data appears missing after a move     | Browser profile and origin match the original installation.                              |
 
-Settings includes a deployment health panel backed by `/api/health`. The route
-returns non-secret status for BYOK, access password, hosted mode, shared stores,
-default model, search, RAG/document processing, and voice readiness. Use it
-after changing environment variables or moving from single-instance local mode
-to hosted or multi-instance deployments.
+Provider direct calls bypass the server's password gate, request proofs, and
+rate limits. The server-default provider cannot use direct calls, so its
+server-held key remains behind those guards.
 
-`/api/health` intentionally reports availability and policy state only. It must
-not expose access passwords, BYOK key material, provider keys, Upstash tokens,
-or internal Redis URLs. It is a configuration readiness check, not a live canary
-or external uptime monitor.
-
-## Runtime Recovery
-
-Knowledge-base OPFS files and vector records should be treated as durable user
-data. Use the built-in reconciliation flow after storage errors, interrupted
-uploads, or manual OPFS changes. It detects missing local files, cleans orphan
-files, and leaves recoverable metadata instead of silently dropping entries.
-
-Search, RAG, attachment, and tool context should share the central context
-budget helper so hosted and local deployments behave consistently across model
-providers with different context limits.
-
-Document parsing uses asynchronous jobs for providers such as Mineru and
-LlamaParse. In hosted or multi-instance deployments, keep
-`DOCUMENT_PARSE_JOB_STORE=upstash`; in-memory job state is only suitable for a
-single local process. Polling and cancellation require the job secret returned
-when the job is created.
-
-## Access Password Boundary
-
-`ACCESS_PASSWORD` accepts multiple credentials, but it remains one deployment
-gate for a single private deployment. It does not identify users and is not a
-user account system. Before offering Neo Chat as a public multi-user SaaS, add
-account authentication, tenant isolation, server-side secret storage, quotas,
-audit logs, abuse controls, and provider spend limits.
-
-The per-provider **direct call** toggle bypasses this gate entirely: those
-requests go from the browser to the provider without touching the server, so
-`ACCESS_PASSWORD`, request-proof signing, and rate limiting do not apply to
-them. For BYOK providers the user is spending their own key, but do not assume
-"gate the app" equals "gate the models". The server default provider is never
-eligible for direct calls, so server-held keys stay behind the gate.
-
-## Dependency Gate
-
-Production changes should pass:
-
-```bash
-pnpm lint
-pnpm typecheck
-pnpm test
-pnpm build
-pnpm audit --audit-level low
-```
+Use [reliability and recovery](reliability-and-safety.md) for generation, parsing,
+and storage errors, and the [configuration reference](environment-variables.md)
+for the full variable list. Source changes should follow the validation workflow
+in [CONTRIBUTING.md](../CONTRIBUTING.md).

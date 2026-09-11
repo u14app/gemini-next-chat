@@ -1,51 +1,52 @@
-# Local offline PWA
+# Offline mode
 
-Neo Chat registers its Service Worker only in production when
-`DEPLOYMENT_MODE=local`. Development and hosted deployments proactively
-unregister `/sw.js` and delete cache names owned by Neo Chat. This prevents
-stale development chunks and prevents a deployment from accidentally retaining
-offline history behavior after it moves from local to hosted mode.
+Neo Chat's offline PWA is enabled only for a production build with
+`DEPLOYMENT_MODE=local`. Development and hosted deployments unregister the
+Neo Chat Service Worker and remove its caches, so they do not retain an old
+offline shell.
 
-Every production build receives a deployment ID. `/sw.js` embeds that ID and
-loads `/sw-runtime.js` with a matching version query. The same ID is also passed
-to Next.js deployment-version protection and used in the PWA cache names. A new
-release therefore changes the Worker bytes and cache namespace even when the
-Worker runtime logic itself did not change. Set `NEXT_DEPLOYMENT_ID` at build
-time when multiple separately built replicas must share one rollout identity;
-otherwise Neo Chat generates a unique build fallback.
+## Install and prepare
 
-On the first online load, the app caches its navigation shell, manifest, icons,
-and the same-origin `/_next/static/` resources used by that build. A subsequent
-offline navigation can hydrate the normal client application and read the
-browser's existing IndexedDB and OPFS data. If shell preparation was incomplete,
-a small localized fallback asks the user to reconnect once.
+Open the local deployment once while online. The browser caches the navigation
+shell, manifest, icons, and same-origin static assets used by that build. If
+the browser offers **Install** or **Add to home screen**, use that action to
+install the PWA. A partial first load may need one more online visit before it
+can open offline.
 
-Offline mode is deliberately read-only. Session navigation, local global
-search, knowledge-file reading, and backup export remain available. Message
-sending and mutation, model generation, MCP, synchronization, web search,
-external RAG, voice providers, and reindexing stay disabled until the browser
-is online.
+Navigation uses the network first and falls back to the cached shell. Versioned
+static assets use the cache first. The Service Worker never caches:
 
-The Service Worker never caches:
-
-- `/api/*` or event-stream requests;
-- external origins;
-- `/_next/image` responses;
-- file, media, or upload routes;
+- `/api/` requests or event streams;
+- external origins, share pages, or `/_next/image` responses;
+- file, media, and upload routes;
 - IndexedDB or OPFS content.
 
-Navigation uses network-first behavior. Versioned static assets use
-cache-first behavior, and old Neo Chat cache versions are removed during
-activation. The app checks for a new Worker at startup, after reconnecting,
-whenever a tab becomes visible, and every 30 minutes during a long visible
-session. Worker update checks bypass the HTTP cache. When a new worker is ready,
-the app shows an explicit reload action instead of replacing a running
-conversation without consent. Accepting the update activates the waiting Worker
-and reloads every tab already controlled by the previous Worker. Both Worker
-scripts use `no-store` response headers, including the Cloudflare Static Assets
-override in `public/_headers`.
+## What works offline
 
-Clearing browser site data removes both the offline shell and all local app
-data. The deployment access password is a server gate, not an operating-system
-device lock; protect the browser profile and device account when retaining
-sensitive offline history.
+The app stays read-only for network-backed work. You can still navigate local
+history, inspect message branches, use local global search, read knowledge
+files, and export a backup. Chat drafts are saved locally and can be sent when
+the device reconnects.
+
+Sending messages, model generation, Agent and MCP actions, web search, external
+RAG, voice providers, synchronization, knowledge uploads or edits, and
+reindexing remain disabled until the browser is online.
+
+The Service Worker does not perform background sync. Offline data comes from
+the browser's existing IndexedDB and OPFS stores; the PWA cache contains only
+the application shell and static assets.
+
+## Updates
+
+The app checks for a new Service Worker at startup, after reconnecting, when a
+tab becomes visible, and every 30 minutes during a visible session. A ready
+update is shown as an explicit reload action, so a running conversation is not
+replaced without consent. Accepting the update activates the waiting worker and
+reloads tabs controlled by the previous worker.
+
+## Local data and device security
+
+Clearing browser site data removes the offline shell and local app data. It does
+not delete a remote encrypted-sync vault. The deployment access password is a
+server gate, not a device lock; protect the browser profile and operating
+system account when keeping sensitive history offline.

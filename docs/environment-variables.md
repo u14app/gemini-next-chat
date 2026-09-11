@@ -1,61 +1,40 @@
 # Environment Variables
 
-Neo Chat is local-first by default. Most user settings can be configured in the
-browser, while environment variables provide deployment-level defaults,
-security boundaries, and shared infrastructure configuration.
+Most personal settings belong in the app. Environment variables configure
+access protection, shared infrastructure, and deployment-wide service defaults.
+Start from [.env.example](../.env.example); deployment steps are in the
+[deployment guide](deployment-hardening.md).
 
-Use `.env.example` as the source template.
+## Where to set values
 
-## Cloudflare Workers
+| Environment        | Configuration                                                                                                                    |
+| ------------------ | -------------------------------------------------------------------------------------------------------------------------------- |
+| Local development  | `.env.local` in the project root                                                                                                 |
+| Docker             | Container environment or a Compose `env_file`; the source Compose file forwards only its declared variables                      |
+| Vercel             | Project environment settings for each deployment scope                                                                           |
+| Cloudflare Workers | Runtime values in **Settings → Variables and Secrets**; build values separately in **Settings → Builds → Variables and Secrets** |
 
-For local development, use `.env.local` or `.dev.vars` as appropriate. Do not
-commit production `.env` files.
+Keep credentials out of source control. `DEFAULT_*` service credentials are
+shared by users of the deployment; leave them unset when users should supply
+their own keys in browser settings. Restart or redeploy after runtime changes.
 
-For production Cloudflare Workers deployments, configure runtime values in the
-Cloudflare dashboard under **Settings -> Variables and Secrets**. Configure
-build-time values separately under **Settings -> Builds -> Variables and
-Secrets** when Workers Builds must read them during `next build`. Build
-variables are not available at runtime.
+`NEXT_PUBLIC_*` values must be present during the build. `NEXT_DEPLOYMENT_ID` is
+also build-time: use one release ID across replicas, or omit it for an automatic
+ID. It controls Next.js version-skew protection and PWA cache rotation. The
+source Docker Compose file passes it as a build argument. Runtime changes cannot
+replace values already baked into a prebuilt image.
 
-Use this Workers Builds setup:
+## Access control
 
-```bash
-Build command: pnpm build:worker
-Deploy command: pnpm exec opennextjs-cloudflare deploy -- --keep-vars
-```
-
-Use Node 24 and Corepack-managed `pnpm@10.30.3` for local builds, CI, Docker,
-and Workers Builds. Worker PRs should also pass `pnpm worker:size` and
-`pnpm worker:dry-run` after `pnpm build:worker`.
-
-`NEXT_DEPLOYMENT_ID` is an optional non-secret build-time release identifier.
-Use a commit SHA or release ID, and use the same value for every replica in one
-rollout. Neo Chat generates a unique fallback when it is omitted. The value is
-baked into Next.js version-skew protection and the PWA cache namespace, so
-setting it only as a runtime variable is too late. For Workers Builds, configure
-it under **Settings -> Builds -> Variables and Secrets**. Docker Compose passes
-the value as a build argument.
-
-`--keep-vars` preserves dashboard-managed runtime variables and secrets across
-deployments. Without it, deployments can replace dashboard variables with only
-the values present in `wrangler.jsonc`.
-
-Only non-sensitive deployment defaults should live in `wrangler.jsonc`. Each
-deployment should set its own secrets in Cloudflare. Provider keys configured as
-`DEFAULT_*_API_KEY` values are deployment-wide defaults shared by all users of
-that Worker instance; leave them empty when users should bring their own keys in
-the browser.
-
-## Access Control
-
-| Variable          | Purpose                                                                                                                                                                                   |
-| ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ACCESS_PASSWORD` | Optional deployment-level password gate. Separate multiple accepted passwords with commas; surrounding whitespace and empty entries are ignored. This is not an account or tenant system. |
+| Variable          | Purpose                                                                                                                                       |
+| ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ACCESS_PASSWORD` | Deployment password gate; required in production local mode unless explicitly bypassed. Accepts comma-separated passwords, not user accounts. |
 
 Commas are separators and cannot be part of an access password. Changing the
-configured list invalidates existing access sessions.
+configured list invalidates existing access sessions. Whitespace and empty entries
+are ignored. See the deployment guide for private and hosted access boundaries.
 
-## BYOK Server Key
+## BYOK server key
 
 | Variable                   | Purpose                                                                                                                                   |
 | -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
@@ -66,10 +45,10 @@ configured list invalidates existing access sessions.
 Generate copyable BYOK values with:
 
 ```bash
-pnpm byok:generate
+corepack pnpm byok:generate
 ```
 
-## Deployment Safety
+## Deployment safety
 
 | Variable                          | Purpose                                                                                                                                                                                     |
 | --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -90,7 +69,7 @@ HTTPS-only. On a public deployment, accept these user-configured URLs only from
 trusted administrators because they expand the server's SSRF surface and HTTP
 does not protect credentials or responses in transit.
 
-## Shared Stores
+## Shared stores
 
 | Variable                   | Purpose                                                                                                         |
 | -------------------------- | --------------------------------------------------------------------------------------------------------------- |
@@ -101,42 +80,22 @@ does not protect credentials or responses in transit.
 | `UPSTASH_REDIS_REST_TOKEN` | Upstash Redis REST token used by shared stores.                                                                 |
 | `SHARING_ENABLED`          | Enables conversation sharing only when set to `true` and both Redis values are configured. Defaults to `false`. |
 
-Conversation sharing is disabled by default. Set `SHARING_ENABLED=true` and
-configure both `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` to enable
-it; sharing has no memory fallback. This is a server runtime variable: set it
-in `.env.local` for local development, the environment passed to Docker Compose,
-or Cloudflare **Settings -> Variables and Secrets**, then restart or redeploy
-as appropriate. Only `true` enables it (case and surrounding whitespace are
-ignored); unset, empty or other values keep it disabled.
+Use `memory` only for a single local process. Hosted and multi-instance
+deployments should use `upstash` for all three stores. The same Redis pair
+coordinates specialized Research source requests; hosted source calls fail
+closed when coordination is unavailable.
 
-When disabled, the menu entry is hidden and publication, updates, public reads
-and share image requests return `SHARING_UNAVAILABLE`. Existing Redis snapshots
-are not deleted. Authenticated revocation remains available while Redis is
-configured, so deleting the original conversation can still cancel its share.
-When enabled, anyone holding a share link can read it, including on
-password-protected deployments; publishing and revocation keep the normal write
-guards. See [conversation sharing](conversation-sharing.md) for lifetime, image
-limits and deletion behavior.
+`SHARING_ENABLED=true` requires both Redis values and has no memory fallback.
+Disabling it blocks publication and public reads without deleting existing
+snapshots; authenticated revocation remains available with Redis configured.
+Share links are readable without the deployment password. See
+[conversation sharing](conversation-sharing.md) for limits and lifecycle.
 
-All three stores may use in-memory state for one local process. Hosted,
-Cloudflare Workers, and multi-instance Docker deployments should use `upstash`
-for all three so rate limits, document parse jobs, and plugin execution
-registry lookups survive across instances. The same Upstash pair coordinates
-the provider leases used by the Deep Research arXiv, PubMed, EPO OPS, and SEC
-EDGAR adapters. Hosted specialized-source calls fail closed with a coordination
-error when the pair is absent or unreachable; a local single process can use
-in-memory coordination.
+Specialized Research source credentials belong in the Plugin Market, not in
+environment variables. Their fixed official endpoints cannot be overridden with
+`DEFAULT_*_BASE_URL`. See [Research sources](research-workflows.md).
 
-Specialized source credentials are configured in the Plugin Market and stored
-through the existing local encrypted-secret path. They are not environment
-variables and are never copied into Research plans, templates, prompts,
-evidence, or extension snapshots. arXiv needs no credential, PubMed accepts an
-optional NCBI API key, EPO OPS requires a client ID and client secret, and SEC
-EDGAR requires a contact-bearing User-Agent such as `Neo Chat research
-team <research@example.com>`. These adapters use fixed official HTTPS
-endpoints; their endpoint cannot be replaced with `DEFAULT_*_BASE_URL`.
-
-## Upload Limits
+## Upload limits
 
 | Variable                    | Purpose                                                                                                                                                                                                                                       |
 | --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -149,7 +108,7 @@ endpoints; their endpoint cannot be replaced with `DEFAULT_*_BASE_URL`.
 | `NEXT_PUBLIC_SITE_URL` | Public site URL used by app metadata and generated public links.                |
 | `NEXT_PUBLIC_API_URL`  | Optional public API base URL override. Leave empty for same-origin deployments. |
 
-## Default Model Provider
+## Default model provider
 
 | Variable                    | Purpose                                                                                                                                                                    |
 | --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -186,12 +145,7 @@ Supported capability aliases include `vision`, `attachment`, `audio`,
 When explicit `modalities.input` or `modalities.output` are present, they are
 treated as authoritative for that direction.
 
-Image generation request counts are not configured here. `imageCount` is an
-optional per-request API field planned by the app when the selected model
-supports image output; it is omitted when the user did not clearly ask for
-multiple separate images.
-
-## Default Task Models
+## Default task models
 
 | Variable                            | Purpose                                                   |
 | ----------------------------------- | --------------------------------------------------------- |
@@ -202,7 +156,7 @@ multiple separate images.
 | `DEFAULT_MODEL_RAG_QUERY`           | Model used for RAG query generation.                      |
 | `DEFAULT_MODEL_MEMORY`              | Model used for memory extraction and dream consolidation. |
 
-## Search Defaults
+## Search defaults
 
 | Variable                  | Purpose                                                                                |
 | ------------------------- | -------------------------------------------------------------------------------------- |
@@ -210,7 +164,11 @@ multiple separate images.
 | `DEFAULT_SEARCH_API_KEY`  | Deployment-level search API key when required by the selected provider.                |
 | `DEFAULT_SEARCH_BASE_URL` | Base URL for configurable search providers such as SearXNG.                            |
 
-## RAG And Document Processing
+Firecrawl's public search works without an API key; a key only raises the
+request rate. An explicit non-default Firecrawl Base URL selects a self-hosted
+service.
+
+## RAG and document processing
 
 | Variable                          | Purpose                                                                                                |
 | --------------------------------- | ------------------------------------------------------------------------------------------------------ |
@@ -223,7 +181,7 @@ multiple separate images.
 | `DEFAULT_MINERU_API_TOKEN`        | Optional deployment-level Mineru token for precise parsing. Empty uses Mineru's no-token Agent parser. |
 | `DEFAULT_LLAMA_PARSE_API_KEY`     | Deployment-level LlamaParse API key for document parsing.                                              |
 
-## Voice Defaults
+## Voice defaults
 
 | Variable                          | Purpose                                                                 |
 | --------------------------------- | ----------------------------------------------------------------------- |
@@ -243,7 +201,7 @@ When `DEFAULT_VOICE_PROVIDER` is set to `elevenlabs` or `mimo`, an empty default
 `DEFAULT_VOICE_PROVIDER=mimo` and `DEFAULT_MIMO_API_KEY` is present. Otherwise
 they remain available as documented defaults without exposing a shared provider.
 
-## Default System Behavior
+## Default system behavior
 
 | Variable                            | Purpose                                                                                                                                   |
 | ----------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
