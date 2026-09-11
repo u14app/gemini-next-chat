@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import Ajv from "ajv";
+import { validateToolOutput } from "../lib/agent/toolSchema";
 
 import {
   buildResearchExecutionPrompt,
@@ -999,10 +999,8 @@ describe("Research wave source contract", () => {
   });
 
   it("constrains native output to this wave's keys, including a valid zero-source schema", () => {
-    const ajv = new Ajv({ strict: false });
-    const validate = ajv.compile(
-      buildResearchWaveResponseFormat(aliases).schema,
-    );
+    const schema = buildResearchWaveResponseFormat(aliases).schema;
+    const validate = (value: unknown) => validateToolOutput(schema, value).ok;
     expect(validate({ packets: [packet(["S1"])] })).toBe(true);
     expect(validate({ packets: [packet(["S80"])] })).toBe(false);
     const emptyFormat = buildResearchWaveResponseFormat({
@@ -1010,7 +1008,8 @@ describe("Research wave source contract", () => {
       sources: [],
     });
     expect(JSON.stringify(emptyFormat)).not.toContain('"enum":[]');
-    const validateEmpty = ajv.compile(emptyFormat.schema);
+    const validateEmpty = (value: unknown) =>
+      validateToolOutput(emptyFormat.schema, value).ok;
     expect(validateEmpty({ packets: [{ ...packet([]), learnings: [] }] })).toBe(
       true,
     );

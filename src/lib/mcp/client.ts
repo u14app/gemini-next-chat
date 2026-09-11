@@ -4,6 +4,7 @@ import {
   StreamableHTTPClientTransport,
   StreamableHTTPError,
 } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { CfWorkerJsonSchemaValidator } from "@modelcontextprotocol/sdk/validation/cfworker";
 import type { RequestOptions } from "@modelcontextprotocol/sdk/shared/protocol.js";
 import { PLUGIN_EXECUTION_LIMITS } from "@/config/limits";
 import type { McpTransport } from "../plugin/types";
@@ -47,6 +48,7 @@ const MCP_CLIENT_INFO = {
   name: "neo-chat",
   version: "1.0.0",
 };
+const MCP_JSON_SCHEMA_VALIDATOR = new CfWorkerJsonSchemaValidator();
 const MCP_REQUEST_TIMEOUT_MS = 30_000;
 const MCP_MAX_RESPONSE_BYTES = PLUGIN_EXECUTION_LIMITS.maxRequestBodyChars;
 const MCP_MAX_REDIRECTS = 5;
@@ -308,7 +310,10 @@ async function connectMcpClient(
   requestOptions: RequestOptions,
 ): Promise<{ client: Client; transport: McpClientTransport }> {
   const transport = createMcpTransport(options, transportType);
-  const client = new Client(MCP_CLIENT_INFO, { capabilities: {} });
+  const client = new Client(MCP_CLIENT_INFO, {
+    capabilities: {},
+    jsonSchemaValidator: MCP_JSON_SCHEMA_VALIDATOR,
+  });
 
   try {
     await client.connect(transport, requestOptions);

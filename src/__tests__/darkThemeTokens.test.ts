@@ -366,7 +366,7 @@ describe("dark theme token contract", () => {
           module === "DiagramBlock" || module === "htmlExtension" ? "tsx" : "ts"
         }`,
       );
-      expect(resources).toContain(`() => import("./${module}")`);
+      expect(resources).toContain(`import("./${module}")`);
       expect(extension).toContain(`import "./${stylesheet}.css";`);
       expect(
         readProjectFile(`src/components/content/markdown/${stylesheet}.css`),

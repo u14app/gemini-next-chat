@@ -26,6 +26,7 @@ describe("document parse service", () => {
 
   it("cancels a pending parse job when the caller aborts", async () => {
     vi.useFakeTimers();
+    const logError = vi.spyOn(console, "error").mockImplementation(() => {});
     mocks.signedApiFetch.mockResolvedValueOnce(
       Response.json(
         { jobId: "job-1", jobSecret: "job-secret", status: "pending" },
@@ -62,6 +63,27 @@ describe("document parse service", () => {
           "x-doc-parse-job-secret": "job-secret",
         },
       }),
+    );
+    expect(logError).not.toHaveBeenCalled();
+  });
+
+  it("still reports a real parser failure", async () => {
+    const logError = vi.spyOn(console, "error").mockImplementation(() => {});
+    mocks.signedApiFetch.mockResolvedValueOnce(
+      Response.json({ error: "parser unavailable" }, { status: 503 }),
+    );
+    const { parseDocumentFile } =
+      await import("../services/api/docParseService");
+
+    await expect(
+      parseDocumentFile(new File(["pdf"], "doc.pdf"), {
+        provider: "mineru",
+        useDefault: true,
+      }),
+    ).rejects.toThrow("parser unavailable");
+    expect(logError).toHaveBeenCalledWith(
+      "Document parse error:",
+      expect.objectContaining({ message: "parser unavailable" }),
     );
   });
 });

@@ -9,7 +9,6 @@ import React, {
 } from "react";
 import { createPortal } from "react-dom";
 import { useLocale, useTranslations } from "next-intl";
-import { toPng } from "html-to-image";
 import type {
   Attachment,
   Message,
@@ -686,6 +685,11 @@ const MessageItem: React.FC<MessageItemProps> = ({
 
     const exportRootToPng = async (root: HTMLElement) => {
       const backgroundColor = getImageExportBackgroundColor(root);
+      const { toPng } = await (typeof window === "undefined"
+        ? Promise.reject(
+            new Error("Message image export is only available in the browser."),
+          )
+        : import("html-to-image"));
       return toPng(root, {
         cacheBust: false,
         backgroundColor,

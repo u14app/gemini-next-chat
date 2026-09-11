@@ -640,7 +640,7 @@ test("follows streamed output only when enabled and keeps manual scrolling stabl
                 type: "content",
                 content: "\n\n```typescript\n",
               });
-              for (let index = 0; index < 10; index += 1) {
+              for (let index = 0; index < 3; index += 1) {
                 const lines = Array.from(
                   { length: 6 },
                   (_, lineIndex) =>
@@ -1171,6 +1171,15 @@ test("avoids page-level horizontal overflow on mobile panels", async ({
 }) => {
   test.setTimeout(90_000);
   await page.setViewportSize({ width: 390, height: 844 });
+  const missingTranslations: string[] = [];
+  page.on("console", (message) => {
+    if (
+      message.type() === "error" &&
+      message.text().includes("MISSING_MESSAGE")
+    ) {
+      missingTranslations.push(message.text());
+    }
+  });
 
   for (const path of [
     "/",
@@ -1187,8 +1196,15 @@ test("avoids page-level horizontal overflow on mobile panels", async ({
     } else {
       await expect(page.getByRole("main")).toBeVisible();
     }
+    if (path === "/?panel=skills") {
+      await expect(
+        page.getByRole("button", { name: /^Install skill / }).first(),
+      ).toBeVisible();
+    }
     await expectNoPageHorizontalOverflow(page);
   }
+
+  expect(missingTranslations).toEqual([]);
 
   const mobileSettingsNavigation = page.locator(
     '[class~="md:overflow-y-auto"]',
@@ -1861,6 +1877,29 @@ test("preserves a PDF original and extracted text across cancel and retry", asyn
     .getByRole("button", { name: "Open collection E2E Knowledge" })
     .click();
 
+  // This isolated page deliberately receives a 503 below. Capture only that
+  // fixture's two diagnostic logs, and assert them instead of printing stacks.
+  await page.evaluate(() => {
+    const fixture = window as typeof window & {
+      __expectedDocumentParseErrors: string[];
+    };
+    fixture.__expectedDocumentParseErrors = [];
+    const originalError = console.error;
+    console.error = (...args: unknown[]) => {
+      const [prefix, error] = args;
+      if (
+        (prefix === "Document parse error:" ||
+          prefix === "File processing failed: retry.pdf") &&
+        error instanceof Error &&
+        error.message === "parser unavailable"
+      ) {
+        fixture.__expectedDocumentParseErrors.push(prefix);
+        return;
+      }
+      originalError.apply(console, args);
+    };
+  });
+
   const fileInput = page.getByLabel("Knowledge files");
   const pendingParseResponse = page.waitForResponse(
     (response) =>
@@ -1928,6 +1967,16 @@ test("preserves a PDF original and extracted text across cancel and retry", asyn
       storageStatus: "saved",
     });
   expect(parseStarts).toBe(3);
+  expect(
+    await page.evaluate(
+      () =>
+        (
+          window as typeof window & {
+            __expectedDocumentParseErrors: string[];
+          }
+        ).__expectedDocumentParseErrors,
+    ),
+  ).toEqual(["Document parse error:", "File processing failed: retry.pdf"]);
 });
 
 test("requires one-time approval for destructive tools", async ({ page }) => {

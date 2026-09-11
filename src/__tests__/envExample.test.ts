@@ -100,6 +100,8 @@ function scanDirectProcessEnvKeys(): Set<string> {
   }
 
   keys.delete("NODE_ENV");
+  // Playwright sets this internal dev-server flag; it is not deployment config.
+  keys.delete("NEO_CHAT_E2E");
   return keys;
 }
 

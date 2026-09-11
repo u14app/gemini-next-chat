@@ -125,6 +125,18 @@ export async function buildDirectProviderConfig(
   };
 }
 
+type BrowserClientsModule = typeof import("@/lib/providers/browserClients");
+
+function loadBrowserClients(): Promise<BrowserClientsModule> {
+  return typeof window === "undefined"
+    ? Promise.reject(
+        new Error(
+          "Browser provider clients are only available in the browser.",
+        ),
+      )
+    : import("@/lib/providers/browserClients");
+}
+
 /**
  * 浏览器 provider 运行时。SDK 体积较大，按需动态载入。
  */
@@ -133,7 +145,7 @@ export async function getBrowserProviderRuntime(): Promise<ProviderRuntime> {
     createBrowserAnthropicClient,
     createBrowserGoogleClient,
     createBrowserOpenAIClient,
-  } = await import("@/lib/providers/browserClients");
+  } = await loadBrowserClients();
 
   return {
     // 请求源自用户本机、目标由用户自行配置，浏览器侧无需 SSRF 校验
@@ -170,7 +182,7 @@ export async function directSimpleGenerator(): Promise<
  */
 export async function getBrowserImageRuntime(): Promise<ImageGenerationRuntime> {
   const { createBrowserGoogleClient, assertDirectProviderUrl } =
-    await import("@/lib/providers/browserClients");
+    await loadBrowserClients();
 
   return {
     assertOutboundAllowed: async () => undefined,
@@ -207,7 +219,7 @@ export async function fetchDirectProviderModels(
     { extractProviderModelIds },
     { getProviderModelsUrl },
   ] = await Promise.all([
-    import("@/lib/providers/browserClients"),
+    loadBrowserClients(),
     import("@/lib/providers/models"),
     import("@/lib/security/urlPolicy"),
   ]);

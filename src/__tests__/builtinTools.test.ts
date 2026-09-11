@@ -4,6 +4,18 @@ import { MEMORY_LIMITS } from "../config/limits";
 import type { MemoryRecord } from "../lib/memory/types";
 import { getAgentBuiltinToolNames } from "../lib/agent";
 import { collectBuiltinTools } from "../services/api/chat/builtinTools";
+import {
+  createDeepResearchBindings,
+  createResearchPlanReviewBindings,
+} from "../services/api/chat/builtinTools/deepResearch";
+import { createKnowledgeSearchBinding } from "../services/api/chat/builtinTools/knowledgeSearch";
+import { createResearchAttachmentInspectionBinding } from "../services/api/chat/builtinTools/researchAttachment";
+import { createMcpCapabilityBindings } from "../services/api/chat/builtinTools/mcpCapabilities";
+import { createSkillDiscoveryBindings } from "../services/api/chat/builtinTools/skillDiscovery";
+import { createLoadSkillBinding } from "../services/api/chat/builtinTools/loadSkill";
+import { createToolDiscoveryBindings } from "../services/api/chat/builtinTools/toolDiscovery";
+import type { TextSkill } from "../types";
+import { normalizeTextSkill } from "../lib/skills";
 
 interface MockMemoryState {
   _hasHydrated: boolean;
@@ -56,6 +68,67 @@ describe("built-in tool registry", () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
+  });
+
+  it("validates built-in schemas across chat modes without dynamic code generation", async () => {
+    vi.resetModules();
+    vi.stubGlobal("Function", function () {
+      throw new EvalError("Dynamic code generation is disabled");
+    });
+    const { validateToolArguments } = await import("../lib/agent/toolSchema");
+    const skill = normalizeTextSkill({
+      id: "schema-test-skill",
+      name: "schema-test-skill",
+      title: "Schema test skill",
+      description: "A text-only test skill",
+      content: "Write a short report.",
+    }) as TextSkill;
+    const bindings = [
+      ...collectBuiltinTools({
+        message: "What do you remember about my parser?",
+        automaticModeEnabled: true,
+      }).bindingsByName.values(),
+      ...collectBuiltinTools({
+        message: "Research and write a report",
+        agentModeEnabled: true,
+        useSearch: true,
+        searchMode: "external",
+      }).bindingsByName.values(),
+      ...createDeepResearchBindings(),
+      ...createResearchPlanReviewBindings(),
+      createKnowledgeSearchBinding(),
+      createResearchAttachmentInspectionBinding(),
+      ...createSkillDiscoveryBindings([skill]),
+      createLoadSkillBinding([skill]),
+      ...createMcpCapabilityBindings([
+        {
+          id: "schema-test-mcp",
+          title: "Schema test MCP",
+          description: "Test server",
+          logoUrl: "",
+          manifestUrl: "",
+          source: "mcp",
+          functions: [],
+        },
+      ]),
+      ...createToolDiscoveryBindings({
+        entries: [],
+        isLoaded: () => false,
+        load: () => ({
+          loaded: [],
+          alreadyLoaded: [],
+          unavailable: [],
+          capacityRemaining: 1,
+        }),
+      }),
+    ];
+    for (const { definition } of bindings) {
+      const result = validateToolArguments(definition.function.parameters, {});
+      expect(result, definition.function.name).not.toMatchObject({
+        ok: false,
+        error: { code: "TOOL_SCHEMA_INVALID" },
+      });
+    }
   });
 
   it("collects memory search as a request-scoped read binding", () => {

@@ -3,6 +3,7 @@ import {
   getTemporarySessionSignal,
   isTemporarySessionId,
 } from "@/lib/chat/sessionRetention";
+import dynamic from "next/dynamic";
 import React, {
   useState,
   useRef,
@@ -49,8 +50,6 @@ import type {
 import { localizePluginMeta } from "@/lib/plugin/localizedMeta";
 import type { ModelInfo } from "@/services/api/chatService";
 import Tooltip from "../ui/Tooltip";
-import RemoteFileModal from "../modals/RemoteFileModal";
-import KnowledgeSelectionModal from "../knowledge/KnowledgeSelectionModal";
 import SafeImage from "../ui/SafeImage";
 import MessageInputAttachmentTray from "./MessageInputAttachmentTray";
 import ComposerCommandMenu from "./ComposerCommandMenu";
@@ -133,10 +132,7 @@ import { Button } from "@/components/ui/primitives";
 import AgentCapabilityMenu, {
   type ChatModeOption,
 } from "@/components/agent/AgentCapabilityMenu";
-import AgentSettingsDialog, {
-  type AgentCapabilitySummary,
-} from "@/components/agent/AgentSettingsDialog";
-import ResearchSettingsDialog from "@/components/research/ResearchSettingsDialog";
+import type { AgentCapabilitySummary } from "@/components/agent/AgentSettingsDialog";
 import { resolveAgentProfile } from "@/lib/assistant/profile";
 import {
   getAgentBuiltinToolNames,
@@ -157,6 +153,22 @@ import {
 import type { ResearchTemplateSelection } from "@/lib/research/templates";
 
 type MessageInputVariant = "default" | "hero";
+
+const RemoteFileModal = dynamic(() => import("../modals/RemoteFileModal"), {
+  ssr: false,
+});
+const KnowledgeSelectionModal = dynamic(
+  () => import("../knowledge/KnowledgeSelectionModal"),
+  { ssr: false },
+);
+const AgentSettingsDialog = dynamic(
+  () => import("@/components/agent/AgentSettingsDialog"),
+  { ssr: false },
+);
+const ResearchSettingsDialog = dynamic(
+  () => import("@/components/research/ResearchSettingsDialog"),
+  { ssr: false },
+);
 
 /** Skills and plugins pulled in with `/` and `@`, forced onto the next send. */
 export interface ComposerForcedInvocations {

@@ -1,4 +1,6 @@
 import { defineConfig, devices } from "@playwright/test";
+import { fileURLToPath } from "node:url";
+import { createE2EServerEnvironment } from "./e2e/serverEnvironment";
 
 const portValue = process.env.NEO_CHAT_E2E_PORT ?? "3100";
 if (!/^\d+$/.test(portValue)) {
@@ -31,6 +33,10 @@ export default defineConfig({
   ],
   webServer: {
     command: `corepack pnpm exec next dev --hostname 127.0.0.1 --port ${port}`,
+    env: createE2EServerEnvironment(
+      fileURLToPath(new URL(".", import.meta.url)),
+      baseURL,
+    ),
     url: baseURL,
     reuseExistingServer: process.env.NEO_CHAT_E2E_REUSE_EXISTING_SERVER === "1",
     timeout: 120_000,

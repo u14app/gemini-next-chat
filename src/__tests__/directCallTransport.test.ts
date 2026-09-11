@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ModelProvider } from "@/types";
 import { SERVER_DEFAULT_PROVIDER_ID } from "@/lib/defaultConfig/shared";
 import { assertDirectProviderUrl } from "@/lib/providers/browserClients";
@@ -127,6 +127,10 @@ describe("direct provider image hydration", () => {
 });
 
 describe("browser image response parsing", () => {
+  beforeEach(() => {
+    vi.stubGlobal("window", {});
+  });
+
   afterEach(() => {
     vi.unstubAllGlobals();
   });

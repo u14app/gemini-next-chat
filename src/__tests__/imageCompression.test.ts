@@ -370,6 +370,27 @@ describe("image compression", () => {
     warn.mockRestore();
   });
 
+  it("falls back when the default compressor is requested during SSR", async () => {
+    const file = createImageFile({ size: 1024 * 1024 + 1 });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    try {
+      await expect(
+        compressImageFile(file, DEFAULT_CONFIG, {
+          readDimensions: async () => ({ width: 1600, height: 900 }),
+        }),
+      ).resolves.toBe(file);
+      expect(warn).toHaveBeenCalledWith(
+        "Failed to compress image; using the original file",
+        expect.objectContaining({
+          message: "Image compression is only available in the browser.",
+        }),
+      );
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
   it("propagates cancellation", async () => {
     const file = createImageFile();
     const controller = new AbortController();

@@ -341,7 +341,14 @@ export async function compressImageFile(
 
     const options = createCompressionOptions(file, config, dimensions, signal);
     const compressor =
-      runtime.compress || (await import("browser-image-compression")).default;
+      runtime.compress ||
+      (
+        await (typeof window === "undefined"
+          ? Promise.reject(
+              new Error("Image compression is only available in the browser."),
+            )
+          : import("browser-image-compression"))
+      ).default;
     throwIfAborted(signal);
 
     const compressed = await compressor(file, options);

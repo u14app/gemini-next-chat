@@ -191,7 +191,9 @@ export async function parseDocumentFile(
         logDevError("Document parse job cancellation failed:", cancelError);
       }
     }
-    logDevError("Document parse error:", error);
+    if (!(error instanceof Error && error.name === "AbortError")) {
+      logDevError("Document parse error:", error);
+    }
     throw error;
   }
 }

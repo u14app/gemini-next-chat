@@ -308,6 +308,9 @@ test("stops an active generation with the default shortcut", async ({
   const stopButton = page.getByRole("button", { name: "Stop generation" });
   await expect(stopButton).toBeVisible();
   await expect(stopButton).toHaveAttribute("aria-keyshortcuts", /Alt\+\.$/);
+  // The stop control also appears during request setup. Wait for a real
+  // streamed response before asserting interruption of an assistant message.
+  await expect(page.getByText("Streaming", { exact: true })).toBeVisible();
 
   await page.keyboard.press("Control+Alt+.");
   await expect(stopButton).toHaveCount(0);

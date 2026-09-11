@@ -70,7 +70,7 @@ describe("chat timeline virtualization", () => {
       "useExtension(diagramResource, Boolean(diagramType))",
     );
     expect(resources).toContain("if (enabled) void resource.load()");
-    expect(resources).toContain('() => import("./highlightExtension")');
+    expect(resources).toContain('import("./highlightExtension")');
     expect(markdown).not.toContain("IntersectionObserver");
     expect(markdown).not.toContain("shouldUseHeavyMarkdown");
     expect(diagrams).not.toContain("IntersectionObserver");

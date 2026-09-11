@@ -1,4 +1,5 @@
 "use client";
+import dynamic from "next/dynamic";
 import {
   endTemporarySession,
   isTemporarySessionId,
@@ -14,12 +15,11 @@ import { useLocale, useTranslations } from "next-intl";
 
 import ChatAppShell from "@/components/app/ChatAppShell";
 import type { MessageInputRef } from "@/components/chat/MessageInput";
-import SkillParameterDialog, {
-  type ComposerSkillParameterValues,
-  type SkillParameterRequest,
-  type SkillParameterSubmission,
+import type {
+  ComposerSkillParameterValues,
+  SkillParameterRequest,
+  SkillParameterSubmission,
 } from "@/components/skill/SkillParameterDialog";
-import AgentUserInputDialog from "@/components/agent/AgentUserInputDialog";
 import type { ModelInfo } from "@/services/api/chatService";
 import { getAgentDetail } from "@/services/api/agentService";
 import type { AgentProfileV2, SessionConfig, Workspace } from "@/types";
@@ -78,6 +78,15 @@ import {
   ResearchRuntimeProvider,
   cancelResearchTasksForSession,
 } from "@/components/research/ResearchRuntimeProvider";
+
+const SkillParameterDialog = dynamic(
+  () => import("@/components/skill/SkillParameterDialog"),
+  { ssr: false },
+);
+const AgentUserInputDialog = dynamic(
+  () => import("@/components/agent/AgentUserInputDialog"),
+  { ssr: false },
+);
 
 const logChatAppError = logDevError;
 const EMPTY_MESSAGES: Message[] = [];

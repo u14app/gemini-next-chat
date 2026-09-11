@@ -50,10 +50,16 @@ function getDeploymentId(phase: string): string {
 
 function createNextConfig(phase: string): NextConfig {
   const deploymentId = getDeploymentId(phase);
+  const isE2EServer =
+    phase === PHASE_DEVELOPMENT_SERVER && process.env.NEO_CHAT_E2E === "1";
 
   return {
     /* config options here */
     output: "standalone",
+    ...(isE2EServer && {
+      distDir: ".next-e2e",
+      typescript: { tsconfigPath: "tsconfig.e2e.json" },
+    }),
     deploymentId,
     env: {
       NEXT_PUBLIC_DEPLOYMENT_ID: deploymentId,

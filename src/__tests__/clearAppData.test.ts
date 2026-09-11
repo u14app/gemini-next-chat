@@ -147,6 +147,7 @@ const ragConfig: RAGConfig = {
 
 describe("clear app data", () => {
   beforeEach(() => {
+    vi.stubGlobal("window", { localStorage: createLocalStorage() });
     vi.clearAllMocks();
     revokeSharesMock.mockReset().mockResolvedValue(undefined);
     encryptSecretMock.mockResolvedValue(tokenSecret);

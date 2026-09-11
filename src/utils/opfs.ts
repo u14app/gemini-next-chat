@@ -1,4 +1,3 @@
-import { dir, file as read, write } from "opfs-tools";
 import { v7 as uuidv7 } from "uuid";
 import { logDevError, logDevWarn } from "../lib/utils/devLogger";
 
@@ -9,6 +8,15 @@ import { logDevError, logDevWarn } from "../lib/utils/devLogger";
 
 const OPFS_PROTOCOL = "opfs://";
 const MAX_OPFS_PATH_LENGTH = 1024;
+type OPFSTools = typeof import("opfs-tools");
+
+function loadOPFSTools(): Promise<OPFSTools> {
+  return typeof window === "undefined"
+    ? Promise.reject(
+        new Error("OPFS tools are only available in a browser environment"),
+      )
+    : import("opfs-tools");
+}
 
 function getSafeRelativeOPFSPath(filePath: string): string | null {
   if (
@@ -66,6 +74,7 @@ export async function saveToOPFS(
   // are not Transferable (only Structured Cloneable), and opfs-tools might
   // try to transfer the content to its worker, causing errors if passed directly
   // in some contexts. ReadableStream is Transferable.
+  const { write } = await loadOPFSTools();
   if (file.stream) {
     await write(filePath, file.stream());
   } else {
@@ -83,6 +92,7 @@ export async function saveToOPFS(
 export async function writeToOPFS(url: string, content: string): Promise<void> {
   const filePath = getSafeOPFSPath(url);
   if (!filePath) throw new Error("Invalid OPFS URL");
+  const { write } = await loadOPFSTools();
   await write(filePath, content);
 }
 
@@ -98,6 +108,7 @@ export async function writeBlobToOPFS(
   const filePath = getSafeOPFSPath(url);
   if (!filePath) throw new Error("Invalid OPFS URL");
 
+  const { write } = await loadOPFSTools();
   if (content instanceof Blob && content.stream) {
     await write(filePath, content.stream());
     return;
@@ -121,6 +132,7 @@ export async function deleteFromOPFS(url?: string): Promise<void> {
   if (!url) return;
   const filePath = getSafeOPFSPath(url);
   if (!filePath) return;
+  const { file: read } = await loadOPFSTools();
   const target = read(filePath);
   if (await target.exists()) {
     await target.remove({ force: true });
@@ -134,6 +146,7 @@ export async function deleteOPFSDirectory(path: string): Promise<void> {
   const safePath = getSafeRelativeOPFSPath(path);
   if (!safePath) return;
 
+  const { dir } = await loadOPFSTools();
   const target = dir(safePath);
   if (await target.exists()) {
     await target.remove({ force: true });
@@ -144,7 +157,10 @@ function normalizeOPFSPath(path: string): string {
   return path.replace(/^\/+/, "");
 }
 
-async function collectOPFSFilePaths(path: string): Promise<string[]> {
+async function collectOPFSFilePaths(
+  path: string,
+  dir: OPFSTools["dir"],
+): Promise<string[]> {
   const target = dir(path);
   if (!(await target.exists())) return [];
 
@@ -153,7 +169,7 @@ async function collectOPFSFilePaths(path: string): Promise<string[]> {
     children.map((child) => {
       const childPath = normalizeOPFSPath(child.path);
       if (child.kind === "file") return Promise.resolve([childPath]);
-      return collectOPFSFilePaths(childPath);
+      return collectOPFSFilePaths(childPath, dir);
     }),
   );
 
@@ -167,7 +183,8 @@ export async function listOPFSDirectory(path: string): Promise<string[]> {
   const safePath = getSafeRelativeOPFSPath(path);
   if (!safePath) return [];
 
-  return collectOPFSFilePaths(safePath);
+  const { dir } = await loadOPFSTools();
+  return collectOPFSFilePaths(safePath, dir);
 }
 
 /**
@@ -179,6 +196,7 @@ export async function statOPFSFileSize(url: string): Promise<number | null> {
   if (!filePath) return null;
 
   try {
+    const { file: read } = await loadOPFSTools();
     const target = read(filePath);
     if (!(await target.exists())) return null;
     return await target.getSize();
@@ -195,6 +213,7 @@ export async function readTextFromOPFS(url: string): Promise<string | null> {
   const filePath = getSafeOPFSPath(url);
   if (!filePath) return null;
 
+  const { file: read } = await loadOPFSTools();
   const target = read(filePath);
   if (!(await target.exists())) return null;
   return await target.text();
@@ -214,6 +233,7 @@ export async function resolveOPFSUrl(url: string): Promise<string> {
   }
 
   try {
+    const { file: read } = await loadOPFSTools();
     const file = read(filePath);
     if (!(await file.exists())) {
       logDevWarn(`OPFS File not found: ${filePath}`);
@@ -246,6 +266,7 @@ export async function resolveOPFSBlob(url: string): Promise<Blob | null> {
   }
 
   try {
+    const { file: read } = await loadOPFSTools();
     const file = read(filePath);
     if (!(await file.exists())) {
       logDevWarn(`OPFS File not found: ${filePath}`);

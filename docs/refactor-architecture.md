@@ -20,6 +20,40 @@ Domain-local types live beside their owners, such as
 `src/types.ts` as the compatibility export for existing imports; new code
 should import from the owning domain when it is clear.
 
+## Browser-only rendering and action boundaries
+
+`markdown/extensionResources.ts` keeps browser checks directly beside all 12
+extension imports: GFM, math parsing and rendering, HTML, highlighting,
+Artifacts, diagrams, charts, files, citations, images, and read-only code.
+Next resolves `typeof window` at build time for each target, removing these
+extension implementations from SSR while retaining the browser resource cache
+and retry behavior. Do not replace these checks with effect-only loading: an
+import that never executes on the server can still enter its bundle.
+
+CommonMark and visualization source fallbacks remain server-rendered, including
+on shared conversation pages. Browser components still own enhanced rendering,
+theme changes, full-screen controls, and image export. Verify both server
+source maps and client chunks after changing this boundary; a passing component
+test alone does not prove server bundle exclusion.
+
+Browser direct-provider clients, attachment image compression, message image
+export, workspace ZIP creation, and OPFS operations load their libraries behind
+explicit browser guards. Keep OPFS path validation synchronous and independent
+of browser APIs. Import failures must preserve the existing action error paths
+and allow later attempts to retry.
+
+Interactive workspace, attachment, Agent, Research, skill-parameter, and agent
+question dialogs use `next/dynamic` with `ssr: false` in their client owners.
+Keep their existing visibility and state-reset lifecycle; the chat shell,
+message text, and public sharing pages retain SSR.
+
+Server API provider SDKs and document ZIP parsing remain server dependencies.
+GFM parsing also remains available to shared Research report and evidence
+processing; isolating the renderer does not remove these domain parsers.
+Shared persistence initialization retains its existing synchronous
+interface: removing a browser library from SSR must not silently change store
+hydration, migrations, or backup restore semantics.
+
 ## Deep Research layout
 
 Deep Research spans the layers above. New code belongs in the narrowest matching

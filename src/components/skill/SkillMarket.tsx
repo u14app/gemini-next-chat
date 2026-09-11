@@ -89,15 +89,17 @@ const titleCaseCategoryName = (value: string) =>
     .replace(/[_-]/g, " ")
     .replace(/\b\w/g, (letter) => letter.toUpperCase());
 
-const formatCategoryName = (
+type SkillCategoryTranslator = {
+  (key: string): string;
+  has(key: string): boolean;
+};
+
+export const formatCategoryName = (
   value: string,
-  translate: (key: string) => string,
+  translate: SkillCategoryTranslator,
 ) => {
-  try {
-    return translate(`categories.${value}`);
-  } catch {
-    return titleCaseCategoryName(value);
-  }
+  const key = `categories.${value}`;
+  return translate.has(key) ? translate(key) : titleCaseCategoryName(value);
 };
 
 const slugifySkillId = (value: string) => {

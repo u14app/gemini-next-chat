@@ -60,38 +60,60 @@ export function useExtension<T>(
   return state;
 }
 
-export const gfmResource = createExtensionResource(
-  () => import("./gfmExtension"),
-);
-export const mathSyntaxResource = createExtensionResource(
-  () => import("remark-math"),
-);
-export const htmlResource = createExtensionResource(
-  () => import("./htmlExtension"),
-);
-export const mathRenderResource = createExtensionResource(
-  () => import("./mathExtension"),
-);
-export const highlightResource = createExtensionResource(
-  () => import("./highlightExtension"),
-);
-export const artifactResource = createExtensionResource(
-  () => import("./ArtifactBlock"),
-);
-export const diagramResource = createExtensionResource(
-  () => import("./DiagramBlock"),
-);
-export const chartResource = createExtensionResource(
-  () => import("./ChartBlock"),
-);
-export const fileResource = createExtensionResource(() => import("./FileCard"));
-export const citationResource = createExtensionResource(
-  () => import("./CitationLink"),
-);
-export const imageResource = createExtensionResource(
-  () => import("./MarkdownImage"),
-);
+function rejectServerLoad(): Promise<never> {
+  return Promise.reject(
+    new Error("Markdown extensions are loaded in the browser."),
+  );
+}
 
-export const readOnlyCodeResource = createExtensionResource(
-  () => import("./ReadOnlyCodeBlock"),
+// These extensions already load only after mount; SSR uses their source
+// fallbacks. Keep each browser check beside its import so Next can also remove
+// the dependency from the SSR bundle without changing client cache/retry state.
+export const gfmResource = createExtensionResource(() =>
+  typeof window === "undefined" ? rejectServerLoad() : import("./gfmExtension"),
+);
+export const mathSyntaxResource = createExtensionResource(() =>
+  typeof window === "undefined" ? rejectServerLoad() : import("remark-math"),
+);
+export const htmlResource = createExtensionResource(() =>
+  typeof window === "undefined"
+    ? rejectServerLoad()
+    : import("./htmlExtension"),
+);
+export const mathRenderResource = createExtensionResource(() =>
+  typeof window === "undefined"
+    ? rejectServerLoad()
+    : import("./mathExtension"),
+);
+export const highlightResource = createExtensionResource(() =>
+  typeof window === "undefined"
+    ? rejectServerLoad()
+    : import("./highlightExtension"),
+);
+export const artifactResource = createExtensionResource(() =>
+  typeof window === "undefined"
+    ? rejectServerLoad()
+    : import("./ArtifactBlock"),
+);
+export const diagramResource = createExtensionResource(() =>
+  typeof window === "undefined" ? rejectServerLoad() : import("./DiagramBlock"),
+);
+export const chartResource = createExtensionResource(() =>
+  typeof window === "undefined" ? rejectServerLoad() : import("./ChartBlock"),
+);
+export const fileResource = createExtensionResource(() =>
+  typeof window === "undefined" ? rejectServerLoad() : import("./FileCard"),
+);
+export const citationResource = createExtensionResource(() =>
+  typeof window === "undefined" ? rejectServerLoad() : import("./CitationLink"),
+);
+export const imageResource = createExtensionResource(() =>
+  typeof window === "undefined"
+    ? rejectServerLoad()
+    : import("./MarkdownImage"),
+);
+export const readOnlyCodeResource = createExtensionResource(() =>
+  typeof window === "undefined"
+    ? rejectServerLoad()
+    : import("./ReadOnlyCodeBlock"),
 );

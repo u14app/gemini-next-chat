@@ -59,6 +59,15 @@ Each function should define:
 | `mcpToolName` | Original remote MCP tool name. MCP functions omit `path` and `method`.                  |
 | `risk`        | Optional risk level: `read`, `write`, `destructive`, or `external`.                     |
 
+The chat runtime validates arguments and declared structured output with a
+Draft 7-compatible JSON Schema interpreter. It also supports `$defs`, nullable
+types, and constraints alongside `$ref`. Validation does not coerce values,
+insert defaults, remove extra properties, or enforce `format` annotations.
+Unresolved references and unsupported explicit schema dialects fail closed;
+validation never downloads schemas. This path works under the hosted CSP
+without `unsafe-eval`. MCP discovery uses the SDK's Worker-compatible validator
+for remote output schemas.
+
 The HTTP method is a minimum risk floor even when a manifest supplies `risk`:
 
 - `GET` is at least `read`.

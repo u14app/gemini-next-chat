@@ -1,4 +1,3 @@
-import { zipSync } from "fflate";
 import { v7 as uuidv7 } from "uuid";
 
 import { AGENT_ARCHIVE_LIMITS } from "@/config/limits";
@@ -119,6 +118,11 @@ export async function createSessionArchive(
 
   let zipped: Uint8Array;
   try {
+    const { zipSync } = await (typeof window === "undefined"
+      ? Promise.reject(
+          new Error("Workspace archives are only available in the browser."),
+        )
+      : import("fflate"));
     zipped = zipSync(files, { level: 6 });
   } catch (error) {
     return workspaceFailure(

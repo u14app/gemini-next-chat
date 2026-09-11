@@ -1,4 +1,5 @@
 "use client";
+import dynamic from "next/dynamic";
 import React, { useState, useRef, useEffect, useId } from "react";
 import { useTranslations } from "next-intl";
 import { AppSettings, Session, Workspace } from "@/types";
@@ -12,7 +13,6 @@ import {
   ShortcutTooltipContent,
   useShortcutPresentation,
 } from "@/components/shortcuts/ShortcutHint";
-import WorkspaceSettingsModal from "./WorkspaceSettingsModal";
 import SidebarSearch from "./SidebarSearch";
 import {
   calculateSidebarPaneHeights,
@@ -56,6 +56,11 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/primitives";
 import { SessionActionsMenu } from "@/components/chat/SessionActions";
+
+const WorkspaceSettingsModal = dynamic(
+  () => import("./WorkspaceSettingsModal"),
+  { ssr: false },
+);
 
 interface SidebarProps {
   sessions: Session[];

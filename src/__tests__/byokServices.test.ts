@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ModelProvider } from "../types";
 
 const mocks = vi.hoisted(() => ({
@@ -154,7 +154,12 @@ describe("BYOK service requests", () => {
     );
   });
 
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it("keeps direct code simulation and model voice requests off the server", async () => {
+    vi.stubGlobal("window", {});
     const directProvider: ModelProvider = {
       ...providerWithoutLocalKey,
       apiKey: "local-key",

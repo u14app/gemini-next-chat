@@ -6,6 +6,7 @@ node_modules
 
 # Build output and caches
 .next
+.next-e2e
 out
 build
 coverage

@@ -9,6 +9,16 @@ when the matching tag is pushed.
 
 ## Unreleased
 
+- Isolated local E2E deployment settings and Next.js development output so smoke
+  tests can run alongside the normal dev server; fixed missing-translation errors
+  for custom skill categories.
+- Excluded Markdown extensions (including ECharts, Mermaid, mind maps, math,
+  and highlighting), browser-only action libraries, and interactive dialogs
+  from SSR bundles while preserving readable server fallbacks and browser
+  rendering, storage, export, and dialog behavior.
+- Fixed tool argument and MCP output-schema validation in strict CSP and
+  Cloudflare environments by using an interpreter without dynamic JavaScript
+  compilation; removed the application's direct Ajv dependency.
 - Fixed streaming auto-scroll with TanStack Virtual's end-anchor correction,
   preserving the viewport when users scroll up to read earlier messages.
 - Updated E2E fixtures for explicit conversation selection, model setup, and

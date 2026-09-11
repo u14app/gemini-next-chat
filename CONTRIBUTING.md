@@ -38,9 +38,23 @@ corepack pnpm audit --audit-level low
 ```
 
 Use `corepack pnpm format` to apply Prettier formatting. Playwright uses a
-dedicated development server on port 3100 by default; set
-`NEO_CHAT_E2E_REUSE_EXISTING_SERVER=1` only when intentionally reusing a known
-Neo Chat server.
+dedicated development server on port 3100 by default. Set `NEO_CHAT_E2E_PORT`
+to use another port. Its `.next-e2e` output and `tsconfig.e2e.json` let it run
+alongside the normal development server without sharing Next's development
+lock or rewriting `tsconfig.json`.
+Playwright sets the internal `NEO_CHAT_E2E=1` flag automatically for this server;
+it is not a deployment setting.
+
+The managed server uses local fixture settings, in-memory stores, and an
+ephemeral BYOK key. Deployment settings declared in `.env.example` and local
+`.env*` files are cleared in the child process before the fixture settings are
+applied, so a local access password, hosted mode, provider key, or public API
+URL cannot redirect smoke tests into a developer's deployment. The files and
+the parent shell environment are unchanged.
+
+Set `NEO_CHAT_E2E_REUSE_EXISTING_SERVER=1` only when intentionally reusing a
+known Neo Chat server. Playwright cannot change an already-running server's
+configuration; that server must already use compatible fixture settings.
 
 ## Pull requests
 
