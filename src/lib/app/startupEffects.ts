@@ -1,4 +1,26 @@
 import type { SearchCompatibilityResult } from "../settings/searchRag";
+import type { ChatConfig, SessionConfig } from "@/types";
+
+export function shouldEnableReasoningByDefault({
+  selectedModel,
+  modelSupportsReasoning,
+  chatConfig,
+  sessionConfig,
+}: {
+  selectedModel: string;
+  modelSupportsReasoning: boolean;
+  chatConfig: Pick<ChatConfig, "useReasoning" | "reasoningMode">;
+  sessionConfig?: Pick<SessionConfig, "useReasoning" | "reasoningMode">;
+}): boolean {
+  if (!selectedModel.trim() || !modelSupportsReasoning) return false;
+  if (chatConfig.useReasoning || chatConfig.reasoningMode !== "off") {
+    return false;
+  }
+  return (
+    sessionConfig?.useReasoning === undefined &&
+    sessionConfig?.reasoningMode === undefined
+  );
+}
 
 export function shouldRunSettingsStartupEffects(
   settingsHydrated: boolean,

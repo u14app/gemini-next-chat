@@ -114,6 +114,25 @@ describe("server default store injection", () => {
     expect(useSettingsStore.getState().search.provider).toBe("google");
   });
 
+  it("preserves explicitly configured Firecrawl when a server default is available", async () => {
+    const { useSettingsStore } = await import("../store/core/settingsStore");
+
+    useSettingsStore.setState((state) => ({
+      ...state,
+      search: {
+        ...state.search,
+        provider: "firecrawl",
+        configs: {
+          ...state.search.configs,
+          firecrawl: { apiKey: "user-firecrawl-key" },
+        },
+      },
+    }));
+
+    useSettingsStore.getState().applyServerConfig(serverConfig);
+    expect(useSettingsStore.getState().search.provider).toBe("firecrawl");
+  });
+
   it("enables default document processing when local credentials belong to another parser", async () => {
     const { useSettingsStore } = await import("../store/core/settingsStore");
 

@@ -7,6 +7,11 @@ services:
     image: neo-chat:local
     ports:
       - "3000:3000"
+    # Load optional deployment-wide defaults (including DEFAULT_* variables).
+    # Keep this scoped to neo-chat; mcp-bridge receives only its explicit values.
+    env_file:
+      - path: .env
+        required: false
     environment:
       NODE_ENV: production
       PORT: "3000"
@@ -14,7 +19,7 @@ services:
       DEPLOYMENT_MODE: ${DEPLOYMENT_MODE:-local}
       ALLOW_INSECURE_LOCAL_PRODUCTION: ${ALLOW_INSECURE_LOCAL_PRODUCTION:-false}
       NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-http://localhost:3000}
-      ACCESS_PASSWORD: ${ACCESS_PASSWORD:?Set ACCESS_PASSWORD before starting Neo Chat}
+      ACCESS_PASSWORD: ${ACCESS_PASSWORD:-}
       BYOK_PRIVATE_KEY_PEM: ${BYOK_PRIVATE_KEY_PEM:-}
       BYOK_KEY_ID: ${BYOK_KEY_ID:-}
       BYOK_ALLOW_EPHEMERAL_KEY: ${BYOK_ALLOW_EPHEMERAL_KEY:-true}

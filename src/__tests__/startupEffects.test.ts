@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   getSessionPluginPresetSyncKey,
   shouldCreateInitialChatSession,
+  shouldEnableReasoningByDefault,
   shouldDisableSearchToggle,
   shouldApplySessionPluginPreset,
   shouldResolveSelectedModelAfterBootstrap,
@@ -11,6 +12,43 @@ import {
 import { getSearchCompatibility } from "../lib/settings/searchRag";
 
 describe("app startup effects", () => {
+  it("enables reasoning by default for a capable initialized model", () => {
+    expect(
+      shouldEnableReasoningByDefault({
+        selectedModel: "SERVER_DEFAULT:thinking-model",
+        modelSupportsReasoning: true,
+        chatConfig: { useReasoning: false, reasoningMode: "off" },
+      }),
+    ).toBe(true);
+
+    expect(
+      shouldEnableReasoningByDefault({
+        selectedModel: "SERVER_DEFAULT:plain-model",
+        modelSupportsReasoning: false,
+        chatConfig: { useReasoning: false, reasoningMode: "off" },
+      }),
+    ).toBe(false);
+  });
+
+  it("does not override an explicit reasoning choice", () => {
+    expect(
+      shouldEnableReasoningByDefault({
+        selectedModel: "SERVER_DEFAULT:thinking-model",
+        modelSupportsReasoning: true,
+        chatConfig: { useReasoning: false, reasoningMode: "off" },
+        sessionConfig: { useReasoning: false, reasoningMode: "off" },
+      }),
+    ).toBe(false);
+
+    expect(
+      shouldEnableReasoningByDefault({
+        selectedModel: "SERVER_DEFAULT:thinking-model",
+        modelSupportsReasoning: true,
+        chatConfig: { useReasoning: true, reasoningMode: "auto" },
+      }),
+    ).toBe(false);
+  });
+
   it("creates a session only for an empty hydrated chat store", () => {
     expect(
       shouldCreateInitialChatSession({ chatHydrated: false, sessionCount: 0 }),

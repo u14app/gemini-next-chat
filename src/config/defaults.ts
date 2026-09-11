@@ -41,7 +41,7 @@ export const DEFAULT_MODEL_PARAMS = {
  */
 export const DEFAULT_CHAT_CONFIG = {
   chatMode: "auto",
-  useSearch: false,
+  useSearch: true,
   useReasoning: false,
   useAgentMode: false,
   useDeepResearch: false,
@@ -105,7 +105,7 @@ export const DEFAULT_RAG_CONFIG = {
  * 搜索配置默认值
  */
 export const DEFAULT_SEARCH_CONFIG = {
-  provider: "google" as const,
+  provider: "firecrawl" as const,
   resultsLimit: 5,
 } as const;
 

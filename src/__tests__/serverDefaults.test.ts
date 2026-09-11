@@ -301,6 +301,16 @@ describe("server default configuration", () => {
     expect(getPublicServerConfig().search.available).toBe(true);
   });
 
+  it("falls back to keyless Firecrawl when no search provider is configured", async () => {
+    const { getDefaultSearchRuntimeConfig, getPublicServerConfig } =
+      await import("../lib/defaultConfig/server");
+
+    expect(getDefaultSearchRuntimeConfig()).toEqual({
+      provider: "firecrawl",
+    });
+    expect(getPublicServerConfig().search.available).toBe(true);
+  });
+
   it("does not publish a default voice provider unless it is explicitly configured", async () => {
     setEnv({
       DEFAULT_ELEVENLABS_API_KEY: "eleven-secret",
@@ -624,6 +634,47 @@ describe("server default configuration", () => {
     );
     expect(JSON.stringify(await response.json())).not.toContain(
       "search-secret",
+    );
+  });
+
+  it("routes an unconfigured default search through public Firecrawl", async () => {
+    mocks.safeFetchText.mockResolvedValue({
+      response: new Response(null, { status: 200 }),
+      text: JSON.stringify({
+        data: {
+          web: [
+            {
+              title: "Firecrawl result",
+              url: "https://example.com/result",
+              markdown: "Result content",
+            },
+          ],
+          images: [],
+        },
+      }),
+      url: "https://api.firecrawl.dev/v2/search",
+    });
+
+    const { POST } = await import("../app/api/search/route");
+    const response = await POST(
+      new Request("https://neo.test/api/search", {
+        method: "POST",
+        body: JSON.stringify({
+          provider: "default",
+          query: "neo",
+        }),
+      }) as any,
+    );
+
+    expect(response.status).toBe(200);
+    expect(mocks.safeFetchText).toHaveBeenCalledWith(
+      "https://api.firecrawl.dev/v2/search",
+      expect.objectContaining({
+        headers: expect.not.objectContaining({
+          Authorization: expect.anything(),
+        }),
+      }),
+      expect.any(Object),
     );
   });
 

@@ -54,5 +54,28 @@ jobs:
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=neo-chat
+          cache-to: type=gha,mode=max,scope=neo-chat
+
+      - name: Extract MCP bridge metadata
+        id: bridge_meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ steps.image.outputs.name }}-mcp-bridge
+          tags: |
+            type=ref,event=branch
+            type=ref,event=tag
+            type=sha
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push MCP bridge
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: docker/mcp-bridge/Dockerfile
+          platforms: linux/amd64
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.bridge_meta.outputs.tags }}
+          labels: ${{ steps.bridge_meta.outputs.labels }}
+          cache-from: type=gha,scope=neo-chat-mcp-bridge
+          cache-to: type=gha,mode=max,scope=neo-chat-mcp-bridge

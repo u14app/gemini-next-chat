@@ -10,7 +10,7 @@ Start from [.env.example](../.env.example); deployment steps are in the
 | Environment        | Configuration                                                                                                                    |
 | ------------------ | -------------------------------------------------------------------------------------------------------------------------------- |
 | Local development  | `.env.local` in the project root                                                                                                 |
-| Docker             | Container environment or a Compose `env_file`; the source Compose file forwards only its declared variables                      |
+| Docker             | Container environment or a Compose `env_file`; the source Compose file loads the optional root `.env` for `neo-chat`             |
 | Vercel             | Project environment settings for each deployment scope                                                                           |
 | Cloudflare Workers | Runtime values in **Settings → Variables and Secrets**; build values separately in **Settings → Builds → Variables and Secrets** |
 
@@ -26,13 +26,15 @@ replace values already baked into a prebuilt image.
 
 ## Access control
 
-| Variable          | Purpose                                                                                                                                       |
-| ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ACCESS_PASSWORD` | Deployment password gate; required in production local mode unless explicitly bypassed. Accepts comma-separated passwords, not user accounts. |
+| Variable          | Purpose                                                                                                                                                     |
+| ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ACCESS_PASSWORD` | Optional deployment password gate. A non-empty value enables it; an empty or unset value disables it. Accepts comma-separated passwords, not user accounts. |
 
 Commas are separators and cannot be part of an access password. Changing the
 configured list invalidates existing access sessions. Whitespace and empty entries
-are ignored. See the deployment guide for private and hosted access boundaries.
+are ignored. In production local mode, API requests without a configured password
+remain blocked unless `ALLOW_INSECURE_LOCAL_PRODUCTION=true` is explicitly set.
+See the deployment guide for private and hosted access boundaries.
 
 ## BYOK server key
 
@@ -158,11 +160,11 @@ treated as authoritative for that direction.
 
 ## Search defaults
 
-| Variable                  | Purpose                                                                                |
-| ------------------------- | -------------------------------------------------------------------------------------- |
-| `DEFAULT_SEARCH_PROVIDER` | Default external search provider: `tavily`, `firecrawl`, `exa`, `bocha`, or `searxng`. |
-| `DEFAULT_SEARCH_API_KEY`  | Deployment-level search API key when required by the selected provider.                |
-| `DEFAULT_SEARCH_BASE_URL` | Base URL for configurable search providers such as SearXNG.                            |
+| Variable                  | Purpose                                                                                                                                   |
+| ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `DEFAULT_SEARCH_PROVIDER` | Default external search provider: `tavily`, `firecrawl`, `exa`, `bocha`, or `searxng`. Defaults to keyless public `firecrawl` when unset. |
+| `DEFAULT_SEARCH_API_KEY`  | Deployment-level search API key when required by the selected provider.                                                                   |
+| `DEFAULT_SEARCH_BASE_URL` | Base URL for configurable search providers such as SearXNG.                                                                               |
 
 Firecrawl's public search works without an API key; a key only raises the
 request rate. An explicit non-default Firecrawl Base URL selects a self-hosted
@@ -202,6 +204,12 @@ When `DEFAULT_VOICE_PROVIDER` is set to `elevenlabs` or `mimo`, an empty default
 they remain available as documented defaults without exposing a shared provider.
 
 ## Default system behavior
+
+New chats enable external search by default. When neither the deployment nor
+the browser has configured another search service, the default search route uses
+keyless public Firecrawl. During model initialization, a selected model whose
+metadata advertises `reasoning: true` starts with `reasoningMode: "auto"`, unless
+the session already contains an explicit reasoning choice.
 
 | Variable                            | Purpose                                                                                                                                   |
 | ----------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |

@@ -23,7 +23,7 @@ describe("app config normalization", () => {
       }),
     ).toEqual({
       chatMode: "auto",
-      useSearch: false,
+      useSearch: true,
       useReasoning: true,
       useAgentMode: false,
       useDeepResearch: false,

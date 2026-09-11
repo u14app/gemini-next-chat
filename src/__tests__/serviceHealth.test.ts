@@ -84,6 +84,17 @@ describe("service health status", () => {
     });
   });
 
+  it("marks keyless Firecrawl search as available by default", async () => {
+    const { getServiceHealthStatus } =
+      await import("../lib/services/serviceHealth");
+    const health = getServiceHealthStatus({ now: 1_700_000_000_000 });
+
+    expect(health.services.search).toMatchObject({
+      status: "available",
+      code: "SEARCH_CONFIGURED",
+    });
+  });
+
   it("marks hosted missing shared stores as policy blocked", async () => {
     vi.stubEnv("DEPLOYMENT_MODE", "hosted");
     vi.stubEnv("RATE_LIMIT_STORE", "memory");

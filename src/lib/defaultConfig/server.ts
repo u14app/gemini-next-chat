@@ -69,6 +69,7 @@ const SEARCH_PROVIDERS = new Set<ConfigurableSearchProvider>([
   "bocha",
   "searxng",
 ]);
+const DEFAULT_SEARCH_PROVIDER: ConfigurableSearchProvider = "firecrawl";
 
 function env(name: string): string {
   return process.env[name]?.trim() || "";
@@ -326,7 +327,8 @@ export function getDefaultSearchRuntimeConfig(): {
   apiKey?: string;
   baseUrl?: string;
 } | null {
-  const provider = env("DEFAULT_SEARCH_PROVIDER").toLowerCase();
+  const provider =
+    env("DEFAULT_SEARCH_PROVIDER").toLowerCase() || DEFAULT_SEARCH_PROVIDER;
   if (!SEARCH_PROVIDERS.has(provider as ConfigurableSearchProvider)) {
     return null;
   }

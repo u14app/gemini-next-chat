@@ -1,7 +1,12 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import type { ModelInfo } from "@/services/api/chatService";
-import type { ChatConfig, ModelProvider, Session } from "@/types";
+import type {
+  ChatConfig,
+  ModelMetadata,
+  ModelProvider,
+  Session,
+} from "@/types";
 import { resolveSelectedModel } from "@/lib/utils/models";
 import {
   buildProviderRuntimeConfig,
@@ -20,9 +25,14 @@ import {
   shouldDisableSearchToggle,
   shouldCreateInitialChatSession,
   shouldResolveSelectedModelAfterBootstrap,
+  shouldEnableReasoningByDefault,
   shouldRunSettingsStartupEffects,
 } from "@/lib/app/startupEffects";
 import type { resolveEffectiveSearchCapability } from "@/lib/settings/searchRag";
+import {
+  parseModelString,
+  resolveProviderModelMetadata,
+} from "@/lib/utils/model";
 import { logDevError } from "@/lib/utils/devLogger";
 
 const logChatAppError = logDevError;
@@ -35,12 +45,21 @@ interface UseChatBootstrapOptions {
   coreHasHydrated: boolean;
   useSearch: boolean;
   useDeepResearch: boolean;
+  useReasoning: boolean;
+  reasoningMode: ChatConfig["reasoningMode"];
   currentSearchCompatibility: SearchCompatibility;
   setChatConfig: (
-    config: Pick<ChatConfig, "useSearch"> &
-      Partial<
-        Pick<ChatConfig, "chatMode" | "useAgentMode" | "useDeepResearch">
-      >,
+    config: Partial<
+      Pick<
+        ChatConfig,
+        | "chatMode"
+        | "useSearch"
+        | "useAgentMode"
+        | "useDeepResearch"
+        | "useReasoning"
+        | "reasoningMode"
+      >
+    >,
   ) => void;
   updateSessionConfig: (
     id: string,
@@ -58,6 +77,8 @@ interface UseChatBootstrapOptions {
   sessions: Session[];
   currentSessionId: string | null;
   createSession: () => void;
+  modelMetadata: Record<string, ModelMetadata>;
+  customModelMetadata: Record<string, ModelMetadata>;
 }
 
 /**
@@ -71,6 +92,8 @@ export function useChatBootstrap({
   coreHasHydrated,
   useSearch,
   useDeepResearch,
+  useReasoning,
+  reasoningMode,
   currentSearchCompatibility,
   setChatConfig,
   updateSessionConfig,
@@ -86,11 +109,14 @@ export function useChatBootstrap({
   sessions,
   currentSessionId,
   createSession,
+  modelMetadata,
+  customModelMetadata,
 }: UseChatBootstrapOptions) {
   const [serverConfigResolved, setServerConfigResolved] = useState(false);
   const [serverModelBootstrapReady, setServerModelBootstrapReady] =
     useState(false);
   const defaultProviderFetchRef = useRef(false);
+  const reasoningDefaultAppliedRef = useRef(false);
 
   // Fetch Metadata & Ensure Plugins on mount
   useEffect(() => {
@@ -306,6 +332,60 @@ export function useChatBootstrap({
     availableModels,
     selectedModel,
     setModel,
+  ]);
+
+  useEffect(() => {
+    if (
+      !shouldResolveSelectedModelAfterBootstrap({
+        chatHydrated: chatHasHydrated,
+        settingsHydrated: settingsHasHydrated,
+        coreHydrated: coreHasHydrated,
+        serverModelBootstrapReady,
+      }) ||
+      !selectedModel ||
+      reasoningDefaultAppliedRef.current
+    ) {
+      return;
+    }
+
+    const { providerId, modelName } = parseModelString(selectedModel);
+    const selectedModelMetadata = resolveProviderModelMetadata({
+      providerId,
+      modelName,
+      modelMetadata,
+      customModelMetadata,
+    });
+    if (selectedModelMetadata?.reasoning !== true) return;
+
+    reasoningDefaultAppliedRef.current = true;
+    const currentSession = sessions.find(
+      (session) => session.id === currentSessionId,
+    );
+    if (
+      !shouldEnableReasoningByDefault({
+        selectedModel,
+        modelSupportsReasoning: true,
+        chatConfig: { useReasoning, reasoningMode },
+        sessionConfig: currentSession?.config,
+      })
+    ) {
+      return;
+    }
+
+    setChatConfig({ reasoningMode: "auto", useReasoning: true });
+  }, [
+    chatHasHydrated,
+    coreHasHydrated,
+    customModelMetadata,
+    currentSessionId,
+    modelMetadata,
+    reasoningMode,
+    selectedModel,
+    serverModelBootstrapReady,
+    sessions,
+    settingsHasHydrated,
+    setChatConfig,
+    useReasoning,
   ]);
 
   // Create the first session on mount. Existing conversations stay available in

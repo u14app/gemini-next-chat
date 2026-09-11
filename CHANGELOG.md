@@ -9,6 +9,12 @@ when the matching tag is pushed.
 
 ## Unreleased
 
+- Enabled search by default for new chats, with keyless public Firecrawl as the
+  fallback when no server or user search provider is configured; models that
+  advertise `reasoning` now initialize with automatic thinking enabled unless a
+  session has an explicit reasoning choice.
+- Added GitHub Container Registry builds for the optional `mcp-bridge` image,
+  using the same branch, tag, SHA, and `latest` metadata as the main image.
 - Isolated local E2E deployment settings and Next.js development output so smoke
   tests can run alongside the normal dev server; fixed missing-translation errors
   for custom skill categories.

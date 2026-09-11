@@ -157,15 +157,16 @@ describe(".env.example", () => {
     }
   });
 
-  it("keeps the Docker quick start fail-closed and checks API readiness", () => {
+  it("allows an optional Docker access password and checks API readiness", () => {
     const compose = readFileSync(
       resolve(process.cwd(), "docker-compose.yml"),
       "utf8",
     );
 
-    expect(compose).toContain(
-      "ACCESS_PASSWORD: ${ACCESS_PASSWORD:?Set ACCESS_PASSWORD before starting Neo Chat}",
-    );
+    expect(compose).toContain("    env_file:");
+    expect(compose).toContain("      - path: .env");
+    expect(compose).toContain("        required: false");
+    expect(compose).toContain("ACCESS_PASSWORD: ${ACCESS_PASSWORD:-}");
     expect(compose).toContain("http://127.0.0.1:3000/api/health");
     expect(compose).toContain("[200, 401].includes(response.status)");
   });

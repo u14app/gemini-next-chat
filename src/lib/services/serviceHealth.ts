@@ -155,10 +155,7 @@ function defaultModelHealth(): ServiceHealthItem {
 }
 
 function searchHealth(): ServiceHealthItem {
-  const provider = env("DEFAULT_SEARCH_PROVIDER").toLowerCase();
-  if (!provider) {
-    return item("search", "unconfigured", "SEARCH_UNCONFIGURED");
-  }
+  const provider = env("DEFAULT_SEARCH_PROVIDER").toLowerCase() || "firecrawl";
   if (provider === "searxng") {
     return env("DEFAULT_SEARCH_BASE_URL")
       ? item("search", "available", "SEARCH_CONFIGURED")

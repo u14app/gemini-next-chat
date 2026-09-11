@@ -14,14 +14,16 @@ server defaults are optional.
 ## Official Docker image
 
 The [Docker workflow](../.github/workflows/docker.yml) publishes
-`ghcr.io/u14app/neo-chat` to GitHub Container Registry. It builds `linux/amd64`
-images; ARM hosts need amd64 emulation or a local source build.
+`ghcr.io/u14app/neo-chat` and `ghcr.io/u14app/neo-chat-mcp-bridge` to GitHub
+Container Registry. It builds `linux/amd64` images; ARM hosts need amd64
+emulation or a local source build.
 
-| Image reference                           | Use                                                        |
-| ----------------------------------------- | ---------------------------------------------------------- |
-| `ghcr.io/u14app/neo-chat:latest`          | Tracks the default branch; not a stable-release channel.   |
-| `ghcr.io/u14app/neo-chat:<tag>`           | Pin a published Git tag, including its `v` prefix.         |
-| `ghcr.io/u14app/neo-chat@sha256:<digest>` | Pin an exact published image for reproducible deployments. |
+| Image reference                            | Use                                                        |
+| ------------------------------------------ | ---------------------------------------------------------- |
+| `ghcr.io/u14app/neo-chat:latest`           | Tracks the default branch; not a stable-release channel.   |
+| `ghcr.io/u14app/neo-chat:<tag>`            | Pin a published Git tag, including its `v` prefix.         |
+| `ghcr.io/u14app/neo-chat@sha256:<digest>`  | Pin an exact published image for reproducible deployments. |
+| `ghcr.io/u14app/neo-chat-mcp-bridge:<tag>` | Optional local MCP bridge image with matching tags.        |
 
 Choose an available tag or digest from the
 [package page](https://github.com/u14app/neo-chat/pkgs/container/neo-chat).
@@ -122,16 +124,19 @@ across container replacements and replicas.
 
 ### Access and stable keys
 
-Set `ACCESS_PASSWORD`, `BYOK_PRIVATE_KEY_PEM`, `BYOK_KEY_ID`, and
-`BYOK_ALLOW_EPHEMERAL_KEY=false` for a long-lived deployment. Generate keys once,
-not on every restart. Changing the private key makes existing encrypted
-credentials unusable until users re-enter them.
+Set `BYOK_PRIVATE_KEY_PEM`, `BYOK_KEY_ID`, and
+`BYOK_ALLOW_EPHEMERAL_KEY=false` for a long-lived deployment. Set
+`ACCESS_PASSWORD` when password protection is desired. Generate keys once, not
+on every restart. Changing the private key makes existing encrypted credentials
+unusable until users re-enter them.
 
-`ACCESS_PASSWORD` accepts comma-separated passwords, trims whitespace, and
-ignores empty entries. Passwords cannot contain commas. Changing the list
-invalidates existing access sessions. Production local mode rejects API requests
-without a password unless `ALLOW_INSECURE_LOCAL_PRODUCTION=true` is explicitly
-set for a private installation protected by another access boundary.
+`ACCESS_PASSWORD` is optional. A non-empty value enables the deployment password
+gate; an empty or unset value disables it. It accepts comma-separated passwords,
+trims whitespace, and ignores empty entries. Passwords cannot contain commas.
+Changing the list invalidates existing access sessions. Production local mode
+still rejects API requests without a password unless
+`ALLOW_INSECURE_LOCAL_PRODUCTION=true` is explicitly set for a private
+installation protected by another access boundary.
 
 The password is a deployment gate, not an account system. A public multi-user
 service needs authentication, tenant isolation, secret management, quotas,
@@ -188,12 +193,19 @@ builds a local image:
 ACCESS_PASSWORD='replace-with-a-strong-password' docker compose up --build -d
 ```
 
-This source Compose file defaults to ephemeral BYOK keys and publishes port
-3000 on all host interfaces. Set stable keys for long-lived use and restrict
-network access as appropriate. It forwards the variables listed in its
-`environment` section; add any other required defaults there or through an
-`env_file` entry. Copying `.env.local` alone does not configure container runtime
-values.
+For a private deployment without a password, explicitly opt in to open local
+API access:
+
+```bash
+ALLOW_INSECURE_LOCAL_PRODUCTION=true docker compose up --build -d
+```
+
+This source Compose file loads the optional root `.env` into the `neo-chat`
+container, defaults to ephemeral BYOK keys, and publishes port 3000 on all host
+interfaces. Set stable keys for long-lived use and restrict network access as
+appropriate. The `mcp-bridge` service intentionally keeps an explicit
+environment allowlist so application credentials are not copied into it.
+Copying `.env.local` alone does not configure container runtime values.
 
 For a Node.js deployment, use Node 24 and Corepack-managed pnpm 10.30.3:
 

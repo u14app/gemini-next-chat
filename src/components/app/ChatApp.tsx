@@ -547,6 +547,8 @@ const ChatApp = () => {
     coreHasHydrated,
     useSearch: chatConfig.useSearch,
     useDeepResearch: chatConfig.useDeepResearch === true,
+    useReasoning: chatConfig.useReasoning,
+    reasoningMode: chatConfig.reasoningMode,
     currentSearchCompatibility,
     setChatConfig,
     updateSessionConfig,
@@ -562,6 +564,8 @@ const ChatApp = () => {
     sessions,
     currentSessionId,
     createSession,
+    modelMetadata,
+    customModelMetadata,
   });
 
   useEffect(() => {

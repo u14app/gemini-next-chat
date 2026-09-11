@@ -18,7 +18,10 @@ import {
   SkillBundle,
 } from "@/types";
 import { BUILT_IN_PLUGINS, UNSPLASH_PLUGIN } from "@/config/plugins";
-import { DEFAULT_SYSTEM_SETTINGS } from "@/config/defaults";
+import {
+  DEFAULT_SEARCH_CONFIG,
+  DEFAULT_SYSTEM_SETTINGS,
+} from "@/config/defaults";
 import {
   PublicServerConfig,
   SERVER_DEFAULT_PROVIDER_ID,
@@ -386,10 +389,17 @@ export const useSettingsStore = create<SettingsState>()(
         set((state) => {
           const hadDefaultSearch =
             state.search.configs.default?.serverAvailable !== undefined;
+          const firecrawlConfig = state.search.configs.firecrawl;
+          const hasUserFirecrawlConfig = Boolean(
+            firecrawlConfig?.apiKey?.trim() ||
+            firecrawlConfig?.apiKeySecret ||
+            firecrawlConfig?.baseUrl?.trim(),
+          );
           const shouldUseDefaultSearch =
             config.search.available &&
             !hadDefaultSearch &&
-            state.search.provider === "firecrawl";
+            state.search.provider === "firecrawl" &&
+            !hasUserFirecrawlConfig;
 
           const hasLocalRagVectorStore =
             Boolean(state.rag.url?.trim()) || hasRagToken(state.rag);
@@ -652,8 +662,8 @@ export const useSettingsStore = create<SettingsState>()(
 
       // Search Settings
       search: {
-        provider: "firecrawl",
-        resultsLimit: 5,
+        provider: DEFAULT_SEARCH_CONFIG.provider,
+        resultsLimit: DEFAULT_SEARCH_CONFIG.resultsLimit,
         timeRange: "any",
         configs: {
           tavily: { apiKey: "" },
