@@ -83,11 +83,23 @@ describe("settings UI primitives", () => {
     expect(searchSettings).toContain("capabilityPublicService");
     expect(searchSettings).not.toContain("capabilityMissingFirecrawl");
     expect(en.Search.capabilityPublicService).toContain("without an API key");
-    expect(zh.Search.capabilityPublicService).toContain("无需 API Key");
-    expect(ja.Search.capabilityPublicService).toContain("API キーなし");
+    expect(en.Search.capabilityPublicService).toContain(
+      "directly from this browser",
+    );
+    expect(zh.Search.capabilityPublicService).toContain("浏览器会直接请求");
+    expect(ja.Search.capabilityPublicService).toContain("ブラウザーから");
     expect(en.Search.capabilityServer).toBeTruthy();
     expect(zh.Search.capabilityServer).toBeTruthy();
     expect(ja.Search.capabilityServer).toBeTruthy();
+
+    const deploymentHealth = readFileSync(
+      resolve(process.cwd(), "src/components/settings/DeploymentHealth.tsx"),
+      "utf8",
+    );
+    expect(deploymentHealth).toContain('t("searchReadyPublic")');
+    expect(en.DeploymentHealth.searchReadyPublic).toContain("browser");
+    expect(zh.DeploymentHealth.searchReadyPublic).toContain("浏览器");
+    expect(ja.DeploymentHealth.searchReadyPublic).toContain("ブラウザー");
   });
 
   it("exposes memory management as a settings tab", () => {

@@ -153,6 +153,7 @@ describe("server default configuration", () => {
   });
 
   afterEach(() => {
+    vi.unstubAllEnvs();
     clearDefaultEnv();
     for (const [key, value] of originalEnv.entries()) {
       if (value === undefined) {
@@ -287,7 +288,7 @@ describe("server default configuration", () => {
     expect(config.system?.enableHtmlVisualPrompt).toBe(false);
   });
 
-  it("keeps keyless Firecrawl available as a default search provider", async () => {
+  it("keeps explicitly configured keyless Firecrawl available as a default search provider", async () => {
     setEnv({
       DEFAULT_SEARCH_PROVIDER: "firecrawl",
     });
@@ -301,14 +302,12 @@ describe("server default configuration", () => {
     expect(getPublicServerConfig().search.available).toBe(true);
   });
 
-  it("falls back to keyless Firecrawl when no search provider is configured", async () => {
+  it("does not enable a server search provider when none is configured", async () => {
     const { getDefaultSearchRuntimeConfig, getPublicServerConfig } =
       await import("../lib/defaultConfig/server");
 
-    expect(getDefaultSearchRuntimeConfig()).toEqual({
-      provider: "firecrawl",
-    });
-    expect(getPublicServerConfig().search.available).toBe(true);
+    expect(getDefaultSearchRuntimeConfig()).toBeNull();
+    expect(getPublicServerConfig().search.available).toBe(false);
   });
 
   it("does not publish a default voice provider unless it is explicitly configured", async () => {
@@ -361,11 +360,12 @@ describe("server default configuration", () => {
       accessPasswordEnabled: true,
       trustedProxyHeaders: true,
       byokStableKeyConfigured: true,
-      byokEphemeralAllowed: false,
+      byokEphemeralAllowed: true,
       apiProof: {
         required: true,
         enabled: true,
         configured: true,
+        ephemeral: false,
         protectedHighCostApis: true,
         windowSeconds: 60,
         sessionTtlSeconds: 600,
@@ -383,6 +383,35 @@ describe("server default configuration", () => {
     ]) {
       expect(serialized).not.toContain(secret);
     }
+  });
+
+  it("publishes single-instance hosted fallbacks without relaxing durable stores", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    setEnv({
+      BYOK_ALLOW_EPHEMERAL_KEY: "false",
+      DEPLOYMENT_MODE: "hosted",
+      RATE_LIMIT_STORE: "memory",
+      DOCUMENT_PARSE_JOB_STORE: "memory",
+      PLUGIN_REGISTRY_STORE: "memory",
+    });
+
+    const { getPublicServerConfig } =
+      await import("../lib/defaultConfig/server");
+
+    expect(getPublicServerConfig().deployment).toMatchObject({
+      mode: "hosted",
+      byokStableKeyConfigured: false,
+      byokEphemeralAllowed: true,
+      apiProof: {
+        required: true,
+        enabled: true,
+        configured: true,
+        ephemeral: true,
+      },
+      rateLimitStore: "memory",
+      documentParseJobStore: "missing",
+      pluginRegistryStore: "missing",
+    });
   });
 
   it("accepts JSON provider model arrays and publishes sanitized model metadata", async () => {
@@ -637,7 +666,10 @@ describe("server default configuration", () => {
     );
   });
 
-  it("routes an unconfigured default search through public Firecrawl", async () => {
+  it("routes an explicitly configured keyless default Firecrawl search through the server", async () => {
+    setEnv({
+      DEFAULT_SEARCH_PROVIDER: "firecrawl",
+    });
     mocks.safeFetchText.mockResolvedValue({
       response: new Response(null, { status: 200 }),
       text: JSON.stringify({

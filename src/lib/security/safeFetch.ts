@@ -227,6 +227,7 @@ async function assertResolvedAddressAllowed(
   policy: SafeUrlPolicy,
   signal: AbortSignal,
 ) {
+  if (!policy.requireDnsResolution && !policy.requirePublicAddress) return;
   const hostname = url.hostname;
   const normalizedHostname = normalizeHostname(hostname);
 

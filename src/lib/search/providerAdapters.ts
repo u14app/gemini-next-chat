@@ -9,6 +9,11 @@ import {
   getSearchProviderPolicy,
   type SearchProvider,
 } from "../security/searchPolicy";
+import {
+  buildFirecrawlSearchRequest,
+  isPublicFirecrawlBaseUrl,
+  mapFirecrawlSearchResponse,
+} from "./firecrawlProtocol";
 
 type SafeFetchJson = typeof safeFetchJson;
 type SafeFetchOptions = Parameters<SafeFetchJson>[2];
@@ -121,15 +126,6 @@ const rewritingPrompt = `You are tasked with re-writing the following text to ma
 
 **Respond only the updated markdown text, and no additional text before or after.**`;
 
-const FIRECRAWL_TIME_FILTERS: Partial<Record<SearchTimeRange, string>> = {
-  day: "qdr:d",
-  week: "qdr:w",
-  month: "qdr:m",
-  year: "qdr:y",
-};
-
-const FIRECRAWL_PUBLIC_SERVICE_URL = "https://api.firecrawl.dev";
-
 function getFirecrawlFailureMessage({
   response,
   data,
@@ -141,10 +137,7 @@ function getFirecrawlFailureMessage({
   apiKey?: string;
   baseUrl?: string;
 }): string {
-  const normalizedBaseUrl = baseUrl?.trim().replace(/\/+$/, "").toLowerCase();
-  const usesPublicService =
-    !normalizedBaseUrl ||
-    normalizedBaseUrl === FIRECRAWL_PUBLIC_SERVICE_URL.toLowerCase();
+  const usesPublicService = isPublicFirecrawlBaseUrl(baseUrl);
   const upstreamMessage =
     typeof data?.error === "string"
       ? data.error
@@ -223,27 +216,17 @@ export async function runSearchProvider({
   }
 
   if (provider === "firecrawl") {
-    const endpoint = new URL(
-      "/v2/search",
-      baseUrl || FIRECRAWL_PUBLIC_SERVICE_URL,
-    ).toString();
+    const request = buildFirecrawlSearchRequest({
+      query,
+      maxResultNumber,
+      timeRange,
+      apiKey,
+      baseUrl,
+    });
     const { response, data } = await fetchJson<any>(
-      endpoint,
+      request.url,
       {
-        method: "POST",
-        headers,
-        body: JSON.stringify({
-          query,
-          limit: maxResultNumber,
-          sources: ["web", "images"],
-          ...(timeRange && FIRECRAWL_TIME_FILTERS[timeRange]
-            ? { tbs: FIRECRAWL_TIME_FILTERS[timeRange] }
-            : {}),
-          scrapeOptions: {
-            formats: [{ type: "markdown" }],
-          },
-          timeout: 25_000,
-        }),
+        ...request.init,
         signal,
       },
       fetchOptions,
@@ -253,43 +236,7 @@ export async function runSearchProvider({
       response,
       getFirecrawlFailureMessage({ response, data, apiKey, baseUrl }),
     );
-    const resultData = data?.data;
-    const results = Array.isArray(resultData?.web)
-      ? resultData.web
-      : Array.isArray(resultData)
-        ? resultData
-        : [];
-    const imageResults = Array.isArray(resultData?.images)
-      ? resultData.images
-      : [];
-    return {
-      sources: results
-        .filter(
-          (item: any) =>
-            item.url &&
-            (item.markdown || item.description || item.snippet || item.title),
-        )
-        .map((result: any) => ({
-          content:
-            result.markdown ||
-            result.description ||
-            result.snippet ||
-            result.title,
-          url: result.url,
-          title: result.title,
-        })),
-      images: imageResults
-        .filter((item: any) => item.imageUrl)
-        .map((result: any) => ({
-          url: result.imageUrl,
-          ...(result.title ? { description: result.title } : {}),
-          ...(result.url || result.sourceUrl || result.hostPageUrl
-            ? {
-                sourceUrl: result.sourceUrl || result.hostPageUrl || result.url,
-              }
-            : {}),
-        })),
-    };
+    return mapFirecrawlSearchResponse(data);
   }
 
   if (provider === "exa") {

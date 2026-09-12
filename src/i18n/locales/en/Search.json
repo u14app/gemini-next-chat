@@ -8,7 +8,7 @@
   "capabilityModel": "Ready: the selected model can use {provider} built-in search.",
   "capabilityServer": "Ready: the server default search service is available.",
   "capabilityClient": "Ready: a saved {provider} credential is available.",
-  "capabilityPublicService": "Ready: Firecrawl works without an API key. Add one for higher request limits.",
+  "capabilityPublicService": "Ready: Firecrawl is called directly from this browser without an API key. Add one for higher request limits.",
   "capabilitySelfHosted": "Ready: a self-hosted {provider} endpoint is configured.",
   "capabilityMissingModel": "Select a model provider before using search.",
   "capabilityMissingServer": "Default search is not configured on this deployment.",

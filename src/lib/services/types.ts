@@ -1,5 +1,6 @@
 export type ServiceHealthState =
   | "available"
+  | "degraded"
   | "missing_key"
   | "policy_blocked"
   | "upstream_failed"

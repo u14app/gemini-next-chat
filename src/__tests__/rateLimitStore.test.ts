@@ -29,15 +29,24 @@ describe("rate limit store", () => {
     });
   });
 
-  it("requires a shared rate limit store in hosted mode", async () => {
+  it("removes expired unique proof-nonce buckets during later requests", async () => {
+    await incrementRateLimitBucket("nonce:expired", 1_000, 1_000);
+    await incrementRateLimitBucket("nonce:next", 1_000, 62_000);
+    expect(globalThis.__neoChatRateLimitBuckets?.has("nonce:expired")).toBe(
+      false,
+    );
+    expect(globalThis.__neoChatRateLimitBuckets?.has("nonce:next")).toBe(true);
+  });
+
+  it("uses memory when hosted shared storage is absent", async () => {
     vi.stubEnv("DEPLOYMENT_MODE", "hosted");
 
     await expect(
       incrementRateLimitBucket("hosted:key", 1_000, 1_000),
-    ).rejects.toThrow(/RATE_LIMIT_STORE=upstash/i);
+    ).resolves.toEqual({ count: 1, resetAt: 2_000 });
   });
 
-  it("does not fall back to memory when the hosted rate limit store fails", async () => {
+  it("falls back to memory when the hosted rate limit store fails", async () => {
     vi.stubEnv("DEPLOYMENT_MODE", "hosted");
     setRateLimitStoreForTesting({
       increment: async () => {
@@ -47,7 +56,7 @@ describe("rate limit store", () => {
 
     await expect(
       incrementRateLimitBucket("hosted:key", 1_000, 1_000),
-    ).rejects.toThrow("shared store unavailable");
+    ).resolves.toEqual({ count: 1, resetAt: 2_000 });
   });
 
   it("allows hosted shared store requests to private HTTPS addresses", async () => {
@@ -75,7 +84,7 @@ describe("rate limit store", () => {
 
     await expect(
       incrementRateLimitBucket("hosted:key", 1_000, 1_000),
-    ).rejects.toThrow(/Protocol/i);
+    ).resolves.toEqual({ count: 1, resetAt: 2_000 });
 
     expect(fetchMock).not.toHaveBeenCalled();
   });

@@ -177,6 +177,88 @@ describe("MessageOutputRenderer reasoning presentation", () => {
     expect(activeToggle.getAttribute("aria-expanded")).toBe("true");
     expect(activeToggle.getAttribute("aria-busy")).toBe("true");
   });
+
+  it("keeps thinking, failed search, and later thinking as compact separate blocks", () => {
+    const { container } = renderMessage({
+      id: "reasoning-search-reasoning",
+      role: "model",
+      content: "",
+      timestamp: 1,
+      outputBlocks: [
+        {
+          id: "thinking-before-search",
+          type: "reasoning",
+          content: "I should look this up.",
+          startedAt: 10,
+          endedAt: 20,
+          durationMs: 10,
+        },
+        {
+          id: "failed-search",
+          type: "search",
+          sources: [],
+          images: [],
+          isSearching: false,
+          error: "Search request failed",
+        },
+        {
+          id: "thinking-after-search",
+          type: "reasoning",
+          content: "I will continue without those results.",
+          startedAt: 30,
+        },
+      ],
+    });
+
+    const blocks = Array.from(
+      container.querySelectorAll<HTMLElement>("[data-message-output-block]"),
+    );
+    expect(blocks).toHaveLength(3);
+    expect(blocks.map((block) => block.className)).toEqual([
+      expect.stringContaining("mb-3"),
+      expect.stringContaining("mb-3"),
+      expect.stringContaining("mb-3"),
+    ]);
+    expect(blocks.every((block) => !block.className.includes("mt-3"))).toBe(
+      true,
+    );
+    expect(screen.getByRole("button", { name: /Thinking/u })).toBeTruthy();
+    expect(
+      screen.getAllByRole("button", { name: /Thought Process/u }),
+    ).toHaveLength(1);
+    expect(screen.getByRole("button", { name: "Search failed" })).toBeTruthy();
+  });
+
+  it("adds top spacing when a framed block follows ordinary Markdown", () => {
+    const { container } = renderMessage({
+      id: "text-before-reasoning",
+      role: "model",
+      content: "",
+      timestamp: 2,
+      outputBlocks: [
+        {
+          id: "text-before",
+          type: "text",
+          content: "A line of model text.\n",
+        },
+        {
+          id: "reasoning-after-text",
+          type: "reasoning",
+          content: "A separate thought.",
+          startedAt: 10,
+          endedAt: 20,
+          durationMs: 10,
+        },
+      ],
+    });
+
+    const blocks = container.querySelectorAll<HTMLElement>(
+      "[data-message-output-block]",
+    );
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0]?.className).toContain("mb-3");
+    expect(blocks[0]?.className).toContain("mt-3");
+  });
 });
 
 describe("MessageOutputRenderer web search presentation", () => {

@@ -69,7 +69,7 @@ docker run --rm -p 127.0.0.1:3000:3000 \
   ghcr.io/u14app/neo-chat:latest
 ```
 
-打开 [localhost:3000](http://localhost:3000)，输入你设置的访问密码。此本地示例使用临时凭据加密密钥；用于生产环境前，请配置稳定的 BYOK 密钥，确保重启后仍能使用已保存的凭据。
+打开 [localhost:3000](http://localhost:3000)，输入你设置的访问密码。此本地示例使用临时凭据加密密钥；用于生产环境前，请配置稳定的 BYOK 密钥，避免重启或多实例之间发生密钥轮换。
 
 ## 部署
 
@@ -79,7 +79,7 @@ docker run --rm -p 127.0.0.1:3000:3000 \
 | **Vercel**             | 导入仓库，选择 Next.js 预设，保留默认输出目录。                                                                             |
 | **Cloudflare Workers** | 运行 `corepack pnpm build:worker`，然后执行 `corepack pnpm deploy:worker`。部署脚本通过 `--keep-vars` 保留 dashboard 变量。 |
 
-生产部署前，请按照[部署指南](docs/deployment-hardening.md) 配置稳定的 BYOK 密钥、访问保护和共享运行时存储。公开托管部署需要启用 hosted 模式并配置共享存储。
+生产部署前，请按照[部署指南](docs/deployment-hardening.md) 配置稳定的 BYOK 密钥、访问保护和共享运行时存储。单实例 hosted 可临时使用进程密钥和内存限流；公开的多实例部署仍应使用稳定密钥与共享存储。
 
 ## 你的数据
 

@@ -8,6 +8,62 @@ import {
 } from "../lib/api/client";
 
 describe("client API response helpers", () => {
+  it.each(["API_PROOF_REQUIRED", "API_PROOF_INVALID", "API_PROOF_EXPIRED"])(
+    "renews the proof session once for %s and preserves the request body",
+    async (code) => {
+      let sessions = 0;
+      let requests = 0;
+      const bodies: unknown[] = [];
+      vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+        if (String(input) === "/api/request-proof/session") {
+          sessions += 1;
+          return Response.json({
+            enabled: true,
+            clientKey: btoa(`session-${sessions}`),
+            expiresAt: Date.now() + 600_000,
+            serverTime: Date.now(),
+          });
+        }
+        requests += 1;
+        bodies.push(init?.body);
+        return requests === 1
+          ? Response.json({ code }, { status: 401 })
+          : Response.json({ ok: true });
+      });
+      expect(
+        (
+          await signedApiFetch("/api/chat", {
+            method: "POST",
+            body: '{"prompt":"hello"}',
+          })
+        ).status,
+      ).toBe(200);
+      expect(sessions).toBe(2);
+      expect(requests).toBe(2);
+      expect(bodies).toEqual(['{"prompt":"hello"}', '{"prompt":"hello"}']);
+    },
+  );
+
+  it.each(["API_PROOF_INVALID", "AUTH_ERROR"])(
+    "bounds retries and preserves the final %s response",
+    async (code) => {
+      let requests = 0;
+      vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+        if (String(input) === "/api/request-proof/session")
+          return Response.json({
+            enabled: true,
+            clientKey: btoa("session"),
+            expiresAt: Date.now() + 600_000,
+          });
+        requests += 1;
+        return Response.json({ code }, { status: 401 });
+      });
+      const response = await signedApiFetch("/api/chat", { method: "POST" });
+      expect(await response.json()).toEqual({ code });
+      expect(requests).toBe(code === "AUTH_ERROR" ? 1 : 2);
+    },
+  );
+
   afterEach(() => {
     clearApiProofSessionCache();
     vi.useRealTimers();

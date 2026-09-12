@@ -132,9 +132,11 @@ const DeploymentHealth: React.FC = () => {
       ? t("searchReadyModel", { provider: searchProviderLabel })
       : searchCompatibility.source === "server_default"
         ? t("searchReadyServer")
-        : searchCompatibility.source === "self_hosted"
-          ? t("searchReadySelfHosted", { provider: searchProviderLabel })
-          : t("searchReadyClient", { provider: searchProviderLabel })
+        : searchCompatibility.source === "public_service"
+          ? t("searchReadyPublic")
+          : searchCompatibility.source === "self_hosted"
+            ? t("searchReadySelfHosted", { provider: searchProviderLabel })
+            : t("searchReadyClient", { provider: searchProviderLabel })
     : t("searchMissing");
   const hasRag =
     Boolean(serverConfig?.rag.vectorStoreAvailable) ||
@@ -233,16 +235,20 @@ const DeploymentHealth: React.FC = () => {
       label: t("apiProof"),
       state:
         runtimeState("apiProof") ||
-        (deployment?.apiProof?.enabled
-          ? "ok"
+        (deployment?.apiProof?.ephemeral
+          ? "warning"
+          : deployment?.apiProof?.enabled
+            ? "ok"
+            : deployment?.apiProof?.required
+              ? "blocked"
+              : "warning"),
+      detail: deployment?.apiProof?.ephemeral
+        ? t("apiProofEphemeral")
+        : deployment?.apiProof?.enabled
+          ? t("apiProofEnabled")
           : deployment?.apiProof?.required
-            ? "blocked"
-            : "warning"),
-      detail: deployment?.apiProof?.enabled
-        ? t("apiProofEnabled")
-        : deployment?.apiProof?.required
-          ? t("apiProofMissing")
-          : t("apiProofLocal"),
+            ? t("apiProofMissing")
+            : t("apiProofLocal"),
     },
     {
       key: "proxyHeaders",

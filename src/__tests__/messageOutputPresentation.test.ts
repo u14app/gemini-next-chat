@@ -28,7 +28,7 @@ const toolBlock: MessageOutputBlock = {
 };
 
 describe("message output presentation", () => {
-  it("uses one shared margin contract for operational blocks", () => {
+  it("uses one-sided spacing between framed operational blocks", () => {
     expect(getMessageOutputBlockSpacingClass(false)).toBe("mb-3");
     expect(getMessageOutputBlockSpacingClass(true)).toBe("mb-3 mt-3");
 
@@ -40,7 +40,9 @@ describe("message output presentation", () => {
       "utf8",
     );
     expect(renderer).toContain("data-message-output-block");
-    expect(renderer).toContain("getMessageOutputBlockSpacingClass(index > 0)");
+    expect(renderer).toContain(
+      "getMessageOutputBlockSpacingClass(index > 0 && !renderedItems[index - 1]?.framed)",
+    );
     expect(renderer).toContain("[&>*]:m-0!");
     expect(renderer).toContain("node: <AgentRunBar");
     expect(renderer).toContain("node: <TaskPlanBlock");

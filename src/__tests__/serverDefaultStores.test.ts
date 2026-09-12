@@ -114,6 +114,31 @@ describe("server default store injection", () => {
     expect(useSettingsStore.getState().search.provider).toBe("google");
   });
 
+  it("moves persisted default search back to Firecrawl when the server default disappears", async () => {
+    const { useSettingsStore } = await import("../store/core/settingsStore");
+
+    useSettingsStore.setState((state) => ({
+      search: {
+        ...state.search,
+        provider: "default",
+        configs: {
+          ...state.search.configs,
+          default: { serverAvailable: true },
+        },
+      },
+    }));
+
+    useSettingsStore.getState().applyServerConfig({
+      ...serverConfig,
+      search: { available: false },
+    });
+
+    expect(useSettingsStore.getState().search.provider).toBe("firecrawl");
+    expect(
+      useSettingsStore.getState().search.configs.default?.serverAvailable,
+    ).toBe(false);
+  });
+
   it("preserves explicitly configured Firecrawl when a server default is available", async () => {
     const { useSettingsStore } = await import("../store/core/settingsStore");
 

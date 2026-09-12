@@ -6,6 +6,7 @@ import {
   createRequestProofHeaders,
   createRequestProofSession,
   clearRequestProofSigningKeyForTesting,
+  getApiProofPublicStatus,
 } from "../lib/security/requestProof";
 import {
   MemoryRateLimitStore,
@@ -54,7 +55,7 @@ describe("API request proof middleware", () => {
     });
   });
 
-  it("fails closed for hosted protected API requests when BYOK is missing", async () => {
+  it("requires a session instead of blocking configuration when hosted BYOK is missing", async () => {
     vi.stubEnv("DEPLOYMENT_MODE", "hosted");
     vi.stubEnv("ACCESS_PASSWORD", "");
     vi.stubEnv("BYOK_PRIVATE_KEY_PEM", "");
@@ -62,11 +63,74 @@ describe("API request proof middleware", () => {
     const response = await proxy(protectedRequest());
     const data = await response.json();
 
-    expect(response.status).toBe(503);
+    expect(response.status).toBe(401);
     expect(data).toMatchObject({
-      code: API_PROOF_ERROR_CODES.notConfigured,
-      statusCode: 503,
+      code: API_PROOF_ERROR_CODES.required,
+      statusCode: 401,
     });
+    expect(getApiProofPublicStatus()).toMatchObject({
+      enabled: true,
+      configured: true,
+      ephemeral: true,
+    });
+  });
+
+  it("accepts ephemeral proof without shared stores and renews it after a process restart", async () => {
+    hostedEnv("");
+    vi.stubEnv("BYOK_ALLOW_EPHEMERAL_KEY", "false");
+    vi.stubEnv("RATE_LIMIT_STORE", "");
+    vi.stubEnv("UPSTASH_REDIS_REST_URL", "");
+    vi.stubEnv("UPSTASH_REDIS_REST_TOKEN", "");
+    setRateLimitStoreForTesting(null);
+    const session = await createRequestProofSession();
+    const request = async (current: typeof session, nonce: string) =>
+      protectedRequest({
+        cookie: `${API_PROOF_SESSION_COOKIE}=${current.cookieValue}`,
+        ...(await createRequestProofHeaders({
+          clientKey: current.clientKey,
+          method: "POST",
+          target: "/api/chat",
+          timestamp: Date.now(),
+          nonce,
+        })),
+      });
+    expect(
+      (await proxy(await request(session, "nonce-before-restart"))).status,
+    ).toBe(200);
+    clearRequestProofSigningKeyForTesting();
+    expect(
+      (await proxy(await request(session, "nonce-after-restart"))).status,
+    ).toBe(401);
+    const renewed = await createRequestProofSession();
+    expect(
+      (await proxy(await request(renewed, "nonce-renewed-session"))).status,
+    ).toBe(200);
+  });
+
+  it("issues bootstrap cookies in middleware that validate on subsequent requests", async () => {
+    hostedEnv("");
+    vi.stubEnv("RATE_LIMIT_STORE", "memory");
+    setRateLimitStoreForTesting(null);
+    const response = await proxy(
+      new NextRequest("https://neo.test/api/request-proof/session"),
+    );
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
+    expect(response.cookies.get(API_PROOF_SESSION_COOKIE)?.httpOnly).toBe(true);
+    const session = await response.json();
+    const headers = await createRequestProofHeaders({
+      clientKey: session.clientKey,
+      method: "POST",
+      target: "/api/chat",
+      timestamp: session.serverTime,
+      nonce: "bootstrap-cookie-proof",
+    });
+    const result = await proxy(
+      protectedRequest({
+        cookie: `${API_PROOF_SESSION_COOKIE}=${response.cookies.get(API_PROOF_SESSION_COOKIE)!.value}`,
+        ...headers,
+      }),
+    );
+    expect(result.status).toBe(200);
   });
 
   it("allows hosted protected API requests with valid request proof", async () => {

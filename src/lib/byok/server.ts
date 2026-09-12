@@ -10,6 +10,7 @@ import { base64UrlToBytes } from "./encoding";
 import type { ProviderRuntimeConfig } from "../security/urlPolicy";
 import { getDefaultProviderRuntimeConfig } from "../defaultConfig/server";
 import { getSpkiKeyId, parsePkcs8RsaPrivateKeyPem } from "./pem";
+import { getDeploymentMode } from "../security/deployment";
 import {
   GOOGLE_PROVIDER_TYPE,
   LEGACY_GEMINI_PROVIDER_TYPE,
@@ -49,6 +50,7 @@ function getConfiguredPrivateKeyPem(): string | undefined {
 
 function shouldAllowEphemeralKey(): boolean {
   return (
+    getDeploymentMode() === "hosted" ||
     process.env.BYOK_ALLOW_EPHEMERAL_KEY === "true" ||
     process.env.NODE_ENV !== "production"
   );

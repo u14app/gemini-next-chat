@@ -400,6 +400,8 @@ export const useSettingsStore = create<SettingsState>()(
             !hadDefaultSearch &&
             state.search.provider === "firecrawl" &&
             !hasUserFirecrawlConfig;
+          const shouldFallbackDefaultSearch =
+            state.search.provider === "default" && !config.search.available;
 
           const hasLocalRagVectorStore =
             Boolean(state.rag.url?.trim()) || hasRagToken(state.rag);
@@ -458,9 +460,11 @@ export const useSettingsStore = create<SettingsState>()(
             customModelMetadata: nextCustomModelMetadata,
             search: normalizeSearchSettings({
               ...state.search,
-              provider: shouldUseDefaultSearch
-                ? "default"
-                : state.search.provider,
+              provider: shouldFallbackDefaultSearch
+                ? "firecrawl"
+                : shouldUseDefaultSearch
+                  ? "default"
+                  : state.search.provider,
               configs: {
                 ...state.search.configs,
                 default: { serverAvailable: config.search.available },

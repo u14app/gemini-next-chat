@@ -43,8 +43,9 @@ docker run --rm --name neo-chat-demo \
 Open [localhost:3000](http://localhost:3000), enter the password, and add a model
 provider in Settings. Stop the container with `Ctrl+C`.
 
-This example uses temporary BYOK keys. After a restart, users may need to
-re-enter saved service credentials. Use stable keys for a long-lived instance.
+This example uses temporary BYOK keys. After a restart, the browser refreshes
+the server public key and re-encrypts the locally saved credential once. Use
+stable keys for a long-lived or replicated instance.
 
 ### Run with Docker Compose
 
@@ -127,8 +128,15 @@ across container replacements and replicas.
 Set `BYOK_PRIVATE_KEY_PEM`, `BYOK_KEY_ID`, and
 `BYOK_ALLOW_EPHEMERAL_KEY=false` for a long-lived deployment. Set
 `ACCESS_PASSWORD` when password protection is desired. Generate keys once, not
-on every restart. Changing the private key makes existing encrypted credentials
-unusable until users re-enter them.
+on every restart. Changing the private key invalidates cached server envelopes;
+the browser refreshes the public key and re-encrypts locally saved credentials
+once on the next proxied request.
+
+Hosted mode can start without a stable key by generating a process-local BYOK
+key and request-proof signing key. This availability fallback is intended for a
+single instance: a restart invalidates the temporary material, and replicas do
+not share it. The browser re-establishes request proof once after a key change,
+and the BYOK client similarly refreshes a stale public key once.
 
 `ACCESS_PASSWORD` is optional. A non-empty value enables the deployment password
 gate; an empty or unset value disables it. It accepts comma-separated passwords,
@@ -158,14 +166,19 @@ UPSTASH_REDIS_REST_URL=https://your-redis-rest-endpoint
 UPSTASH_REDIS_REST_TOKEN=replace-with-your-token
 ```
 
-Hosted mode requires shared stores. Multi-instance private deployments should
-also use all three Upstash stores so rate limits, parsing jobs, and plugin
-registration remain consistent across replicas. The same Redis pair coordinates
-specialized Research sources. Sharing additionally requires
+In a single hosted process, basic API rate limiting falls back to process memory
+when Upstash is missing or unreachable. The fallback resets on restart and is
+not coordinated across replicas. Document parsing jobs and plugin registration
+retain their shared-store requirements. Multi-instance private or hosted
+deployments should use all three Upstash stores so rate limits, parsing jobs,
+and plugin registration remain consistent across replicas. The same Redis pair
+coordinates specialized Research sources. Sharing additionally requires
 `SHARING_ENABLED=true`; see [conversation sharing](conversation-sharing.md).
 
 Leave `TRUST_PROXY_HEADERS=false` unless your proxy strips client-supplied
-forwarded headers. These headers affect rate-limit identity.
+forwarded headers. Protected hosted APIs then use their verified request-proof
+session as a fallback rate-limit identity; public bootstrap routes still share
+a deployment bucket.
 
 User-configured provider, search, RAG, plugin, and MCP URLs can use HTTP and
 private-network addresses in either mode. Restrict configuration to trusted

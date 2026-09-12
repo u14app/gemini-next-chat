@@ -11,9 +11,21 @@ describe("MCP client cancellation", () => {
     lookupMock.mockReset();
   });
 
-  it("cancels DNS preflight with the transport request signal", async () => {
-    lookupMock.mockReturnValue(new Promise(() => {}));
-    const fetchMock = vi.spyOn(globalThis, "fetch");
+  it("passes transport cancellation to fetch without a DNS preflight", async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation((_input, init) => {
+        return new Promise<Response>((_resolve, reject) => {
+          const signal = init?.signal;
+          if (signal?.aborted) {
+            reject(signal.reason);
+            return;
+          }
+          signal?.addEventListener("abort", () => reject(signal.reason), {
+            once: true,
+          });
+        });
+      });
     const controller = new AbortController();
     const { createSafeMcpFetch } = await import("../lib/mcp/client");
     const safeFetch = createSafeMcpFetch();
@@ -24,6 +36,8 @@ describe("MCP client cancellation", () => {
     controller.abort();
 
     await expect(request).rejects.toMatchObject({ name: "AbortError" });
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(lookupMock).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(fetchMock.mock.calls[0]?.[1]?.signal?.aborted).toBe(true);
   });
 });

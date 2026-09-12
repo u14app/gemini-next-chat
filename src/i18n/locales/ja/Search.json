@@ -8,7 +8,7 @@
   "capabilityModel": "準備完了: 選択したモデルは {provider} の内蔵検索を利用できます。",
   "capabilityServer": "準備完了: サーバーのデフォルト検索サービスを利用できます。",
   "capabilityClient": "準備完了: 保存済みの {provider} 認証情報を利用できます。",
-  "capabilityPublicService": "準備完了: Firecrawl は API キーなしで利用でき、設定するとリクエスト上限が増えます。",
+  "capabilityPublicService": "準備完了: このブラウザーから Firecrawl を直接呼び出します。API キーは不要で、設定するとリクエスト上限が増えます。",
   "capabilitySelfHosted": "準備完了: セルフホスト型の {provider} エンドポイントが構成されています。",
   "capabilityMissingModel": "検索を使用する前にモデルプロバイダーを選択してください。",
   "capabilityMissingServer": "このデプロイにはデフォルト検索が構成されていません。",

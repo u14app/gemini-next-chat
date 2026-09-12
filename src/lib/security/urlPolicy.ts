@@ -344,7 +344,6 @@ export function getSafeUrlPolicy(context: OutboundContext): SafeUrlPolicy {
       return {
         context,
         allowedProtocols: ["https:", "http:"],
-        requireDnsResolution: profile.mode === "hosted",
         profile,
       };
     case "mcp":

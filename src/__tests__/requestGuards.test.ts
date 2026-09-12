@@ -13,6 +13,9 @@ import {
 import {
   MemoryRateLimitStore,
   setRateLimitStoreForTesting,
+  incrementRateLimitBucket,
+  getRateLimitBucket,
+  resetRateLimitBucket,
 } from "../lib/security/rateLimitStore";
 
 describe("request guard rate limiting", () => {
@@ -97,7 +100,7 @@ describe("request guard rate limiting", () => {
     expect(response?.headers.get("retry-after")).toBeTruthy();
   });
 
-  it("shares one hosted quota when trusted client IP headers are unavailable", async () => {
+  it("isolates hosted proof-session quotas when trusted client IP headers are unavailable", async () => {
     vi.stubEnv("DEPLOYMENT_MODE", "hosted");
     vi.stubEnv("BYOK_PRIVATE_KEY_PEM", "stable-test-key");
     setRateLimitStoreForTesting(new MemoryRateLimitStore());
@@ -114,7 +117,7 @@ describe("request guard rate limiting", () => {
         enforceRateLimit(
           new NextRequest("https://neo.test/api/media/image-proxy", {
             method: "POST",
-            headers: proofHeaders[i % proofHeaders.length],
+            headers: proofHeaders[0],
           }),
         ),
       ).resolves.toBeNull();
@@ -123,10 +126,47 @@ describe("request guard rate limiting", () => {
     const response = await enforceRateLimit(
       new NextRequest("https://neo.test/api/media/image-proxy", {
         method: "POST",
-        headers: proofHeaders[1],
+        headers: proofHeaders[0],
       }),
     );
 
     expect(response?.status).toBe(429);
+    expect(
+      await enforceRateLimit(
+        new NextRequest("https://neo.test/api/media/image-proxy", {
+          method: "POST",
+          headers: proofHeaders[1],
+        }),
+      ),
+    ).toBeNull();
+  });
+
+  it("keeps hosted quotas in memory during a shared-store failure", async () => {
+    vi.stubEnv("DEPLOYMENT_MODE", "hosted");
+    setRateLimitStoreForTesting({
+      increment: async () => {
+        throw new Error("Upstash unavailable");
+      },
+      get: async () => {
+        throw new Error("Upstash unavailable");
+      },
+      reset: async () => {
+        throw new Error("Upstash unavailable");
+      },
+    });
+    expect(await incrementRateLimitBucket("outage", 60_000, 1_000)).toEqual({
+      count: 1,
+      resetAt: 61_000,
+    });
+    expect(await incrementRateLimitBucket("outage", 60_000, 2_000)).toEqual({
+      count: 2,
+      resetAt: 61_000,
+    });
+    expect(await getRateLimitBucket("outage", 3_000)).toEqual({
+      count: 2,
+      resetAt: 61_000,
+    });
+    await resetRateLimitBucket("outage");
+    expect(await getRateLimitBucket("outage", 3_000)).toBeNull();
   });
 });

@@ -8,7 +8,7 @@
   "capabilityModel": "已就绪：当前模型可以使用 {provider} 内置搜索。",
   "capabilityServer": "已就绪：服务端默认搜索服务可用。",
   "capabilityClient": "已就绪：已保存 {provider} 凭据。",
-  "capabilityPublicService": "已就绪：Firecrawl 无需 API Key 即可使用；配置后可提高请求频率。",
+  "capabilityPublicService": "已就绪：当前浏览器会直接请求 Firecrawl，无需 API Key；配置后可提高请求频率。",
   "capabilitySelfHosted": "已就绪：已配置自托管的 {provider} 地址。",
   "capabilityMissingModel": "请先选择模型 Provider，再使用搜索。",
   "capabilityMissingServer": "当前部署未配置默认搜索能力。",

@@ -38,11 +38,11 @@ See the deployment guide for private and hosted access boundaries.
 
 ## BYOK server key
 
-| Variable                   | Purpose                                                                                                                                   |
-| -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| `BYOK_PRIVATE_KEY_PEM`     | Stable private key used by server routes to decrypt BYOK envelopes. Required for production unless ephemeral keys are explicitly allowed. |
-| `BYOK_KEY_ID`              | Identifier for the active BYOK key. Use a stable value that changes when the key changes.                                                 |
-| `BYOK_ALLOW_EPHEMERAL_KEY` | Allows temporary BYOK keys for local smoke tests. Keep `false` for production.                                                            |
+| Variable                   | Purpose                                                                                                                                               |
+| -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `BYOK_PRIVATE_KEY_PEM`     | Stable private key used by server routes to decrypt BYOK envelopes. Recommended for every long-lived deployment and required for consistent replicas. |
+| `BYOK_KEY_ID`              | Identifier for the active BYOK key. Use a stable value that changes when the key changes.                                                             |
+| `BYOK_ALLOW_EPHEMERAL_KEY` | Allows temporary BYOK keys in non-hosted production. Hosted mode automatically falls back to a process-local key when no stable key exists.           |
 
 Generate copyable BYOK values with:
 
@@ -62,7 +62,9 @@ corepack pnpm byok:generate
 
 `TRUST_PROXY_HEADERS` affects request identity used by deployment diagnostics
 and rate limiting. Leave it `false` unless Neo Chat is behind a trusted proxy
-that removes client-supplied forwarded headers.
+that removes client-supplied forwarded headers. Hosted protected APIs use the
+verified request-proof session as their fallback identity when proxy headers
+are not trusted; public bootstrap routes still share a deployment bucket.
 
 User-configured provider, search, RAG, plugin manifest/execution, and MCP URLs
 may use HTTP and may resolve to localhost or private-network addresses in both
@@ -73,19 +75,22 @@ does not protect credentials or responses in transit.
 
 ## Shared stores
 
-| Variable                   | Purpose                                                                                                         |
-| -------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| `RATE_LIMIT_STORE`         | Store for rate-limit state. Use `upstash` for hosted or multi-instance deployments.                             |
-| `DOCUMENT_PARSE_JOB_STORE` | Store for document parsing jobs. Use `upstash` for hosted or multi-instance deployments.                        |
-| `PLUGIN_REGISTRY_STORE`    | Store for server-registered plugin manifests. Use `upstash` for hosted or multi-instance deployments.           |
-| `UPSTASH_REDIS_REST_URL`   | Upstash Redis REST endpoint used by shared stores.                                                              |
-| `UPSTASH_REDIS_REST_TOKEN` | Upstash Redis REST token used by shared stores.                                                                 |
-| `SHARING_ENABLED`          | Enables conversation sharing only when set to `true` and both Redis values are configured. Defaults to `false`. |
+| Variable                   | Purpose                                                                                                                                   |
+| -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `RATE_LIMIT_STORE`         | Store for rate-limit state. Hosted single-instance deployments fall back to process memory; use `upstash` for multi-instance consistency. |
+| `DOCUMENT_PARSE_JOB_STORE` | Store for document parsing jobs. Use `upstash` for hosted or multi-instance deployments.                                                  |
+| `PLUGIN_REGISTRY_STORE`    | Store for server-registered plugin manifests. Use `upstash` for hosted or multi-instance deployments.                                     |
+| `UPSTASH_REDIS_REST_URL`   | Upstash Redis REST endpoint used by shared stores.                                                                                        |
+| `UPSTASH_REDIS_REST_TOKEN` | Upstash Redis REST token used by shared stores.                                                                                           |
+| `SHARING_ENABLED`          | Enables conversation sharing only when set to `true` and both Redis values are configured. Defaults to `false`.                           |
 
-Use `memory` only for a single local process. Hosted and multi-instance
-deployments should use `upstash` for all three stores. The same Redis pair
-coordinates specialized Research source requests; hosted source calls fail
-closed when coordination is unavailable.
+Use `memory` only for a single process. In hosted mode, basic API rate limiting
+automatically falls back to process memory when Upstash is missing or
+unreachable. This fallback resets on restart and is not shared across replicas.
+Document parsing jobs and plugin registration retain their shared-store
+requirements, and multi-instance deployments should use `upstash` for all three
+stores. The same Redis pair coordinates specialized Research source requests;
+hosted source calls fail closed when coordination is unavailable.
 
 `SHARING_ENABLED=true` requires both Redis values and has no memory fallback.
 Disabling it blocks publication and public reads without deleting existing
@@ -160,15 +165,20 @@ treated as authoritative for that direction.
 
 ## Search defaults
 
-| Variable                  | Purpose                                                                                                                                   |
-| ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| `DEFAULT_SEARCH_PROVIDER` | Default external search provider: `tavily`, `firecrawl`, `exa`, `bocha`, or `searxng`. Defaults to keyless public `firecrawl` when unset. |
-| `DEFAULT_SEARCH_API_KEY`  | Deployment-level search API key when required by the selected provider.                                                                   |
-| `DEFAULT_SEARCH_BASE_URL` | Base URL for configurable search providers such as SearXNG.                                                                               |
+| Variable                  | Purpose                                                                                                                                             |
+| ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `DEFAULT_SEARCH_PROVIDER` | Optional server-side default search provider: `tavily`, `firecrawl`, `exa`, `bocha`, or `searxng`. Leave unset for browser-direct public Firecrawl. |
+| `DEFAULT_SEARCH_API_KEY`  | Deployment-level search API key when required by the selected provider.                                                                             |
+| `DEFAULT_SEARCH_BASE_URL` | Base URL for configurable search providers such as SearXNG.                                                                                         |
 
-Firecrawl's public search works without an API key; a key only raises the
-request rate. An explicit non-default Firecrawl Base URL selects a self-hosted
-service.
+When no server default is configured, Firecrawl's public search is requested
+directly from each user's browser without an API key. This avoids concentrating
+public-service traffic on the deployment's outbound IP. Adding a Firecrawl key,
+setting an explicit non-default Firecrawl Base URL, or setting
+`DEFAULT_SEARCH_PROVIDER=firecrawl` uses the server proxy instead. Browser-direct
+requests require Firecrawl's CORS support and do not fall back to the server.
+If an older deployment copied `DEFAULT_SEARCH_PROVIDER=firecrawl` from a prior
+example, remove or empty that value to opt into the browser-direct public path.
 
 ## RAG and document processing
 

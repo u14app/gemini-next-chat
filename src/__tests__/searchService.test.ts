@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   getState: vi.fn(),
   signedApiFetch: vi.fn(),
+  browserFetch: vi.fn(),
 }));
 
 vi.mock("@/store/core/settingsStore", () => ({
@@ -27,8 +28,10 @@ vi.mock("../lib/byok/client", () => ({
 describe("search service", () => {
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
     mocks.getState.mockReset();
     mocks.signedApiFetch.mockReset();
+    mocks.browserFetch.mockReset();
   });
 
   it("surfaces provider failures instead of returning empty successful results", async () => {
@@ -131,4 +134,166 @@ describe("search service", () => {
       timeRange: "month",
     });
   });
+
+  it("sends keyless public Firecrawl requests directly from the browser", async () => {
+    vi.stubGlobal("window", {});
+    vi.stubGlobal("fetch", mocks.browserFetch);
+    mocks.getState.mockReturnValue({
+      search: {
+        provider: "firecrawl",
+        configs: { firecrawl: { baseUrl: "https://api.firecrawl.dev/" } },
+        resultsLimit: 4,
+        timeRange: "week",
+      },
+    });
+    mocks.browserFetch.mockResolvedValue(
+      Response.json({
+        data: {
+          web: [
+            {
+              title: "Direct result",
+              markdown: "Result body",
+              url: "https://example.com/result",
+            },
+          ],
+          images: [
+            {
+              title: "Direct image",
+              imageUrl: "https://example.com/result.png",
+              sourceUrl: "https://example.com/result",
+            },
+          ],
+        },
+      }),
+    );
+
+    const { createSearchProvider } =
+      await import("../services/api/searchService");
+    const result = await createSearchProvider({ query: "neo chat" });
+
+    expect(mocks.browserFetch).toHaveBeenCalledOnce();
+    expect(mocks.browserFetch).toHaveBeenCalledWith(
+      "https://api.firecrawl.dev/v2/search",
+      expect.objectContaining({
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          query: "neo chat",
+          limit: 4,
+          sources: ["web", "images"],
+          tbs: "qdr:w",
+          scrapeOptions: { formats: [{ type: "markdown" }] },
+          timeout: 25_000,
+        }),
+      }),
+    );
+    expect(mocks.signedApiFetch).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      sources: [
+        {
+          title: "Direct result",
+          content: "Result body",
+          url: "https://example.com/result",
+        },
+      ],
+      images: [
+        {
+          url: "https://example.com/result.png",
+          description: "Direct image",
+          sourceUrl: "https://example.com/result",
+        },
+      ],
+    });
+  });
+
+  it("keeps Firecrawl HTTP status, Retry-After, and client error location", async () => {
+    vi.stubGlobal("window", {});
+    vi.stubGlobal("fetch", mocks.browserFetch);
+    mocks.getState.mockReturnValue({
+      search: {
+        provider: "firecrawl",
+        configs: { firecrawl: {} },
+        resultsLimit: 5,
+      },
+    });
+    mocks.browserFetch.mockResolvedValue(
+      Response.json(
+        { error: "Too many requests" },
+        { status: 429, headers: { "Retry-After": "7" } },
+      ),
+    );
+
+    const { createSearchProvider } =
+      await import("../services/api/searchService");
+    await expect(
+      createSearchProvider({ query: "neo chat" }),
+    ).rejects.toMatchObject({
+      name: "SearchRequestError",
+      status: 429,
+      code: "SEARCH_RATE_LIMITED",
+      location: "client",
+      retryAfterMs: 7_000,
+    });
+    expect(mocks.signedApiFetch).not.toHaveBeenCalled();
+  });
+
+  it("does not proxy browser network failures through the server", async () => {
+    vi.stubGlobal("window", {});
+    vi.stubGlobal("fetch", mocks.browserFetch);
+    mocks.getState.mockReturnValue({
+      search: {
+        provider: "firecrawl",
+        configs: { firecrawl: {} },
+        resultsLimit: 5,
+      },
+    });
+    mocks.browserFetch.mockRejectedValue(new TypeError("Failed to fetch"));
+
+    const { createSearchProvider } =
+      await import("../services/api/searchService");
+    await expect(
+      createSearchProvider({ query: "neo chat" }),
+    ).rejects.toMatchObject({
+      status: 0,
+      code: "SEARCH_NETWORK_ERROR",
+      location: "client",
+    });
+    expect(mocks.signedApiFetch).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["Firecrawl API key", "firecrawl", { apiKey: "firecrawl-key" }],
+    [
+      "custom Firecrawl URL",
+      "firecrawl",
+      { baseUrl: "https://firecrawl.internal" },
+    ],
+    ["encrypted Firecrawl API key", "firecrawl", { apiKeySecret: { v: 1 } }],
+    ["explicit server default", "default", { serverAvailable: true }],
+  ])(
+    "keeps %s requests on the server route",
+    async (_label, provider, config) => {
+      vi.stubGlobal("window", {});
+      mocks.getState.mockReturnValue({
+        search: {
+          provider,
+          configs: { [provider]: config },
+          resultsLimit: 5,
+        },
+      });
+      mocks.signedApiFetch.mockResolvedValue(
+        Response.json({ sources: [], images: [] }),
+      );
+
+      const { createSearchProvider } =
+        await import("../services/api/searchService");
+      await createSearchProvider({ query: "neo chat" });
+
+      expect(mocks.signedApiFetch).toHaveBeenCalledWith(
+        "/api/search",
+        expect.any(Object),
+      );
+      expect(mocks.browserFetch).not.toHaveBeenCalled();
+    },
+  );
 });

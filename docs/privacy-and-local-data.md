@@ -86,6 +86,12 @@ fallback. Browser HTTP is limited to localhost, loopback, and literal private
 LAN IP addresses; hostnames and public addresses require HTTPS. Server-side URL
 checks, response limits, and logging do not apply to this path.
 
+The keyless public Firecrawl search follows the same browser-direct boundary:
+the browser sends the search query to Firecrawl, and Neo Chat's server does not
+receive it. Adding a Firecrawl API key, selecting a custom/self-hosted Firecrawl
+URL, or using a deployment-configured default search routes the request through
+Neo Chat's API so the credential is not exposed to the browser.
+
 ## Provider keys (BYOK)
 
 For proxied requests, user-entered provider, search, RAG, parsing, voice,
@@ -99,19 +105,23 @@ BYOK_PRIVATE_KEY_PEM="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY----
 BYOK_KEY_ID=replace-with-a-stable-key-id
 ```
 
-Changing the private key makes existing local envelopes unreadable until the
-affected credentials are entered again. See the [environment variable
-reference](environment-variables.md) and [deployment guide](deployment-hardening.md)
-for configuration details. Direct calls use the browser-held provider key and
-do not use this proxy envelope.
+Changing the private key invalidates cached server envelopes. On the next
+proxied request, the browser refreshes the public key and re-encrypts its locally
+saved credential once. See the [environment variable reference](environment-variables.md)
+and [deployment guide](deployment-hardening.md) for configuration details.
+Direct calls use the browser-held provider key and do not use this proxy
+envelope.
 
 ## Hosted deployments
 
-`DEPLOYMENT_MODE=hosted` selects the shared-store and deployment safeguards,
-but the deployment password is still only an access gate. A public multi-user
-service also needs authentication, tenant isolation, server-side secret
-management, quotas, audit logs, abuse controls, and provider spend limits. See
-the [deployment guide](deployment-hardening.md).
+`DEPLOYMENT_MODE=hosted` selects deployment safeguards. A single process can
+fall back to temporary request-proof/BYOK keys and in-memory API rate limits,
+but those values reset on restart and are not consistent across replicas.
+Document jobs, plugin registration, and sharing retain their shared-store
+requirements. The deployment password is still only an access gate. A public
+multi-user service also needs authentication, tenant isolation, server-side
+secret management, quotas, audit logs, abuse controls, and provider spend
+limits. See the [deployment guide](deployment-hardening.md).
 
 ## For contributors
 

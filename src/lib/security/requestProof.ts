@@ -41,12 +41,14 @@ export interface ApiProofPublicStatus {
   required: boolean;
   enabled: boolean;
   configured: boolean;
+  ephemeral: boolean;
   protectedHighCostApis: boolean;
   windowSeconds: number;
   sessionTtlSeconds: number;
 }
 
 declare global {
+  var __neoChatRequestProofEphemeralMaterial: string | undefined;
   var __neoChatRequestProofSigningKey:
     | {
         material: string;
@@ -116,7 +118,7 @@ function getStableByokPrivateKeyPem(): string {
 }
 
 function isApiProofConfigured(): boolean {
-  return Boolean(getStableByokPrivateKeyPem());
+  return Boolean(getStableByokPrivateKeyPem()) || isApiProofRequired();
 }
 
 export function isApiProofRequired(): boolean {
@@ -138,6 +140,7 @@ export function getApiProofPublicStatus(): ApiProofPublicStatus {
     required,
     enabled: required && configured,
     configured,
+    ephemeral: required && !getStableByokPrivateKeyPem(),
     protectedHighCostApis: required,
     windowSeconds: API_PROOF_WINDOW_MS / 1000,
     sessionTtlSeconds: API_PROOF_SESSION_TTL_MS / 1000,
@@ -160,7 +163,11 @@ async function importServerSigningKey(material: string): Promise<CryptoKey> {
 }
 
 async function getServerSigningKey(): Promise<CryptoKey | null> {
-  const material = getStableByokPrivateKeyPem();
+  let material = getStableByokPrivateKeyPem();
+  if (!material && isApiProofRequired()) {
+    globalThis.__neoChatRequestProofEphemeralMaterial ??= createClientKey();
+    material = globalThis.__neoChatRequestProofEphemeralMaterial;
+  }
   if (!material) return null;
 
   if (globalThis.__neoChatRequestProofSigningKey?.material !== material) {
@@ -274,6 +281,39 @@ export async function createRequestProofSession(
     windowMs: API_PROOF_WINDOW_MS,
     sessionTtlMs: API_PROOF_SESSION_TTL_MS,
   };
+}
+
+export async function createRequestProofSessionResponse(): Promise<NextResponse> {
+  const status = getApiProofPublicStatus();
+  const serverTime = Date.now();
+  if (!status.required) {
+    const response = NextResponse.json({ enabled: false, serverTime });
+    response.headers.set("Cache-Control", "no-store");
+    return response;
+  }
+  if (!status.configured) {
+    return jsonError(503, {
+      error: "API request proof is not configured",
+      code: API_PROOF_ERROR_CODES.notConfigured,
+    });
+  }
+  const session = await createRequestProofSession(serverTime);
+  const response = NextResponse.json({
+    enabled: true,
+    clientKey: session.clientKey,
+    expiresAt: session.expiresAt,
+    serverTime: session.serverTime,
+    windowMs: session.windowMs,
+  });
+  response.headers.set("Cache-Control", "no-store");
+  response.cookies.set(API_PROOF_SESSION_COOKIE, session.cookieValue, {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
+    path: "/",
+    maxAge: API_PROOF_SESSION_TTL_MS / 1000,
+  });
+  return response;
 }
 
 export async function getRequestProofRateLimitIdentity(
@@ -437,4 +477,5 @@ export async function enforceApiRequestProof(
 
 export function clearRequestProofSigningKeyForTesting(): void {
   globalThis.__neoChatRequestProofSigningKey = undefined;
+  globalThis.__neoChatRequestProofEphemeralMaterial = undefined;
 }

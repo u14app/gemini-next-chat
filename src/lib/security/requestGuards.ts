@@ -12,6 +12,7 @@ import { getDeploymentMode } from "./deployment";
 import {
   enforceApiRequestProof,
   getRequestProofRateLimitIdentity,
+  isApiProofProtectedPath,
 } from "./requestProof";
 import { isAccessPasswordEnabled } from "./accessControl";
 
@@ -138,7 +139,8 @@ export async function enforceRateLimit(
   const clientIp = getRateLimitClientIp(request);
   const useDeploymentBucket =
     clientIp === "unknown" &&
-    (getDeploymentMode() === "hosted" ||
+    ((getDeploymentMode() === "hosted" &&
+      !isApiProofProtectedPath(request.nextUrl.pathname, request.method)) ||
       rule.routeFamily.startsWith("/api/shares/") ||
       rule.routeFamily === "/api/access/verify" ||
       rule.routeFamily === "/api/request-proof/session");
@@ -147,12 +149,12 @@ export async function enforceRateLimit(
       ? await getRequestProofRateLimitIdentity(request, now)
       : null;
   if (clientIp === "unknown" && !useDeploymentBucket && !proofIdentity) {
-    return null;
+    if (getDeploymentMode() !== "hosted") return null;
   }
 
   const identity = useDeploymentBucket
     ? "deployment"
-    : proofIdentity || clientIp;
+    : proofIdentity || (clientIp === "unknown" ? "deployment" : clientIp);
   const key = `${identity}:${request.method}:${rule.routeFamily}`;
   const current = await incrementRateLimitBucket(key, rule.windowMs, now);
   if (current.count <= rule.maxRequests) return null;

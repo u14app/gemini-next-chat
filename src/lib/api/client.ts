@@ -328,35 +328,69 @@ export async function signedApiFetch(
 ): Promise<Response> {
   const url = resolveFetchUrl(input);
   const method = getFetchMethod(input, init);
-  const signal = init?.signal ?? undefined;
+  const signal =
+    init?.signal ?? (input instanceof Request ? input.signal : undefined);
   if (!url || !isApiProofProtectedRoute(url.pathname, method)) {
     return fetch(input, init);
   }
 
-  const session = await getApiProofSession(signal);
-  throwIfAborted(signal);
-  if (!session.enabled || !session.clientKey) {
-    return fetch(input, init);
-  }
+  // Keep a replayable Request before fetch consumes its body. Stream bodies in
+  // RequestInit cannot be replayed; their original response is returned below.
+  const replayInput = input instanceof Request ? input.clone() : input;
+  for (let attempt = 0; ; attempt += 1) {
+    const session = await getApiProofSession(signal);
+    throwIfAborted(signal);
+    const target = `${url.pathname}${url.search}`;
+    const timestamp = String(
+      Math.trunc(Date.now() + session.serverTimeOffsetMs),
+    );
+    const headers = getMergedHeaders(input, init);
+    const proofHeaders =
+      session.enabled && session.clientKey
+        ? await createApiProofHeaders({
+            clientKey: session.clientKey,
+            method,
+            target,
+            timestamp,
+            nonce: createApiProofNonce(),
+            signal,
+          })
+        : {};
+    for (const [key, value] of Object.entries(proofHeaders)) {
+      headers.set(key, value);
+    }
 
-  const target = `${url.pathname}${url.search}`;
-  const timestamp = String(Math.trunc(Date.now() + session.serverTimeOffsetMs));
-  const nonce = createApiProofNonce();
-  const headers = getMergedHeaders(input, init);
-  const proofHeaders = await createApiProofHeaders({
-    clientKey: session.clientKey,
-    method,
-    target,
-    timestamp,
-    nonce,
-    signal,
-  });
-  for (const [key, value] of Object.entries(proofHeaders)) {
-    headers.set(key, value);
+    throwIfAborted(signal);
+    const response = await fetch(attempt === 0 ? input : replayInput, {
+      ...init,
+      headers,
+    });
+    if (
+      attempt > 0 ||
+      response.status !== 401 ||
+      init?.body instanceof ReadableStream
+    ) {
+      return response;
+    }
+    const error = await readJsonResponse<{ code?: string }>(response.clone());
+    if (
+      !error?.code ||
+      ![
+        "API_PROOF_REQUIRED",
+        "API_PROOF_INVALID",
+        "API_PROOF_EXPIRED",
+      ].includes(error.code)
+    ) {
+      return response;
+    }
+    // Concurrent failures from an old session must not discard a newer session
+    // or cancel another caller's in-flight handshake.
+    if (apiProofSession === session) {
+      apiProofSession = null;
+      apiProofCryptoKey = null;
+    }
+    throwIfAborted(signal);
   }
-
-  throwIfAborted(signal);
-  return fetch(input, { ...init, headers });
 }
 
 export async function readJsonResponse<T = unknown>(

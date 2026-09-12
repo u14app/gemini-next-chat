@@ -128,6 +128,15 @@ describe(".env.example", () => {
     );
   });
 
+  it("leaves public Firecrawl on the browser-direct path by default", () => {
+    const example = readFileSync(
+      resolve(process.cwd(), ".env.example"),
+      "utf8",
+    );
+
+    expect(example).toMatch(/^DEFAULT_SEARCH_PROVIDER=""$/m);
+  });
+
   it("does not drift from direct process.env usage", () => {
     const exampleKeys = parseEnvExampleKeys();
     const codeKeys = scanDirectProcessEnvKeys();

@@ -67,9 +67,21 @@ describe("provider response lifecycle limits", () => {
     );
   });
 
-  it("cancels a pending DNS check with the caller signal", async () => {
-    lookupMock.mockReturnValue(new Promise(() => {}));
-    const fetchMock = vi.spyOn(globalThis, "fetch");
+  it("passes caller cancellation to provider fetch without a DNS preflight", async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation((_input, init) => {
+        return new Promise<Response>((_resolve, reject) => {
+          const signal = init?.signal;
+          if (signal?.aborted) {
+            reject(signal.reason);
+            return;
+          }
+          signal?.addEventListener("abort", () => reject(signal.reason), {
+            once: true,
+          });
+        });
+      });
     const controller = new AbortController();
     const { safeFetch } = await import("../lib/security/safeFetch");
 
@@ -81,7 +93,9 @@ describe("provider response lifecycle limits", () => {
     controller.abort();
 
     await expect(request).rejects.toMatchObject({ name: "AbortError" });
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(lookupMock).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(fetchMock.mock.calls[0]?.[1]?.signal?.aborted).toBe(true);
   });
 
   it("configures text, image, and streaming provider budgets", async () => {

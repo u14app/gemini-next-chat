@@ -95,7 +95,7 @@ describe("service health status", () => {
     });
   });
 
-  it("marks hosted missing shared stores as policy blocked", async () => {
+  it("degrades only API rate limits when hosted shared stores are missing", async () => {
     vi.stubEnv("DEPLOYMENT_MODE", "hosted");
     vi.stubEnv("RATE_LIMIT_STORE", "memory");
     vi.stubEnv("DOCUMENT_PARSE_JOB_STORE", "memory");
@@ -106,8 +106,8 @@ describe("service health status", () => {
     const health = getServiceHealthStatus({ now: 1_700_000_000_000 });
 
     expect(health.services.rateLimitStore).toMatchObject({
-      status: "policy_blocked",
-      code: "SHARED_STORE_REQUIRED",
+      status: "degraded",
+      code: "MEMORY_STORE_FALLBACK",
     });
     expect(health.services.pluginRegistry).toMatchObject({
       status: "policy_blocked",
@@ -138,7 +138,7 @@ describe("service health status", () => {
     const health = getServiceHealthStatus({ now: 1_700_000_000_000 });
 
     expect(health.services.proxyHeaders).toMatchObject({
-      status: "policy_blocked",
+      status: "degraded",
       code: "PROXY_HEADERS_UNTRUSTED",
     });
   });
@@ -171,7 +171,7 @@ describe("service health status", () => {
     });
   });
 
-  it("marks hosted API request proof as missing when BYOK is not configured", async () => {
+  it("marks hosted BYOK and request proof as degraded when the stable key is missing", async () => {
     vi.stubEnv("DEPLOYMENT_MODE", "hosted");
     vi.stubEnv("BYOK_PRIVATE_KEY_PEM", "");
 
@@ -180,8 +180,12 @@ describe("service health status", () => {
     const health = getServiceHealthStatus({ now: 1_700_000_000_000 });
 
     expect(health.services.apiProof).toMatchObject({
-      status: "missing_key",
-      code: "API_PROOF_BYOK_MISSING",
+      status: "degraded",
+      code: "API_PROOF_EPHEMERAL",
+    });
+    expect(health.services.byok).toMatchObject({
+      status: "degraded",
+      code: "EPHEMERAL_KEY_ALLOWED",
     });
   });
 });

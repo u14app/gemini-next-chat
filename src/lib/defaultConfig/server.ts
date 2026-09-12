@@ -69,7 +69,6 @@ const SEARCH_PROVIDERS = new Set<ConfigurableSearchProvider>([
   "bocha",
   "searxng",
 ]);
-const DEFAULT_SEARCH_PROVIDER: ConfigurableSearchProvider = "firecrawl";
 
 function env(name: string): string {
   return process.env[name]?.trim() || "";
@@ -327,8 +326,7 @@ export function getDefaultSearchRuntimeConfig(): {
   apiKey?: string;
   baseUrl?: string;
 } | null {
-  const provider =
-    env("DEFAULT_SEARCH_PROVIDER").toLowerCase() || DEFAULT_SEARCH_PROVIDER;
+  const provider = env("DEFAULT_SEARCH_PROVIDER").toLowerCase();
   if (!SEARCH_PROVIDERS.has(provider as ConfigurableSearchProvider)) {
     return null;
   }
@@ -556,6 +554,7 @@ function getPublicStoreState(
     store === "upstash" || store === "redis" || store === "kv";
 
   if (wantsSharedStore && upstashConfigured) return "shared";
+  if (storeEnvName === "RATE_LIMIT_STORE") return "memory";
   if (mode === "hosted" || wantsSharedStore) return "missing";
   return "memory";
 }
@@ -661,7 +660,10 @@ export function getPublicServerConfig(): PublicServerConfig {
       accessPasswordEnabled: isAccessPasswordEnabled(),
       trustedProxyHeaders: envBool("TRUST_PROXY_HEADERS") === true,
       byokStableKeyConfigured: Boolean(env("BYOK_PRIVATE_KEY_PEM")),
-      byokEphemeralAllowed: envBool("BYOK_ALLOW_EPHEMERAL_KEY") === true,
+      byokEphemeralAllowed:
+        deploymentMode === "hosted" ||
+        envBool("BYOK_ALLOW_EPHEMERAL_KEY") === true ||
+        process.env.NODE_ENV !== "production",
       apiProof: getApiProofPublicStatus(),
       rateLimitStore: getPublicStoreState("RATE_LIMIT_STORE"),
       documentParseJobStore: getPublicStoreState("DOCUMENT_PARSE_JOB_STORE"),

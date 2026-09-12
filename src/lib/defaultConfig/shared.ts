@@ -59,6 +59,7 @@ export interface PublicServerConfig {
       required: boolean;
       enabled: boolean;
       configured: boolean;
+      ephemeral: boolean;
       protectedHighCostApis: boolean;
       windowSeconds: number;
       sessionTtlSeconds: number;

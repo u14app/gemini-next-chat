@@ -1,4 +1,3 @@
-import { getDeploymentMode } from "./deployment";
 import { safeFetchSharedStoreJson } from "./sharedStoreFetch";
 
 export interface RateLimitResult {
@@ -24,6 +23,7 @@ interface RateLimitBucket {
 
 declare global {
   var __neoChatRateLimitBuckets: Map<string, RateLimitBucket> | undefined;
+  var __neoChatRateLimitNextSweepAt: number | undefined;
 }
 
 function getMemoryBuckets(): Map<string, RateLimitBucket> {
@@ -50,6 +50,14 @@ export class MemoryRateLimitStore implements RateLimitStore {
     now = Date.now(),
   ): Promise<RateLimitResult> {
     const buckets = getMemoryBuckets();
+    // Proof nonces create unique keys, so expiration cannot rely only on reads
+    // of the same bucket when hosted requests use the memory fallback.
+    if (now >= (globalThis.__neoChatRateLimitNextSweepAt ?? 0)) {
+      for (const [bucketKey, bucket] of buckets) {
+        if (bucket.resetAt <= now) buckets.delete(bucketKey);
+      }
+      globalThis.__neoChatRateLimitNextSweepAt = now + 60_000;
+    }
     const current = buckets.get(key);
 
     if (!current || current.resetAt <= now) {
@@ -68,6 +76,7 @@ export class MemoryRateLimitStore implements RateLimitStore {
 
   clear(): void {
     getMemoryBuckets().clear();
+    globalThis.__neoChatRateLimitNextSweepAt = undefined;
   }
 }
 
@@ -163,8 +172,6 @@ class UpstashRateLimitStore implements RateLimitStore {
 
 let cachedRateLimitStore: RateLimitStore | null = null;
 const fallbackMemoryStore = new MemoryRateLimitStore();
-const SHARED_RATE_LIMIT_STORE_ERROR =
-  "RATE_LIMIT_STORE=upstash with UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN is required in hosted mode";
 
 function env(name: string): string {
   if (typeof process === "undefined") return "";
@@ -175,10 +182,6 @@ function isSharedStoreName(store: string): boolean {
   return store === "upstash" || store === "redis" || store === "kv";
 }
 
-function canUseMemoryFallback(): boolean {
-  return getDeploymentMode() === "local";
-}
-
 export function createRateLimitStore(): RateLimitStore {
   const store = env("RATE_LIMIT_STORE").toLowerCase();
   const upstashUrl = env("UPSTASH_REDIS_REST_URL");
@@ -186,10 +189,6 @@ export function createRateLimitStore(): RateLimitStore {
 
   if (isSharedStoreName(store) && upstashUrl && upstashToken) {
     return new UpstashRateLimitStore(upstashUrl, upstashToken);
-  }
-
-  if (isSharedStoreName(store) || getDeploymentMode() === "hosted") {
-    throw new Error(SHARED_RATE_LIMIT_STORE_ERROR);
   }
 
   return fallbackMemoryStore;
@@ -213,8 +212,7 @@ export async function incrementRateLimitBucket(
 ): Promise<RateLimitResult> {
   try {
     return await getRateLimitStore().increment(key, windowMs, now);
-  } catch (error) {
-    if (!canUseMemoryFallback()) throw error;
+  } catch {
     return fallbackMemoryStore.increment(key, windowMs, now);
   }
 }
@@ -226,19 +224,16 @@ export async function getRateLimitBucket(
   try {
     const current = await getRateLimitStore().get?.(key, now);
     if (current) return current;
-  } catch (error) {
-    if (!canUseMemoryFallback()) throw error;
+  } catch {
     // Fall back to memory state below.
   }
-  if (!canUseMemoryFallback()) return null;
   return fallbackMemoryStore.get(key, now);
 }
 
 export async function resetRateLimitBucket(key: string): Promise<void> {
   try {
     await getRateLimitStore().reset?.(key);
-  } catch (error) {
-    if (!canUseMemoryFallback()) throw error;
+  } catch {
     // Keep request handling available even if the external store is unavailable.
   }
   await fallbackMemoryStore.reset(key);

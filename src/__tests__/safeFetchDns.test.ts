@@ -27,7 +27,7 @@ describe("safe fetch DNS timeout", () => {
     const result = safeFetchText(
       "https://example.com/openapi.json",
       { method: "GET" },
-      { policy: getSafeUrlPolicy("plugin"), timeoutMs: 25 },
+      { policy: getSafeUrlPolicy("webFetch"), timeoutMs: 25 },
     );
     const expectation = expect(result).rejects.toMatchObject({
       name: "ResponseTimeoutError",
@@ -40,7 +40,7 @@ describe("safe fetch DNS timeout", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("revalidates DNS before dispatch without blocking private or Fake-IP results", async () => {
+  it("does not require DNS preflight when the policy permits private addresses", async () => {
     lookupMock
       .mockResolvedValueOnce([{ address: "93.184.216.34", family: 4 }])
       .mockResolvedValueOnce([{ address: "198.18.0.1", family: 4 }]);
@@ -56,7 +56,7 @@ describe("safe fetch DNS timeout", () => {
       ),
     ).resolves.toMatchObject({ text: '{"ok":true}' });
 
-    expect(lookupMock).toHaveBeenCalledTimes(2);
+    expect(lookupMock).not.toHaveBeenCalled();
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 

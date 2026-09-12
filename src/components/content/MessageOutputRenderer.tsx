@@ -455,7 +455,7 @@ const MessageOutputRenderer: React.FC<MessageOutputRendererProps> = ({
           <div
             key={item.key}
             data-message-output-block
-            className={`${getMessageOutputBlockSpacingClass(index > 0)} [&>*]:m-0!`}
+            className={`${getMessageOutputBlockSpacingClass(index > 0 && !renderedItems[index - 1]?.framed)} [&>*]:m-0!`}
           >
             {item.node}
           </div>

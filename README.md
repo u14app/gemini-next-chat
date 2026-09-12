@@ -69,7 +69,7 @@ docker run --rm -p 127.0.0.1:3000:3000 \
   ghcr.io/u14app/neo-chat:latest
 ```
 
-Open [localhost:3000](http://localhost:3000) and enter your access password. This local example uses ephemeral credential-encryption keys; configure stable BYOK keys before production use to keep saved credentials usable after restarts.
+Open [localhost:3000](http://localhost:3000) and enter your access password. This local example uses ephemeral credential-encryption keys; configure stable BYOK keys before production use to avoid key rollover across restarts and replicas.
 
 ## Deploy
 
@@ -79,7 +79,7 @@ Open [localhost:3000](http://localhost:3000) and enter your access password. Thi
 | **Vercel**             | Import the repository with the Next.js preset and the default output directory.                                                           |
 | **Cloudflare Workers** | Run `corepack pnpm build:worker`, then `corepack pnpm deploy:worker`. The deploy script preserves dashboard variables with `--keep-vars`. |
 
-Before production deployment, follow the [deployment guide](docs/deployment-hardening.md) to configure stable BYOK keys, access protection, and shared runtime stores. Public hosted deployments require hosted mode and shared stores.
+Before production deployment, follow the [deployment guide](docs/deployment-hardening.md) to configure stable BYOK keys, access protection, and shared runtime stores. A single hosted process has temporary-key and in-memory rate-limit fallbacks; public multi-instance deployments should use stable keys and shared stores.
 
 ## Your data
 

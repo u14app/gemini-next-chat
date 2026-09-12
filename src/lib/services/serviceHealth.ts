@@ -64,6 +64,9 @@ function storeHealth(
   }
 
   if (hosted || wantsSharedStore) {
+    if (service === "rateLimitStore") {
+      return item(service, "degraded", "MEMORY_STORE_FALLBACK");
+    }
     return item(service, "policy_blocked", "SHARED_STORE_REQUIRED");
   }
 
@@ -73,6 +76,9 @@ function storeHealth(
 function byokHealth(): ServiceHealthItem {
   if (env("BYOK_PRIVATE_KEY_PEM")) {
     return item("byok", "available", "STABLE_KEY_CONFIGURED");
+  }
+  if (getDeploymentMode() === "hosted") {
+    return item("byok", "degraded", "EPHEMERAL_KEY_ALLOWED");
   }
   if (envBool("BYOK_ALLOW_EPHEMERAL_KEY")) {
     return item("byok", "local_only", "EPHEMERAL_KEY_ALLOWED");
@@ -87,6 +93,9 @@ function apiProofHealth(): ServiceHealthItem {
   }
   if (!status.configured) {
     return item("apiProof", "missing_key", "API_PROOF_BYOK_MISSING");
+  }
+  if (status.ephemeral) {
+    return item("apiProof", "degraded", "API_PROOF_EPHEMERAL");
   }
   return item("apiProof", "available", "API_PROOF_ENABLED");
 }
@@ -141,9 +150,9 @@ function proxyHeadersHealth(hosted: boolean): ServiceHealthItem {
   }
   return item(
     "proxyHeaders",
-    "policy_blocked",
+    "degraded",
     "PROXY_HEADERS_UNTRUSTED",
-    "Hosted rate limits will share one anonymous client bucket until trusted proxy headers are enabled.",
+    "Protected APIs use request-proof sessions for rate limits; public bootstrap routes share a deployment bucket.",
   );
 }
 

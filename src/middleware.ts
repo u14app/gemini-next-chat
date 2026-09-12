@@ -11,7 +11,10 @@ import {
 import { applyRequestGuards } from "./lib/security/requestGuards";
 import { getDeploymentMode } from "./lib/security/deployment";
 import { getContentSecurityPolicy } from "./lib/security/headers";
-import { REQUEST_PROOF_SESSION_PATH } from "./lib/security/requestProof";
+import {
+  REQUEST_PROOF_SESSION_PATH,
+  createRequestProofSessionResponse,
+} from "./lib/security/requestProof";
 import { isPublicShareRead, SHARE_RESPONSE_HEADERS } from "./lib/sharing/types";
 
 const ACCESS_VERIFY_PATH = "/api/access/verify";
@@ -57,6 +60,15 @@ export async function middleware(request: NextRequest) {
   }
   const guardResponse = await applyRequestGuards(request);
   if (guardResponse) return guardResponse;
+
+  // Issue and verify ephemeral proof cookies in the same runtime. Middleware
+  // and App Router handlers need not share a global scope, even on one server.
+  if (
+    request.method === "GET" &&
+    request.nextUrl.pathname === REQUEST_PROOF_SESSION_PATH
+  ) {
+    return createRequestProofSessionResponse();
+  }
 
   if (!isAccessPasswordEnabled()) {
     return NextResponse.next();

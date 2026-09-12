@@ -17,6 +17,7 @@ import {
 } from "../lib/security/localSecrets";
 
 const originalEnv = {
+  DEPLOYMENT_MODE: process.env.DEPLOYMENT_MODE,
   BYOK_ALLOW_EPHEMERAL_KEY: process.env.BYOK_ALLOW_EPHEMERAL_KEY,
   BYOK_KEY_ID: process.env.BYOK_KEY_ID,
   BYOK_PRIVATE_KEY_PEM: process.env.BYOK_PRIVATE_KEY_PEM,
@@ -66,6 +67,18 @@ function resetByokKeyMaterial() {
 }
 
 describe("BYOK secret envelopes", () => {
+  it("uses a process-local hosted key in production even when ephemeral opt-in is false", async () => {
+    resetByokKeyMaterial();
+    setEnv("DEPLOYMENT_MODE", "hosted");
+    setEnv("NODE_ENV", "production");
+    setEnv("BYOK_ALLOW_EPHEMERAL_KEY", "false");
+    delete process.env.BYOK_PRIVATE_KEY_PEM;
+    const first = await getByokPublicKey();
+    expect(first.kid).toBeTruthy();
+    expect(await getByokPublicKey()).toEqual(first);
+    resetByokKeyMaterial();
+    expect((await getByokPublicKey()).kid).not.toBe(first.kid);
+  });
   afterEach(() => {
     vi.useRealTimers();
     vi.restoreAllMocks();
@@ -76,10 +89,11 @@ describe("BYOK secret envelopes", () => {
     globalThis.__neoChatLocalSecretKeyMaterial = undefined;
   });
 
-  it("requires a stable private key in production", async () => {
+  it("requires a stable private key in local production without opt-in", async () => {
     vi.resetModules();
     resetByokKeyMaterial();
     setEnv("NODE_ENV", "production");
+    setEnv("DEPLOYMENT_MODE", "local");
     delete process.env.BYOK_ALLOW_EPHEMERAL_KEY;
     delete process.env.BYOK_PRIVATE_KEY_PEM;
 

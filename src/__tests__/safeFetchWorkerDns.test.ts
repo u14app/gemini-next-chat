@@ -45,7 +45,7 @@ describe("safeFetch Worker DNS compatibility", () => {
       safeFetch(
         "https://example.com/openapi.json",
         { method: "GET" },
-        { policy: getSafeUrlPolicy("plugin") },
+        { policy: getSafeUrlPolicy("webFetch") },
       ),
     ).resolves.toBeInstanceOf(Response);
 
@@ -75,6 +75,31 @@ describe("safeFetch Worker DNS compatibility", () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
+
+  it.each(["provider", "search", "rag", "sync"] as const)(
+    "skips unavailable DNS for hosted %s proxy requests",
+    async (context) => {
+      vi.resetModules();
+      vi.stubEnv("DEPLOYMENT_MODE", "hosted");
+      const dns = mockWorkerDns({});
+      dns.resolve4.mockRejectedValue(new Error("Not implemented"));
+      dns.resolve6.mockRejectedValue(new Error("Not implemented"));
+      const fetchMock = vi
+        .spyOn(globalThis, "fetch")
+        .mockResolvedValue(Response.json({ ok: true }));
+      const { safeFetch } = await import("../lib/security/safeFetch");
+      await expect(
+        safeFetch(
+          "https://provider.example/v1",
+          { method: "POST" },
+          { policy: getSafeUrlPolicy(context) },
+        ),
+      ).resolves.toBeInstanceOf(Response);
+      expect(fetchMock).toHaveBeenCalledOnce();
+      expect(dns.lookup).not.toHaveBeenCalled();
+      expect(dns.resolve4).not.toHaveBeenCalled();
+    },
+  );
 
   it("rejects private addresses resolved through Worker DNS for web fetches", async () => {
     vi.resetModules();
