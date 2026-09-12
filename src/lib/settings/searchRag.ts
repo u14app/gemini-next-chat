@@ -19,6 +19,7 @@ const SEARCH_PROVIDERS = [
   "exa",
   "bocha",
   "searxng",
+  "youcom",
 ] as const satisfies readonly SearchProviderID[];
 
 const CONFIGURABLE_SEARCH_PROVIDERS = [
@@ -27,6 +28,7 @@ const CONFIGURABLE_SEARCH_PROVIDERS = [
   "exa",
   "bocha",
   "searxng",
+  "youcom",
 ] as const satisfies readonly Exclude<SearchProviderID, "default" | "google">[];
 
 const DEFAULT_SEARCH_RESULTS_LIMIT = 5;
@@ -145,6 +147,8 @@ export const getSearchProviderLabel = (provider: SearchProviderID): string => {
       return "Bocha";
     case "searxng":
       return "SearXNG";
+    case "youcom":
+      return "You.com";
   }
 };
 
@@ -406,6 +410,7 @@ export const normalizeSearchSettings = (
       exa: normalizeSearchConfig("exa", rawSearch.configs?.exa)!,
       bocha: normalizeSearchConfig("bocha", rawSearch.configs?.bocha)!,
       searxng: normalizeSearchConfig("searxng", rawSearch.configs?.searxng)!,
+      youcom: normalizeSearchConfig("youcom", rawSearch.configs?.youcom)!,
     },
   };
 };

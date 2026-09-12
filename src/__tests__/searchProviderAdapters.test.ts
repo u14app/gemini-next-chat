@@ -276,4 +276,128 @@ describe("search provider adapters", () => {
       status: 503,
     });
   });
+
+  it("builds You.com requests and normalizes search results with API key", async () => {
+    const controller = new AbortController();
+    const fetchJson = vi.fn().mockResolvedValue({
+      response: new Response(null, { status: 200 }),
+      data: {
+        results: [
+          {
+            title: "Neo Chat Documentation",
+            snippet: "Neo Chat is a local-first AI chat workspace",
+            url: "https://example.com/neo-chat",
+          },
+          {
+            title: "Missing snippet",
+            url: "https://example.com/no-snippet",
+          },
+        ],
+        images: [
+          { 
+            url: "https://example.com/neo.png", 
+            description: "Neo Chat interface"
+          },
+        ],
+      },
+    });
+
+    const result = await runSearchProvider({
+      provider: "youcom",
+      query: "neo chat documentation",
+      scope: "github.com",
+      timeRange: "week",
+      apiKey: "ydc-key",
+      baseUrl: "https://api.you.com",
+      maxResultNumber: 2,
+      fetchJson,
+      signal: controller.signal,
+    });
+
+    expect(fetchJson).toHaveBeenCalledOnce();
+    const [url, init] = fetchJson.mock.calls[0]!;
+    expect(url).toBe("https://api.you.com/search");
+    expect(init).toMatchObject({
+      method: "POST",
+      signal: controller.signal,
+      headers: {
+        "Content-Type": "application/json",
+        "X-API-Key": "ydc-key",
+        "User-Agent": "neo-chat/(you.com search integration)",
+      },
+    });
+    expect(JSON.parse(init.body as string)).toMatchObject({
+      query: "neo chat documentation",
+      num_results: 2,
+      include_domains: ["github.com"],
+      time_range: "7d",
+    });
+
+    expect(result).toEqual({
+      sources: [
+        {
+          title: "Neo Chat Documentation",
+          content: "Neo Chat is a local-first AI chat workspace",
+          url: "https://example.com/neo-chat",
+        },
+      ],
+      images: [
+        {
+          url: "https://example.com/neo.png",
+          description: "Neo Chat interface",
+        },
+      ],
+    });
+  });
+
+  it("builds You.com requests for keyless mode without API key", async () => {
+    const fetchJson = vi.fn().mockResolvedValue({
+      response: new Response(null, { status: 200 }),
+      data: {
+        results: [
+          {
+            title: "Search Result",
+            snippet: "Content without authentication",
+            url: "https://example.com/result",
+          },
+        ],
+        images: [],
+      },
+    });
+
+    await runSearchProvider({
+      provider: "youcom",
+      query: "test search",
+      maxResultNumber: 1,
+      fetchJson,
+    });
+
+    const [, init] = fetchJson.mock.calls[0]!;
+    expect(init.headers).toMatchObject({
+      "Content-Type": "application/json",
+      "User-Agent": "neo-chat/(you.com search integration)",
+    });
+    expect(init.headers).not.toHaveProperty("X-API-Key");
+    expect(init.headers).not.toHaveProperty("Authorization");
+  });
+
+  it("handles You.com x402 payment challenges for keyless mode", async () => {
+    const fetchJson = vi.fn().mockResolvedValue({
+      response: new Response(null, { status: 402 }),
+      data: {},
+    });
+
+    await expect(
+      runSearchProvider({
+        provider: "youcom",
+        query: "test search",
+        maxResultNumber: 1,
+        fetchJson,
+      }),
+    ).rejects.toMatchObject({
+      name: "SearchProviderError",
+      message: "You.com search requires payment for enhanced features. Consider adding an API key for full access.",
+      status: 402,
+    });
+  });
 });

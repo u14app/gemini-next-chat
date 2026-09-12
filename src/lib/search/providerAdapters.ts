@@ -351,6 +351,84 @@ export async function runSearchProvider({
     };
   }
 
+  if (provider === "youcom") {
+    const endpoint = new URL(
+      "/search",
+      baseUrl || "https://api.you.com",
+    ).toString();
+    
+    // Build request body based on You.com API
+    const requestBody: Record<string, unknown> = {
+      query,
+      num_results: maxResultNumber,
+      include_domains: scope ? [scope] : undefined,
+    };
+
+    // Add time range filter if specified
+    if (timeRange && timeRange !== "any") {
+      const timeFilters: Record<string, string> = {
+        day: "24h",
+        week: "7d", 
+        month: "30d",
+        year: "365d",
+      };
+      requestBody.time_range = timeFilters[timeRange];
+    }
+
+    const { response, data } = await fetchJson<any>(
+      endpoint,
+      {
+        method: "POST",
+        headers: apiKey 
+          ? {
+              ...headers,
+              "X-API-Key": apiKey,
+              "User-Agent": "neo-chat/(you.com search integration)",
+            }
+          : {
+              "Content-Type": "application/json",
+              "User-Agent": "neo-chat/(you.com search integration)",
+            },
+        body: JSON.stringify(requestBody),
+        signal,
+      },
+      fetchOptions,
+    );
+
+    // Handle both authenticated and keyless responses
+    if (!response.ok) {
+      if (response.status === 402) {
+        // Handle x402 payment challenge for keyless mode
+        throw new SearchProviderError(
+          apiKey 
+            ? "You.com search API request failed"
+            : "You.com search requires payment for enhanced features. Consider adding an API key for full access.",
+          response.status
+        );
+      }
+      throw new SearchProviderError("You.com search failed", response.status);
+    }
+
+    const results = data?.results || data?.hits || [];
+    const images = data?.images || [];
+
+    return {
+      sources: results
+        .filter((item: any) => item.url && (item.snippet || item.description) && item.title)
+        .map((result: any) => ({
+          title: result.title || result.name || "Untitled",
+          content: result.snippet || result.description || result.title || "",
+          url: result.url,
+        })),
+      images: images
+        .filter((item: any) => item.url || item.image_url)
+        .map((image: any) => ({
+          url: image.url || image.image_url,
+          description: image.title || image.description || image.alt_text,
+        })),
+    };
+  }
+
   if (provider === "searxng") {
     const params: Record<string, string> = {
       q: query,
