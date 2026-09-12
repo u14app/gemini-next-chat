@@ -48,6 +48,19 @@ function getDeploymentId(phase: string): string {
   return resolveDeploymentId(process.env, fallbackDeploymentId);
 }
 
+function resolveOutputMode(): NextConfig["output"] {
+  // Vercel's build adapter expects .next/next-server.js.nft.json, which
+  // standalone builds do not emit; Vercel packages functions itself, so it
+  // keeps the default output while Docker and self-hosted builds use
+  // standalone. NEXT_OUTPUT_MODE overrides the platform default explicitly.
+  const override = process.env.NEXT_OUTPUT_MODE?.trim();
+  if (override && override !== "standalone" && override !== "export") {
+    console.warn(`Ignoring unsupported NEXT_OUTPUT_MODE: "${override}"`);
+  }
+  if (override === "standalone" || override === "export") return override;
+  return process.env.VERCEL ? undefined : "standalone";
+}
+
 function createNextConfig(phase: string): NextConfig {
   const deploymentId = getDeploymentId(phase);
   const isE2EServer =
@@ -55,7 +68,7 @@ function createNextConfig(phase: string): NextConfig {
 
   return {
     /* config options here */
-    output: "standalone",
+    output: resolveOutputMode(),
     ...(isE2EServer && {
       distDir: ".next-e2e",
       typescript: { tsconfigPath: "tsconfig.e2e.json" },
