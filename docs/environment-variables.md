@@ -52,13 +52,14 @@ corepack pnpm byok:generate
 
 ## Deployment safety
 
-| Variable                          | Purpose                                                                                                                                                                                     |
-| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `DEPLOYMENT_MODE`                 | Selects local or hosted deployment safeguards and shared-store expectations. It does not block user-configured HTTP or private-network targets.                                             |
-| `NEXT_DEPLOYMENT_ID`              | Optional build-time release ID shared by every replica in one rollout; drives Next.js version-skew protection and PWA cache rotation.                                                       |
-| `ALLOW_INSECURE_LOCAL_PRODUCTION` | Explicitly allows production `local` mode without `ACCESS_PASSWORD`. Use only for private deployments that are not exposed to the internet.                                                 |
-| `ALLOW_LOCAL_NETWORK_PROXY`       | Allows HTTP on deployment-gated media/image proxy surfaces. Private addresses themselves are no longer blocked; provider, search, RAG, plugin, and MCP policies do not depend on this flag. |
-| `TRUST_PROXY_HEADERS`             | Trust forwarded proxy headers only when the hosting platform strips spoofed values.                                                                                                         |
+| Variable                          | Purpose                                                                                                                                                                                                                                        |
+| --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `DEPLOYMENT_MODE`                 | Selects local or hosted deployment safeguards and shared-store expectations. It does not block user-configured HTTP or private-network targets.                                                                                                |
+| `NEXT_DEPLOYMENT_ID`              | Optional build-time release ID shared by every replica in one rollout; drives Next.js version-skew protection and PWA cache rotation.                                                                                                          |
+| `NEXT_OUTPUT_MODE`                | Optional build-time override of the Next.js output mode (`standalone` or `export`). Unset defaults to the standard output on Vercel, whose build adapter cannot consume standalone builds, and `standalone` for Docker and self-hosted builds. |
+| `ALLOW_INSECURE_LOCAL_PRODUCTION` | Explicitly allows production `local` mode without `ACCESS_PASSWORD`. Use only for private deployments that are not exposed to the internet.                                                                                                    |
+| `ALLOW_LOCAL_NETWORK_PROXY`       | Allows HTTP on deployment-gated media/image proxy surfaces. Private addresses themselves are no longer blocked; provider, search, RAG, plugin, and MCP policies do not depend on this flag.                                                    |
+| `TRUST_PROXY_HEADERS`             | Trust forwarded proxy headers only when the hosting platform strips spoofed values.                                                                                                                                                            |
 
 `TRUST_PROXY_HEADERS` affects request identity used by deployment diagnostics
 and rate limiting. Leave it `false` unless Neo Chat is behind a trusted proxy
